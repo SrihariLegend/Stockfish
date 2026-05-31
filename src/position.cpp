@@ -1619,6 +1619,76 @@ void Position::flip() {
 
 bool Position::material_key_is_ok() const { return compute_material_key() == st->materialKey; }
 
+// Extracts lightweight positional concepts used for concept-based move ordering.
+// All computations use bitboards already maintained by Position — no extra search.
+PositionConcepts Position::concepts() const {
+    PositionConcepts pc{};
+    const Color us   = side_to_move();
+    const Color them = ~us;
+
+    // King pressure: count enemy pieces in the 3x3 zone around each king.
+    // Uses attacks_bb<KING> which just returns the pre-computed king attack mask.
+    const Square ourKing   = square<KING>(us);
+    const Square theirKing = square<KING>(them);
+    const Bitboard ourZone   = attacks_bb<KING>(ourKing)   | ourKing;
+    const Bitboard theirZone = attacks_bb<KING>(theirKing) | theirKing;
+
+    pc.king_pressure[us]   = uint8_t(popcount(pieces(them) & ourZone));
+    pc.king_pressure[them] = uint8_t(popcount(pieces(us)   & theirZone));
+
+    // Pin count: pieces pinned to our king (blockersForKing already maintained).
+    pc.pin_count = uint8_t(popcount(blockers_for_king(us) & pieces(us)));
+
+    // Hanging enemy non-pawn pieces: attacked by us, not defended by them.
+    const Bitboard ourAttacks  = attacks_by<ALL_PIECES>(us);
+    const Bitboard theirDefend = attacks_by<ALL_PIECES>(them);
+    const Bitboard enemyNonPawn = pieces(them) & ~pieces(PAWN) & ~pieces(KING);
+    pc.hanging_pieces = uint8_t(popcount(enemyNonPawn & ourAttacks & ~theirDefend));
+
+    // Passed pawns for side to move:
+    // A pawn is passed if no enemy pawn occupies the same or adjacent files
+    // ahead of it.  We build the "ahead" span per pawn with shifts.
+    {
+        Bitboard ourPawns   = pieces(us, PAWN);
+        Bitboard theirPawns = pieces(them, PAWN);
+        Bitboard passed     = 0;
+
+        Bitboard temp = ourPawns;
+        while (temp) {
+            Square   sq   = pop_lsb(temp);
+            File     f    = file_of(sq);
+            Rank     r    = rank_of(sq);
+
+            // Files the pawn blocks: same + adjacent
+            Bitboard fileMask = file_bb(f);
+            if (f > FILE_A) fileMask |= file_bb(File(f - 1));
+            if (f < FILE_H) fileMask |= file_bb(File(f + 1));
+
+            // Ranks strictly ahead
+            Bitboard ranksMask = (us == WHITE)
+                ? ~(rank_bb(r) | (rank_bb(r) - 1))   // ranks > r
+                : (rank_bb(r) - 1);                   // ranks < r
+
+            if (!(theirPawns & fileMask & ranksMask))
+                passed |= sq;
+        }
+        pc.passed_pawns = uint8_t(popcount(passed));
+    }
+
+    // Classify the dominant concept for this position.
+    // Priority: king attack > tactical > pawn play > quiet.
+    if (pc.king_pressure[them] >= 3)
+        pc.concept_class = CONCEPT_KING_ATTACK;
+    else if (pc.pin_count + pc.hanging_pieces >= 2)
+        pc.concept_class = CONCEPT_TACTICAL;
+    else if (pc.passed_pawns >= 2)
+        pc.concept_class = CONCEPT_PAWN_PLAY;
+    else
+        pc.concept_class = CONCEPT_QUIET;
+
+    return pc;
+}
+
 
 // Performs some consistency checks for the position object
 // and raise an assert if something wrong is detected.

@@ -219,6 +219,25 @@ constexpr Value PieceValue[PIECE_NB] = {
   VALUE_ZERO, PawnValue, KnightValue, BishopValue, RookValue, QueenValue, VALUE_ZERO, VALUE_ZERO,
   VALUE_ZERO, PawnValue, KnightValue, BishopValue, RookValue, QueenValue, VALUE_ZERO, VALUE_ZERO};
 
+// PositionConceptClass: coarse position type used for concept-based move ordering.
+// Computed once per node in MovePicker and used to guide quiet move scoring.
+enum PositionConceptClass : uint8_t {
+    CONCEPT_QUIET       = 0,  // No dominant strategic theme
+    CONCEPT_KING_ATTACK = 1,  // High pressure on enemy king zone
+    CONCEPT_TACTICAL    = 2,  // Pins, forks, hanging/overloaded pieces
+    CONCEPT_PAWN_PLAY   = 3,  // Passed pawns or pawn-structure tension
+};
+
+// Lightweight positional concepts extracted once per node.
+// All fields are cheap to compute from data already in Position.
+struct PositionConcepts {
+    uint8_t              king_pressure[2];  // Attacks in 3x3 zone around each king [WHITE,BLACK]
+    uint8_t              pin_count;         // Pinned pieces for side to move (from blockersForKing)
+    uint8_t              hanging_pieces;    // Enemy non-pawn pieces attacked but not defended
+    uint8_t              passed_pawns;      // Passed pawns for side to move
+    PositionConceptClass concept_class;     // Dominant theme for this position
+};
+
 using Depth = int;
 
 // The following DEPTH_ constants are used for transposition table entries

@@ -245,6 +245,41 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
             m.value += PieceValue[pt] * v;
 
 
+            // Concept-based bonus: reward moves that match the position's dominant theme.
+            // Computed from cheap bitboard queries already available in Position.
+            // Scaled to be smaller than the check bonus (16384) to stay advisory.
+            {
+                const PositionConcepts pc = pos.concepts();
+                int                   cb  = 0;
+
+                const Square kingSq = pos.square<KING>(~us);
+                const Bitboard kingZone = Attacks::attacks_bb<KING>(kingSq);
+
+                if (pc.concept_class == CONCEPT_KING_ATTACK)
+                {
+                    // Bonus for moves landing in or adjacent to enemy king zone
+                    if (kingZone & to)
+                        cb += 3072;
+                }
+                else if (pc.concept_class == CONCEPT_TACTICAL)
+                {
+                    // Bonus for moves by pinned pieces (exploiting pins)
+                    if (pc.pin_count > 0 && (pos.blockers_for_king(~us) & from))
+                        cb += 2048;
+                    // Bonus for moving to squares attacked by lesser pieces (capturing hanging)
+                    if (pc.hanging_pieces > 0 && (pos.attacks_by<PAWN>(us) & to))
+                        cb += 1536;
+                }
+                else if (pc.concept_class == CONCEPT_PAWN_PLAY)
+                {
+                    // Bonus for pawn moves when passed pawns are dominant
+                    if (pc.passed_pawns > 0 && pt == PAWN)
+                        cb += 2048;
+                }
+
+                m.value += cb;
+            }
+
             if (ply < LOW_PLY_HISTORY_SIZE)
                 m.value += 8 * (*lowPlyHistory)[ply][m.raw()] / (1 + ply);
         }

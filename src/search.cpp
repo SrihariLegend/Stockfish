@@ -1285,6 +1285,31 @@ moves_loop:  // When in check, search starts here
         // Decrease/increase reduction for moves with a good/bad history
         r -= ss->statScore * 445 / 4096;
 
+        // Concept-based LMR adjustment.
+        // Moves that match the position's dominant theme get searched a bit deeper;
+        // moves that actively contradict it get a bit more reduction.
+        // Kept small (±512 on the 1024-scaled 'r') so it rarely changes depth by
+        // more than ±0.5 plies — advisory, not controlling.
+        if (!capture && !givesCheck)
+        {
+            const PositionConcepts posConc = pos.concepts();
+            const Square           moveTo  = move.to_sq();
+            const Square           theirK  = pos.square<KING>(~us);
+            const Bitboard         kZone   = Attacks::attacks_bb<KING>(theirK) | theirK;
+
+            if (posConc.concept_class == CONCEPT_KING_ATTACK && (kZone & moveTo))
+                r -= 512;  // King-zone move in king-attack position: search deeper
+            else if (posConc.concept_class == CONCEPT_KING_ATTACK && !(kZone & moveTo)
+                     && type_of(movedPiece) != PAWN)
+                r += 512;  // Non-king-zone move in king-attack position: reduce more
+            else if (posConc.concept_class == CONCEPT_TACTICAL
+                     && (pos.blockers_for_king(~us) & move.from_sq()))
+                r -= 512;  // Move exploiting a pin: search deeper
+            else if (posConc.concept_class == CONCEPT_PAWN_PLAY
+                     && type_of(movedPiece) == PAWN)
+                r -= 512;  // Pawn move in pawn-play position: search deeper
+        }
+
         // Scale up reductions for expected ALL nodes
         if (allNode)
             r += r * 272 / (256 * depth + 285);
