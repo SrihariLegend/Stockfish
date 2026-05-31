@@ -1055,6 +1055,8 @@ moves_loop:  // When in check, search starts here
 
     MovePicker mp(pos, ttData.move, depth, &mainHistory, &lowPlyHistory, &captureHistory, contHist,
                   &sharedHistory, ss->ply);
+    // Compute position concepts once per node for concept-based LMR/ordering.
+    const PositionConcepts nodeConc = pos.concepts();
 
     value = bestValue;
 
@@ -1292,20 +1294,19 @@ moves_loop:  // When in check, search starts here
         // more than ±0.5 plies — advisory, not controlling.
         if (!capture && !givesCheck)
         {
-            const PositionConcepts posConc = pos.concepts();
-            const Square           moveTo  = move.to_sq();
-            const Square           theirK  = pos.square<KING>(~us);
-            const Bitboard         kZone   = Attacks::attacks_bb<KING>(theirK) | theirK;
+            const Square   moveTo = move.to_sq();
+            const Square   theirK = pos.square<KING>(~us);
+            const Bitboard kZone  = Attacks::attacks_bb<KING>(theirK) | theirK;
 
-            if (posConc.concept_class == CONCEPT_KING_ATTACK && (kZone & moveTo))
+            if (nodeConc.concept_class == CONCEPT_KING_ATTACK && (kZone & moveTo))
                 r -= 512;  // King-zone move in king-attack position: search deeper
-            else if (posConc.concept_class == CONCEPT_KING_ATTACK && !(kZone & moveTo)
+            else if (nodeConc.concept_class == CONCEPT_KING_ATTACK && !(kZone & moveTo)
                      && type_of(movedPiece) != PAWN)
                 r += 512;  // Non-king-zone move in king-attack position: reduce more
-            else if (posConc.concept_class == CONCEPT_TACTICAL
+            else if (nodeConc.concept_class == CONCEPT_TACTICAL
                      && (pos.blockers_for_king(~us) & move.from_sq()))
                 r -= 512;  // Move exploiting a pin: search deeper
-            else if (posConc.concept_class == CONCEPT_PAWN_PLAY
+            else if (nodeConc.concept_class == CONCEPT_PAWN_PLAY
                      && type_of(movedPiece) == PAWN)
                 r -= 512;  // Pawn move in pawn-play position: search deeper
         }

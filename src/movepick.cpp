@@ -167,7 +167,8 @@ MovePicker::MovePicker(const Position&              p,
     sharedHistory(sh),
     ttMove(ttm),
     depth(d),
-    ply(pl) {
+    ply(pl),
+    cachedConcepts(p.concepts()) {
 
     if (pos.checkers())
         stage = EVASION_TT + !(ttm && pos.pseudo_legal(ttm));
@@ -249,31 +250,31 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
             // Computed from cheap bitboard queries already available in Position.
             // Scaled to be smaller than the check bonus (16384) to stay advisory.
             {
-                const PositionConcepts pc = pos.concepts();
+                const PositionConcepts& conc = cachedConcepts;
                 int                   cb  = 0;
 
                 const Square kingSq = pos.square<KING>(~us);
                 const Bitboard kingZone = Attacks::attacks_bb<KING>(kingSq);
 
-                if (pc.concept_class == CONCEPT_KING_ATTACK)
+                if (conc.concept_class == CONCEPT_KING_ATTACK)
                 {
                     // Bonus for moves landing in or adjacent to enemy king zone
                     if (kingZone & to)
                         cb += 3072;
                 }
-                else if (pc.concept_class == CONCEPT_TACTICAL)
+                else if (conc.concept_class == CONCEPT_TACTICAL)
                 {
                     // Bonus for moves by pinned pieces (exploiting pins)
-                    if (pc.pin_count > 0 && (pos.blockers_for_king(~us) & from))
+                    if (conc.pin_count > 0 && (pos.blockers_for_king(~us) & from))
                         cb += 2048;
                     // Bonus for moving to squares attacked by lesser pieces (capturing hanging)
-                    if (pc.hanging_pieces > 0 && (pos.attacks_by<PAWN>(us) & to))
+                    if (conc.hanging_pieces > 0 && (pos.attacks_by<PAWN>(us) & to))
                         cb += 1536;
                 }
-                else if (pc.concept_class == CONCEPT_PAWN_PLAY)
+                else if (conc.concept_class == CONCEPT_PAWN_PLAY)
                 {
                     // Bonus for pawn moves when passed pawns are dominant
-                    if (pc.passed_pawns > 0 && pt == PAWN)
+                    if (conc.passed_pawns > 0 && pt == PAWN)
                         cb += 2048;
                 }
 

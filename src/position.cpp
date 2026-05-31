@@ -1665,9 +1665,14 @@ PositionConcepts Position::concepts() const {
             if (f < FILE_H) fileMask |= file_bb(File(f + 1));
 
             // Ranks strictly ahead
+            // All squares on ranks strictly ahead of sq:
+            //   WHITE: ranks > r  →  all bits from (r+1)*8 upward
+            //   BLACK: ranks < r  →  all bits below r*8
+            // Using (1ULL << (8*r)) - 1 is safe: shift is at most 56,
+            // and the subtraction stays within the lower 64 bits.
             Bitboard ranksMask = (us == WHITE)
-                ? ~(rank_bb(r) | (rank_bb(r) - 1))   // ranks > r
-                : (rank_bb(r) - 1);                   // ranks < r
+                ? ~Bitboard((uint64_t(1) << (8 * (r + 1))) - 1)  // ranks > r
+                : Bitboard((uint64_t(1) << (8 * r)) - 1);        // ranks < r
 
             if (!(theirPawns & fileMask & ranksMask))
                 passed |= sq;
