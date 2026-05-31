@@ -72,6 +72,7 @@ class MovePicker {
     Depth                        depth;
     int                          ply;
     bool                         skipQuiets = false;
+    PositionConcepts             cachedConcepts;
     ExtMove                      moves[MAX_MOVES];
 };
 
