@@ -1640,7 +1640,8 @@ PositionConcepts Position::concepts() const {
     pc.pin_count = uint8_t(popcount(blockers_for_king(us) & pieces(us)));
 
     // Tactical proxy: count enemy non-pawn pieces that are blockers for their own king
-    // (i.e. pinned or x-ray pieces). Uses blockers_for_king which is already maintained
+    // (i.e. own pieces currently interposing slider lines to that king). Uses
+    // blockers_for_king which is already maintained
     // by Position — no extra attack map computation needed.
     const Bitboard enemyNonPawn = pieces(them) & ~pieces(PAWN) & ~pieces(KING);
     pc.hanging_pieces = uint8_t(popcount(enemyNonPawn & blockers_for_king(them)));
