@@ -1639,11 +1639,12 @@ PositionConcepts Position::concepts() const {
     // Pin count: pieces pinned to our king (blockersForKing already maintained).
     pc.pin_count = uint8_t(popcount(blockers_for_king(us) & pieces(us)));
 
-    // Hanging enemy non-pawn pieces: attacked by us, not defended by them.
-    const Bitboard ourAttacks  = attacks_by<ALL_PIECES>(us);
-    const Bitboard theirDefend = attacks_by<ALL_PIECES>(them);
+    // Tactical proxy: count enemy non-pawn pieces that are blockers for their own king
+    // (i.e. own pieces currently interposing slider lines to that king). Uses
+    // blockers_for_king which is already maintained
+    // by Position — no extra attack map computation needed.
     const Bitboard enemyNonPawn = pieces(them) & ~pieces(PAWN) & ~pieces(KING);
-    pc.hanging_pieces = uint8_t(popcount(enemyNonPawn & ourAttacks & ~theirDefend));
+    pc.hanging_pieces = uint8_t(popcount(enemyNonPawn & blockers_for_king(them)));
 
     // Passed pawns for side to move:
     // A pawn is passed if no enemy pawn occupies the same or adjacent files
