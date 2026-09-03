@@ -1,0 +1,110 @@
+{
+  "schema": "corpus/v1",
+  "corpus_id": "policy-research-corpus-v1",
+  "title": "Policy research starter corpus v1",
+  "description": "Starter root corpus for Phase 1 deterministic runs. Versioned; extend only by creating corpus/v2. Small by design: fast enough to run repeatedly while covering openings, middle games, endgames, tactical and in-check roots.",
+  "split_rule": "split by root position (never by internal node); all positions taken from one source game stay in one set",
+  "positions": [
+    {
+      "id": "c1-d-001",
+      "set": "development",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "source": "Standard starting position.",
+      "license": "public domain (position facts)",
+      "tags": {"phase": "opening", "check": false, "castling": true, "material": "queens"}
+    },
+    {
+      "id": "c1-d-002",
+      "set": "development",
+      "fen": "r3k2r/p1ppqpb1/bn2pnp1/2pP4/1p2P3/2N2N2/PPQ1BPPP/R1B1K2R w KQkq - 0 1",
+      "source": "Kiwipete, classic chess-programming perft test position (CPW perft suite position 2).",
+      "license": "public domain (position facts)",
+      "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens"}
+    },
+    {
+      "id": "c1-d-003",
+      "set": "development",
+      "fen": "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+      "source": "Classic chess-programming perft test position (CPW perft suite position 3).",
+      "license": "public domain (position facts)",
+      "tags": {"phase": "endgame", "check": false, "castling": false, "material": "no-queens"}
+    },
+    {
+      "id": "c1-d-004",
+      "set": "development",
+      "fen": "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+      "source": "Classic chess-programming perft test position (CPW perft suite position 4).",
+      "license": "public domain (position facts)",
+      "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens"}
+    },
+    {
+      "id": "c1-d-005",
+      "set": "development",
+      "fen": "rn2kb1r/p3qppp/5n2/1p2p1B1/2B1P3/1Q6/PPP2PPP/R3K2R w KQkq - 0 11",
+      "source": "Morphy-Duke Karl/Count Isouard, Paris 1858 (the Opera Game) after 10...cxb5 (White to move).",
+      "license": "public domain (game from 1858)",
+      "source_line_moves": ["e2e4", "e7e5", "g1f3", "d7d6", "d2d4", "c8g4", "d4e5", "g4f3", "d1f3", "d6e5", "f1c4", "g8f6", "f3b3", "d8e7", "b1c3", "c7c6", "c1g5", "b7b5", "c3b5", "c6b5"],
+      "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens"}
+    },
+    {
+      "id": "c1-d-006",
+      "set": "development",
+      "fen": "rn2kb1r/ppp1qppp/5n2/4p3/2B1P3/1Q6/PPP2PPP/RNB1K2R w KQkq - 4 8",
+      "source": "Morphy-Duke Karl/Count Isouard, Paris 1858 (the Opera Game) after 7...Qe7 (White to move).",
+      "license": "public domain (game from 1858)",
+      "source_line_moves": ["e2e4", "e7e5", "g1f3", "d7d6", "d2d4", "c8g4", "d4e5", "g4f3", "d1f3", "d6e5", "f1c4", "g8f6", "f3b3", "d8e7"],
+      "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens"}
+    },
+    {
+      "id": "c1-v-001",
+      "set": "validation",
+      "fen": "r1bqk2r/pppp1ppp/2n5/2b5/2BPn3/5N2/PP3PPP/RNBQK2R w KQkq - 0 7",
+      "source": "Composed from a Giuoco Piano line (1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5 4.c3 Nf6 5.d4 exd4 6.cxd4 Nxe4).",
+      "license": "public domain (position facts)",
+      "source_line_moves": ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "c2c3", "g8f6", "d2d4", "e5d4", "c3d4", "f6e4"],
+      "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens"}
+    },
+    {
+      "id": "c1-v-002",
+      "set": "validation",
+      "fen": "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+      "source": "Classic chess-programming perft test position (CPW perft suite position 5).",
+      "license": "public domain (position facts)",
+      "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens"}
+    },
+    {
+      "id": "c1-v-003",
+      "set": "validation",
+      "fen": "rnb1kbnr/ppp2ppp/8/4q3/8/8/PPPP1PPP/RNBQKB1R w KQkq - 0 5",
+      "source": "Composed from 1.e4 d5 2.exd5 Qxd5 3.Nf3 e5 4.Nxe5 Qxe5+ (White to move, in check).",
+      "license": "public domain (position facts)",
+      "source_line_moves": ["e2e4", "d7d5", "e4d5", "d8d5", "g1f3", "e7e5", "f3e5", "d5e5"],
+      "tags": {"phase": "opening", "check": true, "castling": true, "material": "queens"}
+    },
+    {
+      "id": "c1-t-001",
+      "set": "test",
+      "fen": "rnb1k1nr/p2p1ppp/3B4/1p1NPN1P/6P1/3P1Q2/P1P5/q4Kb1 w kq - 0 20",
+      "source": "Anderssen-Kieseritzky, London 1851 (the Immortal Game) after 19...Qxa1+ (White to move, in check).",
+      "license": "public domain (game from 1851)",
+      "source_line_moves": ["e2e4", "e7e5", "f2f4", "e5f4", "f1c4", "d8h4", "e1f1", "b7b5", "c4b5", "g8f6", "g1f3", "h4h6", "d2d3", "f6h5", "f3h4", "h6g5", "h4f5", "c7c6", "g2g4", "h5f6", "h1g1", "c6b5", "h2h4", "g5g6", "h4h5", "g6g5", "d1f3", "f6g8", "c1f4", "g5f6", "b1c3", "f8c5", "c3d5", "f6b2", "f4d6", "c5g1", "e4e5", "b2a1"],
+      "tags": {"phase": "middlegame", "check": true, "castling": false, "material": "queens"}
+    },
+    {
+      "id": "c1-t-002",
+      "set": "test",
+      "fen": "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+      "source": "Classic chess-programming perft test position (CPW perft suite position 6).",
+      "license": "public domain (position facts)",
+      "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens"}
+    },
+    {
+      "id": "c1-t-003",
+      "set": "test",
+      "fen": "6k1/5p2/6p1/8/8/8/5PPP/6K1 w - - 0 1",
+      "source": "Composed king-and-pawns endgame (project authors).",
+      "license": "public domain (composed for this corpus)",
+      "tags": {"phase": "endgame", "check": false, "castling": false, "material": "no-queens"}
+    }
+  ]
+}

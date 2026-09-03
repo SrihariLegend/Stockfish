@@ -9,7 +9,7 @@ tests, exit gates, definition of done).
 | Phase | Description | Status |
 |---|---|---|
 | 0 | Architecture inventory and mutation audit | **Complete — awaiting review** |
-| 1 | Deterministic research harness | Not started |
+| 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11) |
 | 2 | Versioned research logging | Not started |
 | 3 | Observational dataset and calibration baseline | Not started |
 | 4 | Root-level counterfactual experiments | Not started |
