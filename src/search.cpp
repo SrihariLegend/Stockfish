@@ -754,7 +754,7 @@ Value Search::Worker::search(
     Depth extension, newDepth;
     Value bestValue, value, eval, maxValue, probCutBeta;
     bool  givesCheck, improving, priorCapture, opponentWorsening;
-    bool  capture, ttCapture;
+    bool  capture, ttCapture, ttMajorCapture;
     int   priorReduction;
     Piece movedPiece;
 
@@ -1008,8 +1008,10 @@ Value Search::Worker::search(
     }
 
     // Step 10. Null move search with verification search
-    if (cutNode && ss->staticEval >= beta - 13 * depth - 47 * improving + 365 && !excludedMove
-        && pos.non_pawn_material(us) && ss->ply >= nmpMinPly && beta >= -2000)
+    ttMajorCapture = depth < 8 && ttCapture && type_of(pos.piece_on(ttData.move.to_sq())) >= ROOK;
+
+    if (cutNode && ss->staticEval >= beta - 13 * depth - 47 * improving + 365 - 64 * ttMajorCapture
+        && !excludedMove && pos.non_pawn_material(us) && ss->ply >= nmpMinPly && beta >= -2000)
     {
         assert((ss - 1)->currentMove != Move::null());
 
