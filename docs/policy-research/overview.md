@@ -11,7 +11,7 @@ tests, exit gates, definition of done).
 | 0 | Architecture inventory and mutation audit | **Complete** — reviewed at commit `d2e8a7dc`; decisions in `architecture-inventory.md` §10 |
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
 | 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
-| 3 | Observational dataset and calibration baseline | **In progress** — dataset v1 collected and baseline report generated (protocol P3.1; 10.47M searched-quiet-move rows from 35 runs; see Phase 3 section below) |
+| 3 | Observational dataset and calibration baseline | **Complete (schema-derivable subset)** — dataset v1 + baseline report at `e77f94a6` (protocol P3.1); §8.3 history / §8.4 baseline-score calibration and candidate-denominator analyses are gated on counterfactual candidate enumeration (Phase 4/5 schema) |
 | 4 | Root-level counterfactual experiments | Not started |
 | 5 | Internal counterfactual search sandbox | Not started |
 | 6 | Oracle / ratio / interaction-gap studies | Not started |
@@ -63,6 +63,12 @@ tests, exit gates, definition of done).
 - Unit suite grows to 68 tests (13 new in `tests/test_p3_dataset.py` covering
   FEN piece lookup, row derivation, buckets/status tables, weighted PAV, the
   full calibration fit, markdown rendering, and a report smoke test).
+- Phase 3 exit gate (§8.5): met for the `research-data/1`-derivable subset —
+  the report at `baseline-report.{md,json}` is reproducible from the manifest
+  (per-executable determinism) and establishes quality/calibration of the
+  recorded context heuristics without claiming policy improvement. The plan's
+  full §8.2–§8.4 lists need candidate enumeration + MovePicker baseline
+  features (counterfactual schema, Phases 4/5) and are tracked there.
 
 ## Phase 2 — engine-side scaffold progress
 
