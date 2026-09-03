@@ -36,6 +36,9 @@
 #include "bitboard.h"
 #include "evaluate.h"
 #include "history.h"
+#ifdef POLICY_RESEARCH
+#include "policy_research/research_log.h"
+#endif
 #include "misc.h"
 #include "movegen.h"
 #include "movepick.h"
@@ -208,10 +211,17 @@ void Search::Worker::start_searching() {
     tt.new_search();
     main_manager()->updates.onStart();
 
+#ifdef POLICY_RESEARCH
+    Research::recorder().on_root_search_start(rootPos.key());
+#endif
+
     if (rootMoves.empty())
     {
         main_manager()->updates.onUpdateNoMoves(
           {0, {rootPos.checkers() ? -VALUE_MATE : VALUE_DRAW, rootPos}});
+#ifdef POLICY_RESEARCH
+        Research::recorder().on_root_search_end(rootPos.key());
+#endif
         main_manager()->updates.onBestmove(UCIEngine::move(Move::none()), "");
         return;
     }
@@ -265,6 +275,9 @@ void Search::Worker::start_searching() {
         ponder = UCIEngine::move(bestThread->rootMoves[0].pv[1], rootPos.is_chess960());
 
     auto bestmove = UCIEngine::move(bestThread->rootMoves[0].pv[0], rootPos.is_chess960());
+#ifdef POLICY_RESEARCH
+    Research::recorder().on_root_search_end(rootPos.key());
+#endif
     main_manager()->updates.onBestmove(bestmove, ponder);
 }
 
@@ -1126,6 +1139,22 @@ Value Search::Worker::search(
 
 moves_loop:  // When in check, search starts here
 
+#ifdef POLICY_RESEARCH
+    // Research: per-node sampling context for the observational quiet-move
+    // logger (docs/policy-research/data-schema.md). Eligible nodes are
+    // non-root NonPV null-window main move loop nodes, not in check, with no
+    // excluded move. The declarations sit after the label so the in-check goto
+    // initializes them exactly once per node visit.
+    Research::MovesLoopCtx researchCtx;
+    int researchQuietCount = 0;
+    if (!rootNode && !PvNode && !ss->inCheck && excludedMove == Move::none()
+        && Research::recorder().active())
+        researchCtx = Research::recorder().begin_moves_loop(
+          pos.key(), ss->ply, depth, rootDepth, alpha, beta, ss->staticEval, improving,
+          ss->ttHit, ttData.move != Move::none(), pos.rule50_count(), static_cast<int>(us),
+          pos.fen());
+#endif
+
     // Step 13. A small ProbCut idea
     probCutBeta = beta + 428;
     if ((ttData.bound & BOUND_LOWER) && ttData.depth >= depth - 4 && ttData.value >= probCutBeta
@@ -1332,6 +1361,12 @@ moves_loop:  // When in check, search starts here
 
         u64 nodeCount = rootNode ? u64(nodes) : 0;
 
+#ifdef POLICY_RESEARCH
+        // Research: per-attempt accumulator (only searched quiet moves emit;
+        // see the hook after Step 21 below).
+        Research::AttemptAccum researchAcc;
+#endif
+
         // Step 17. Make the move
         do_move(pos, move, st, givesCheck, capture, ss);
 
@@ -1387,6 +1422,9 @@ moves_loop:  // When in check, search starts here
             r += r * 276 / (256 * depth + 268);
 
         // Apply the computed LMR
+#ifdef POLICY_RESEARCH
+        researchAcc.startNodes = u64(nodes);
+#endif
         if (depth >= 2 && moveCount > 1)
         {
             // In general we want to cap the LMR depth search at newDepth, but when
@@ -1397,7 +1435,10 @@ moves_loop:  // When in check, search starts here
               std::max(1, newDepth + std::min(-r / 1024, ss->ply < 2 * rootDepth ? 2 : 0)) + PvNode;
 
             ss->reduction = newDepth - d;
-            value         = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, d, true);
+#ifdef POLICY_RESEARCH
+            researchAcc.note(d);
+#endif
+            value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, d, true);
             ss->reduction = 0;
 
             // Do a full-depth search when reduced LMR search fails high
@@ -1412,7 +1453,12 @@ moves_loop:  // When in check, search starts here
                 newDepth += doDeeperSearch - doShallowerSearch;
 
                 if (newDepth > d)
+                {
+#ifdef POLICY_RESEARCH
+                    researchAcc.note(newDepth);
+#endif
                     value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, newDepth, !cutNode);
+                }
 
                 // Post LMR continuation history updates
                 update_continuation_histories(ss, movedPiece, move.to_sq(), 1334);
@@ -1427,8 +1473,11 @@ moves_loop:  // When in check, search starts here
                 r += 1127;
 
             // If expected reduction is high, we reduce search depth here
-            value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha,
-                                   newDepth - (r > 5234) - (r > 5487 && newDepth > 2), !cutNode);
+            Depth fullDepth = newDepth - (r > 5234) - (r > 5487 && newDepth > 2);
+#ifdef POLICY_RESEARCH
+            researchAcc.note(fullDepth);
+#endif
+            value = -search<NonPV>(pos, ss + 1, -(alpha + 1), -alpha, fullDepth, !cutNode);
         }
 
         // Step 20. For PV nodes only, do a full PV search on the first move
@@ -1454,6 +1503,24 @@ moves_loop:  // When in check, search starts here
         undo_move(pos, move);
 
         assert(value > -VALUE_INFINITE && value < VALUE_INFINITE);
+
+#ifdef POLICY_RESEARCH
+        // Research: record the quiet-move attempt outcome (survival data). Only
+        // quiet moves (no capture, no promotion) that were actually searched
+        // reach this hook, so an outcome is never attached to an unsearched
+        // move. Recorded before the stop check so aborted attempts keep their
+        // measured node cost.
+        if (researchCtx.sampled && !capture && move.type_of() != PROMOTION
+            && researchAcc.childCount > 0)
+        {
+            ++researchQuietCount;
+            Research::recorder().log_move_attempt(
+              researchCtx, move.raw(), givesCheck, move == ttData.move, researchQuietCount,
+              ss->moveCount, researchAcc.childCount, researchAcc.firstDepth,
+              researchAcc.reSearchDepth, alpha, beta, value, u64(nodes) - researchAcc.startNodes,
+              threads.stop.load(std::memory_order_relaxed));
+        }
+#endif
 
         // Step 22. Check for a new best move
         // If a stop occurred, the value of the search cannot be trusted,

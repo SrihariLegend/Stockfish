@@ -34,6 +34,10 @@
 
 #include "benchmark.h"
 #include "engine.h"
+#ifdef POLICY_RESEARCH
+#include "misc.h"
+#include "policy_research/research_log.h"
+#endif
 #include "memory.h"
 #include "movegen.h"
 #include "position.h"
@@ -186,6 +190,14 @@ void UCIEngine::loop() {
                       << sync_endl;
 
     } while (token != "quit" && cli.argc <= 1);  // The command-line arguments are one-shot
+
+#ifdef POLICY_RESEARCH
+    // Research: finalize logging at engine shutdown. Wait for any in-flight
+    // search so the recorder's single writer never overlaps the UCI thread
+    // (records are flushed per root already; this writes RUN_END and closes).
+    engine.wait_for_search_finished();
+    Research::recorder().on_run_end();
+#endif
 }
 
 Search::LimitsType UCIEngine::parse_limits(std::istream& is) {
@@ -238,6 +250,21 @@ Search::LimitsType UCIEngine::parse_limits(std::istream& is) {
 void UCIEngine::go(std::istringstream& is) {
 
     Search::LimitsType limits = parse_limits(is);
+
+#ifdef POLICY_RESEARCH
+    // Research: arm the observational recorder for this root. Only fixed-depth
+    // (`go depth N`) single-thread searches log; per protocol P2.1 the master
+    // switch, mode, and log path are validated inside Recorder::on_go().
+    if (!limits.perft && limits.depth > 0)
+    {
+        const std::string threads = std::string(engine.get_options()["Threads"]);
+        if (threads == "1")
+            Research::recorder().on_go(engine.fen(), limits.depth, engine_info(true));
+        else
+            print_info_string(
+              "policy research logging requires Threads=1; skipping logging for this search");
+    }
+#endif
 
     if (limits.perft)
         perft(limits);
