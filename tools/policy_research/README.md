@@ -10,8 +10,10 @@ project; see `docs/policy-research/plan.md` (§6) and `architecture-inventory.md
 tools/policy_research/
   run_corpus.py                 deterministic runner + manifest writer + verifier
   decode_research_log.py        binary log decoder / validator / compare / JSONL
+  p3_dataset.py                 Phase 3 dataset collector + baseline reporter
   corpora/corpus-v1.json        versioned root corpus (schema corpus/v1)
   tests/test_run_corpus.py      unit tests (stdlib unittest)
+  tests/test_p3_dataset.py      unit tests (stdlib unittest)
   runs/                         per-run artifacts (git-ignored, never committed)
 ```
 
@@ -149,6 +151,40 @@ Written under `tools/policy_research/runs/<corpus>-d<depth>-h<hash>-<stamp>/`:
 
 `runs/` is git-ignored: only manifests, scripts, schemas, and the corpus are
 committed.
+
+## Phase 3 dataset collection and baseline report
+
+`p3_dataset.py` turns full-rate observational logs into one modeling row per
+**searched quiet move** at sampled eligible nodes, then produces the
+calibration-baseline report. Requires `numpy` and `pandas` (no sklearn).
+
+```bash
+# collect at fixed depths with a fresh engine process/log per (depth, root)
+python3 tools/policy_research/p3_dataset.py collect \
+    --engine src/stockfish --depths 14,17,20 --rate 1.0 --seed 101 \
+    --hash 16
+# aggregate into baseline-report.{md,json} in the dataset dir
+python3 tools/policy_research/p3_dataset.py report <dataset-dir>
+```
+
+Collection details:
+
+- every run decodes cleanly and cross-checks RUN_START/ROOT_START against the
+  request (same conventions as `verify-research`);
+- rows split per root into `rows/d<depth>/root-<id>.attempts.jsonl`
+  (self-contained modeling rows) and `...decisions.jsonl` (the decision FENs);
+- a run whose full-rate record volume exceeds the engine's per-run hard cap
+  (4 194 304 records / 256 MiB) cannot be held by `research-data/1` and must be
+  excluded explicitly (`--exclude-cells c1-d-004@20`), which is recorded in
+  `manifest.json`; a cap hit inside a run is always an ERROR_RECORD and is
+  never silently accepted as a dataset row;
+- `report` implements ridge-IRLS logistic calibration and PAV-isotonic
+  calibration over binned training predictions (numpy only). History-score
+  calibration is out of scope for `research-data/1` (see
+  `docs/policy-research/experiment-protocols.md` Protocol P3.x).
+
+Artifacts from a run must be regenerated whenever the executable is rebuilt
+(determinism is per executable).
 
 ## Unit tests
 

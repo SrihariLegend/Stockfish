@@ -81,3 +81,51 @@ The Phase 3 analysis design in plan §8 stays as the target; the dataset this
 schema can actually produce is the behavior-conditioned survival rows above.
 When candidate enumeration lands (counterfactual phases), extend the schema and
 re-run collection with the extended record types.
+
+## Protocol P3.1 (executed 2026-09-04) — observational dataset v1
+
+Purpose: collect the behavior-conditioned quiet-move survival dataset that
+`research-data/1` can produce (per Protocol P3.x above) and generate the
+calibration baseline report (plan §8.1/§8.2 derivable subset). Tools:
+`tools/policy_research/p3_dataset.py` (`collect`, then `report`). No engine
+change; `src/stockfish` stayed macro-off.
+
+1. Executable: research build of committed tree `c9878d11` (banner
+   `Stockfish dev-20260904-c9878d11`), `make -C src research-build
+   ARCH=x86-64-avx2`; corpus-v1 (SHA-256
+   `019667e200c48ea0b69ce374418b4b09634e0c6bc08be6af172d3cad56eab46a`).
+2. Settings per (depth, root) run — fresh engine process and log file each:
+   fixed `go depth` 14/17/20, hash 16, MultiPV 1, one thread, Syzygy cleared;
+   `PolicyResearch on`, mode `observational`, `SampleRate 1.0` (every eligible
+   NonPV node sampled), seed 101, `MaxRecords 2147483647` (engine enforces its
+   hard cap 4 194 304), policy `baseline-observational-v1`, eval = engine
+   default `nn-1a298aa575a0.nnue`.
+3. Every log decodes cleanly and cross-checks RUN_START (mode/seed/threshold/
+   effective cap/policy) and ROOT_START (root FEN) against the request, per
+   manifest conventions. Outputs: `manifest.json` (schema
+   `research-dataset/1`, full provenance incl. `excluded_cells`),
+   `logs/`, `rows/d<depth>/root-<id>.attempts.jsonl` (one modeling row per
+   searched quiet move; decision features copied inline) and `...decisions.jsonl`
+   (decision FENs), and `baseline-report.{md,json}`.
+4. Volume: 35 (depth, root) runs in ~197 s wall; 4 097 558 decision rows and
+   10 469 036 attempt rows (93 409 899 nodes consumed by those attempts).
+5. Cell exclusion: `c1-d-004@20` is not in the dataset — its full-rate record
+   volume exceeds the engine's per-run hard cap (4 194 304 records / 256 MiB),
+   so `research-data/1` cannot hold that run in one file. Recorded in the
+   manifest (`excluded_cells`); no other cap hits.
+6. Censoring: 0 ABORTED_STOP rows — the corpus protocol's fixed-depth,
+   single-`go`, no-external-stop searches never trip the generic stop
+   condition, so outcomes 1/2 are exact for every collected row.
+7. Headline baseline (behavior-policy-conditioned; not unbiased for unsearched
+   moves): overall cutoff rate 11.63% of completed attempts; TT-move cutoff
+   success 71.1% vs 7.4% for non-TT moves; re-search rate 2.22%; cutoff rate
+   monotone in quiet ordinal (33.1% → 0.48% at ordinals 1 → 12); fail-low mean
+   cost 5.80 nodes (median 1), monotone in remaining depth (1.28 at [1,3) →
+   22.8 at ≥13). Cutoff calibration (ridge-logistic on the recorded context
+   features, then PAV-isotonic on the logistic output; 70/30 split, 3.14M test
+   rows): logistic AUC 0.9165 / Brier 0.0621 / log-loss 0.2114 / ECE 0.0111;
+   isotonic ECE 0.0005, Brier 0.0616, log-loss 0.2083.
+8. Artifacts: `tools/policy_research/runs/
+   policy-research-corpus-v1-d14-17-20-h16-rate1.0-dataset-20260904T010204/`
+   (git-ignored). Regenerate everything if the executable is ever rebuilt
+   (determinism is per executable).

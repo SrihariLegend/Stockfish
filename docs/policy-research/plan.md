@@ -772,6 +772,19 @@ to the counterfactual phases (see experiment-protocols.md P3.x). Until then,
 history/baseline-score calibration (§8.3) cannot be grounded in `research-data/1`
 alone.
 
+Status — **Protocol P3.1 executed (2026-09-04)**: dataset v1 collected with
+`tools/policy_research/p3_dataset.py collect` over corpus-v1 at fixed depths
+14/17/20, hash 16, `PolicyResearchSampleRate 1.0` (every eligible NonPV node),
+seed 101, policy `baseline-observational-v1`, one fresh engine process/log per
+(depth, root) run of the research build of `c9878d11`. 35 runs, 4 097 558
+DECISION_POINT rows and 10 469 036 MOVE_ATTEMPT rows (93.4M nodes consumed).
+Artifacts and the baseline report live under `tools/policy_research/runs/
+policy-research-corpus-v1-d14-17-20-h16-rate1.0-dataset-20260904T010204/`
+(manifest schema `research-dataset/1`, git-ignored). One (root, depth) cell
+(`c1-d-004@20`) is excluded: its full-rate record volume exceeds the engine's
+per-run hard cap, a physical `research-data/1` limit (see experiment-protocols.md
+Protocol P3.1). No ABORTED_STOP rows occurred in any corpus run.
+
 ## 8.2 Initial observational analyses
 
 Produce reports for:
@@ -811,6 +824,18 @@ Report:
 - Cost-weighted ranking accuracy.
 
 Do not treat the observational calibration result as unbiased for unsearched moves. Label it explicitly as behavior-policy-conditioned.
+
+Status — the P3.1 baseline report covers every §8.2 item derivable from
+`research-data/1`: status distribution (cutoff/fail-low/aborted), cutoff rate
+and fail-low cost by quiet ordinal, remaining depth, ply, margin, and node-type
+flags, re-search rate, and TT-move success; `window` is 1 by construction at
+sampled nodes. Reduction rates are not derivable (no LMR fields in
+`research-data/1`; LMR shadow modeling is Phase 13). Cutoff calibration is
+performed against the recorded context features (logistic + isotonic; held-out
+ECE 0.0005, Brier 0.0616, AUC 0.916 on 3.14M test rows) and is explicitly
+behavior-policy-conditioned. §8.3 history calibration and baseline-score
+calibration require MovePicker baseline features and candidate enumeration
+(counterfactual schema).
 
 ## 8.4 Cheap baselines
 

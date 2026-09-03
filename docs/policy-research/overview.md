@@ -11,7 +11,7 @@ tests, exit gates, definition of done).
 | 0 | Architecture inventory and mutation audit | **Complete** — reviewed at commit `d2e8a7dc`; decisions in `architecture-inventory.md` §10 |
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
 | 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
-| 3 | Observational dataset and calibration baseline | Not started |
+| 3 | Observational dataset and calibration baseline | **In progress** — dataset v1 collected and baseline report generated (protocol P3.1; 10.47M searched-quiet-move rows from 35 runs; see Phase 3 section below) |
 | 4 | Root-level counterfactual experiments | Not started |
 | 5 | Internal counterfactual search sandbox | Not started |
 | 6 | Oracle / ratio / interaction-gap studies | Not started |
@@ -22,6 +22,47 @@ tests, exit gates, definition of done).
 | 11 | Conservative engine integration | Not started |
 | 12 | On-policy data generation (DAgger) | Not started |
 | 13 | LMR shadow modeling | Not started |
+
+## Phase 3 — observational dataset and calibration baseline
+
+- New tool `tools/policy_research/p3_dataset.py` (`collect` / `report`):
+  full-rate (`PolicyResearchSampleRate 1.0`) corpus collection at fixed depths
+  with a fresh engine process and log per (depth, root), decode + RUN_START/
+  ROOT_START cross-checks per run (same conventions as `verify-research`), and
+  per-root JSONL rows: one **attempt row per searched quiet move** at sampled
+  eligible nodes (decision features copied inline for self-contained modeling)
+  plus a decisions table carrying the FENs.
+- Dataset v1 (executed protocol P3.1, engine = research build of `c9878d11`):
+  corpus-v1 at depths 14/17/20, hash 16, rate 1.0, seed 101, policy
+  `baseline-observational-v1`; **35 runs, 4 097 558 decisions, 10 469 036
+  attempt rows**, 93.4M nodes consumed by the attempts, ~3.3 min wall.
+  Artifacts under `tools/policy_research/runs/
+  policy-research-corpus-v1-d14-17-20-h16-rate1.0-dataset-20260904T010204/`
+  (git-ignored), incl. `manifest.json` (provenance + exclusions) and
+  `baseline-report.{md,json}`.
+- One cell excluded (`c1-d-004@20`): the full-rate (root, depth-20) record
+  volume exceeds the engine's per-run hard cap (4 194 304 records / 256 MiB),
+  a physical `research-data/1` limit; recorded in the manifest as
+  `excluded_cells`. No cap overflow occurred in any collected run.
+- Zero censoring in the corpus protocol: ABORTED_STOP rows = 0 (fixed-depth
+  single-`go` searches never hit a stop condition), so outcome 1 vs 2 are exact
+  for these rows.
+- Baseline headline numbers (behavior-policy-conditioned — the engine's own
+  policy at sampled nodes, **not** unbiased for unsearched moves): overall
+  cutoff rate 11.63%; TT-move cutoff success 71.1% vs 7.4% for non-TT moves;
+  re-search rate 2.22%; cutoff rate monotone in quiet ordinal (33.1% at k=1 →
+  0.48% at k=12); fail-low mean cost 5.8 nodes (median 1), monotone in
+  remaining depth (1.28 at depth [1,3) → 22.8 at depth ≥13).
+- Cutoff calibration of the recorded context features (logistic ridge on
+  ordinal/depth/ply/iter/flags/margins, then PAV-isotonic on the logistic
+  output): held-out test 3.14M rows, logistic AUC 0.9165 / Brier 0.0621 /
+  log-loss 0.2114 / ECE 0.0111; isotonic-calibrated ECE 0.0005, Brier 0.0616.
+  History/baseline-score calibration (§8.3) remains out of scope for
+  `research-data/1` (requires candidate enumeration; see Protocol P3.x).
+- Tools/docs only: no engine change, macro-off production build untouched.
+- Unit suite grows to 68 tests (13 new in `tests/test_p3_dataset.py` covering
+  FEN piece lookup, row derivation, buckets/status tables, weighted PAV, the
+  full calibration fit, markdown rendering, and a report smoke test).
 
 ## Phase 2 — engine-side scaffold progress
 
