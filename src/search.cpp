@@ -38,6 +38,7 @@
 #include "history.h"
 #ifdef POLICY_RESEARCH
 #include "policy_research/research_log.h"
+#include "policy_research/research_options.h"
 #endif
 #include "misc.h"
 #include "movegen.h"
@@ -368,6 +369,42 @@ bool Search::Worker::iterative_deepening() {
             rootMoves[i].previousPV         = rootMoves[i].pv;
             rootMoves[i].previousScoreExact = i < multiPV;
         }
+
+#ifdef POLICY_RESEARCH
+        // Phase 4 (root-level counterfactual experiments, plan.md section 9.1):
+        // research-only root-order override. With the research master switch on,
+        // mode RootCounterfactual and PolicyResearchForceFirstMove set, the named
+        // move is rotated to the front of the root move order at the start of
+        // every root iteration on the main thread, so it is searched first at the
+        // new depth while every remaining move keeps its relative baseline order
+        // and ordinary root/PVS semantics are intact (no searchmoves-style
+        // restriction). The option is deliberately *not* available in
+        // Observational mode, where corpus labels must stay baseline-policy
+        // conditioned. The default (empty) option is a strict no-op.
+        if (is_mainthread() && multiPV == 1 && Research::enabled()
+            && Research::config().mode == Research::Mode::RootCounterfactual
+            && !Research::config().forceFirstUci.empty())
+        {
+            Move forceMove =
+              UCIEngine::to_move(rootPos, Research::config().forceFirstUci);
+            if (forceMove != Move::none())
+            {
+                for (usize i = 1; i < rootMoves.size(); ++i)
+                    if (rootMoves[i] == forceMove)
+                    {
+                        std::rotate(rootMoves.begin(), rootMoves.begin() + i,
+                                    rootMoves.begin() + i + 1);
+                        break;
+                    }
+            }
+            else if (rootDepth == 1)
+                sync_cout
+                  << "info string research: PolicyResearchForceFirstMove '"
+                  << Research::config().forceFirstUci
+                  << "' is not a legal move at the root; no override applied."
+                  << sync_endl;
+        }
+#endif
 
         usize pvFirst = pvLast = 0;
 

@@ -62,6 +62,7 @@ struct Config {
     int          topK           = 0;       // ResearchTopK (0 = unlimited).
     u64          nodeBudget     = 0;       // ResearchNodeBudget (0 = unlimited).
     std::string  policyVersion;            // ResearchPolicyVersion.
+    std::string  forceFirstUci;            // PolicyResearchForceFirstMove.
 };
 
 // Parsing helpers. All return an error string on invalid input; Stockfish
@@ -179,6 +180,11 @@ inline void register_options(OptionsMap& options) {
 
     options.add("PolicyResearchPolicyVersion", Option("", [](const Option& o) {
                     config().policyVersion = std::string(o);
+                    return std::nullopt;
+                }));
+
+    options.add("PolicyResearchForceFirstMove", Option("", [](const Option& o) {
+                    config().forceFirstUci = std::string(o);
                     return std::nullopt;
                 }));
 }

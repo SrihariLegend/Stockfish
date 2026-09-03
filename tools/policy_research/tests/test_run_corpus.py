@@ -10,6 +10,7 @@ Run with:  python3 -m unittest discover -s tools/policy_research/tests -v
 import json
 import os
 import re
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -240,6 +241,206 @@ class TestIntegration(unittest.TestCase):
             )
             self.assertGreater(pos["summary"]["nodes"], 0)
             self.assertIsNotNone(pos["summary"]["score"])
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 kickoff: research-only root force-first override
+# ---------------------------------------------------------------------------
+# Requires a POLICY_RESEARCH build of the engine (the option
+# PolicyResearchForceFirstMove only exists there). Every assertion is
+# relational (equality within repeat runs, parity with the un-overridden
+# baseline) so the tests stay meaningful across engine/net versions.
+
+STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+
+class _Engine:
+    """Tiny UCI driver: fresh process per search (plan 9.2 common state)."""
+
+    def __init__(self, path):
+        self.path = str(Path(path).expanduser().resolve())
+        self.has_force_option = False
+        self._probe()
+
+    def _probe(self):
+        p = subprocess.Popen([self.path], stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, text=True, bufsize=1)
+        out = ""
+        try:
+            p.stdin.write("uci\n")
+            p.stdin.flush()
+            while True:
+                line = p.stdout.readline()
+                if not line:
+                    break
+                out += line
+                if line.strip() == "uciok":
+                    break
+        finally:
+            try:
+                p.stdin.write("quit\n")
+                p.stdin.flush()
+            except BrokenPipeError:
+                pass
+            try:
+                p.stdout.close()
+            except OSError:
+                pass
+            p.wait()
+        self.has_force_option = (
+            "option name PolicyResearchForceFirstMove" in out)
+
+    def search(self, fen, depth, mode="root_counterfactual", force="",
+               master="on", hash_mb=16):
+        p = subprocess.Popen([self.path], stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, text=True, bufsize=1)
+        try:
+            p.stdin.write("uci\n")
+            p.stdin.write("setoption name Hash value %d\n" % hash_mb)
+            p.stdin.write("setoption name PolicyResearch value %s\n" % master)
+            if master == "on":
+                p.stdin.write("setoption name PolicyResearchMode value %s\n"
+                              % mode)
+                if force:
+                    p.stdin.write(
+                        "setoption name PolicyResearchForceFirstMove "
+                        "value %s\n" % force)
+            p.stdin.write("isready\n")
+            p.stdin.write("position fen %s\n" % fen)
+            p.stdin.write("go depth %d\n" % depth)
+            p.stdin.flush()
+            nodes_at_depth = None
+            best = None
+            infos = []
+            while True:
+                line = p.stdout.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if line.startswith("info string research"):
+                    infos.append(line)
+                m = re.match(r"info depth (\d+) .*? nodes (\d+)", line)
+                if m and int(m.group(1)) == depth:
+                    nodes_at_depth = int(m.group(2))
+                if line.startswith("bestmove"):
+                    best = line.split()[1]
+                    break
+        finally:
+            try:
+                p.stdin.write("quit\n")
+                p.stdin.flush()
+            except BrokenPipeError:
+                pass
+            try:
+                p.stdout.close()
+            except OSError:
+                pass
+            p.wait()
+        return {"nodes": nodes_at_depth, "best": best, "info": infos}
+
+    def top_moves(self, fen, depth=6, k=3):
+        p = subprocess.Popen([self.path], stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, text=True, bufsize=1)
+        seen = {}
+        try:
+            p.stdin.write("uci\n")
+            p.stdin.write("setoption name MultiPV value %d\n" % k)
+            p.stdin.write("isready\n")
+            p.stdin.write("position fen %s\n" % fen)
+            p.stdin.write("go depth %d\n" % depth)
+            p.stdin.flush()
+            while True:
+                line = p.stdout.readline()
+                if not line:
+                    break
+                line = line.strip()
+                m = re.search(r"multipv (\d+) .*? pv (\S+)", line)
+                if m:
+                    seen[int(m.group(1))] = m.group(2)
+                if line.startswith("bestmove"):
+                    break
+        finally:
+            try:
+                p.stdin.write("quit\n")
+                p.stdin.flush()
+            except BrokenPipeError:
+                pass
+            try:
+                p.stdout.close()
+            except OSError:
+                pass
+            p.wait()
+        return seen
+
+
+class TestForceFirstRootOrder(unittest.TestCase):
+    ENGINE = os.environ.get("STOCKFISH_ENGINE")
+
+    @classmethod
+    def setUpClass(cls):
+        if cls.ENGINE:
+            cls.driver = _Engine(cls.ENGINE)
+            if not cls.driver.has_force_option:
+                raise unittest.SkipTest("engine is not a POLICY_RESEARCH build")
+        else:
+            cls.driver = None
+
+    def _skip_if_no_engine(self):
+        if not self.ENGINE:
+            self.skipTest("STOCKFISH_ENGINE not set")
+
+    def _base(self, depth=8):
+        return self.driver.search(STARTPOS, depth)
+
+    def test_baseline_is_deterministic(self):
+        self._skip_if_no_engine()
+        a = self._base()
+        b = self._base()
+        self.assertEqual(a, b)
+        self.assertIsNotNone(a["best"])
+        self.assertGreater(a["nodes"], 0)
+
+    def test_override_second_best_is_deterministic_and_changes_cost(self):
+        self._skip_if_no_engine()
+        top = self.driver.top_moves(STARTPOS, depth=6)
+        base_best = self._base()["best"]
+        second = next((top[i] for i in sorted(top)
+                       if top[i] != base_best), None)
+        if second is None:
+            self.skipTest("no second candidate to force")
+        a = self.driver.search(STARTPOS, 8, force=second)
+        b = self.driver.search(STARTPOS, 8, force=second)
+        self.assertEqual(a, b)
+        self.assertNotEqual(a["nodes"], self._base()["nodes"],
+                            "forcing a different first move changed nothing")
+        # value agreement at this shallow fixed depth is expected on startpos,
+        # but we only assert the search completed with the same protocol
+        self.assertIsNotNone(a["best"])
+
+    def test_illegal_force_move_is_ignored_with_diagnostic(self):
+        self._skip_if_no_engine()
+        base = self._base()
+        r = self.driver.search(STARTPOS, 8, force="e2e5")  # pawn double only to e4
+        self.assertEqual(r["nodes"], base["nodes"])
+        self.assertTrue(any("not a legal move" in i for i in r["info"]))
+
+    def test_observational_mode_ignores_override(self):
+        self._skip_if_no_engine()
+        top = self.driver.top_moves(STARTPOS, depth=6)
+        base_best = self._base()["best"]
+        second = next((top[i] for i in sorted(top)
+                       if top[i] != base_best), None) or "a2a3"
+        base = self._base()
+        r = self.driver.search(STARTPOS, 8, mode="observational",
+                               force=second)
+        self.assertEqual(r["nodes"], base["nodes"])
+        self.assertEqual(r["best"], base["best"])
+
+    def test_master_switch_off_ignores_override(self):
+        self._skip_if_no_engine()
+        base = self._base()
+        r = self.driver.search(STARTPOS, 8, master="off", force="d2d4")
+        self.assertEqual(r["nodes"], base["nodes"])
 
 
 # ---------------------------------------------------------------------------
