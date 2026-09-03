@@ -10,7 +10,7 @@ tests, exit gates, definition of done).
 |---|---|---|
 | 0 | Architecture inventory and mutation audit | **Complete** — reviewed at commit `d2e8a7dc`; decisions in `architecture-inventory.md` §10 |
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
-| 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260903T234538/`) |
+| 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T002434/`) |
 | 3 | Observational dataset and calibration baseline | Not started |
 | 4 | Root-level counterfactual experiments | Not started |
 | 5 | Internal counterfactual search sandbox | Not started |
@@ -61,12 +61,47 @@ tests, exit gates, definition of done).
   off vs on#1 vs on#2 passes, search-result equality across all three, decoded
   record-stream equality between on passes, per-root FEN cross-check).
   Recordings land under `tools/policy_research/runs/*research-*/` (git-ignored).
-- Gate evidence (research build of the committed tree, clean banner): full
-  corpus, depth 11, hash 16, 5% sample — search results (bestmove/normalized
-  rows/nodes) identical across off/on/on for all 12 roots; decoded records
-  identical between the on passes; all logs decode clean and match corpus root
-  FENs. Artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-
-  research-20260903T234538/` (git-ignored).
+- Gate evidence (research build of the committed tree `3850e64e`, clean banner):
+  full corpus, depth 11, hash 16, 5% sample — search results
+  (bestmove/normalized rows/nodes) identical across off/on/on for all 12 roots;
+  decoded records identical between the on passes; all logs decode clean, match
+  corpus root FENs, and cross-check RUN_START mode/seed/threshold/cap/policy and
+  engine identity against the pass manifest. Artifacts
+  `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-
+  research-20260904T002434/` (git-ignored). Production macro-off build of the
+  same commit is node-identical (`bench 16 1 10 default` = 453 169 nodes).
+
+## Phase 2 review repair pass (`3850e64e`)
+
+Fixes for the Phase 2 read-only review findings, all macro-gated on the engine
+side (tools/docs outside the macro):
+
+- **Attempt-cost boundary**: `nodes_consumed` is measured from just before
+  Step 16 (Singular Extensions), so the excluded-search verification subtree is
+  charged to the TT move's MOVE_ATTEMPT, not to the sibling bookkeeping.
+- **One `go` = one run file**: `on_go()` finalizes any still-open run
+  (RUN_END + close) before arming under the current options; disabling research
+  or quitting also closes the run. An overlapping `go` (arriving while a search
+  is active) is deferred and re-evaluated when the active root closes, so
+  mid-search option/path/switch changes never leak into a stale arming.
+- **Gate provenance**: `verify-research` fails fast when CLI research spin
+  values fall outside the engine's declared UCI ranges, and every decoded log is
+  cross-checked against the manifest (RUN_START mode/seed/threshold/cap/policy
+  version + engine banner identity); decode/validate now also enforces root
+  containment, totals, overflow/error-code/ERROR_RECORD consistency, and
+  outcome/value agreement (49 unit tests).
+- **IO failures surface**: fopen/fwrite/fflush failures print an
+  `info string` diagnostic and disable logging for that run (never silent loss).
+- **No hot-path FEN cost**: the DECISION_POINT FEN is formatted lazily, only for
+  sampled nodes; un-sampled eligible nodes pay only cheap key reads. Sample
+  identities and record streams are unchanged (verified by count-identical
+  gate passes before/after the refactor).
+- **Docs**: `data-schema.md`, `experiment-protocols.md` (P3.x), and `plan.md`
+  (§8.1) now scope Phase 3 rows to actually attempted searched quiet moves:
+  with `research-data/1`, completed fail-lows are exact negative events at
+  NonPV null-window nodes, and `OBSERVED_ALPHA_RAISE`/`OBSERVED_EXACT`/
+  `UNOBSERVED_AFTER_CUTOFF`/`INVALID_OR_SKIPPED` require candidate enumeration
+  (deferred to the counterfactual schema).
 
 ## Phase 1 hardening (review repair pass)
 

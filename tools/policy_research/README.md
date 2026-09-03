@@ -9,6 +9,7 @@ project; see `docs/policy-research/plan.md` (§6) and `architecture-inventory.md
 ```text
 tools/policy_research/
   run_corpus.py                 deterministic runner + manifest writer + verifier
+  decode_research_log.py        binary log decoder / validator / compare / JSONL
   corpora/corpus-v1.json        versioned root corpus (schema corpus/v1)
   tests/test_run_corpus.py      unit tests (stdlib unittest)
   runs/                         per-run artifacts (git-ignored, never committed)
@@ -99,12 +100,20 @@ root). Checks that must all hold (see
 
 1. best move / normalized info rows identical across **all three** passes (logging
    has zero search effect),
-2. every log decodes without validation errors and its `ROOT_START` FEN equals the
-   corpus root FEN,
+2. every log decodes without validation errors; its `ROOT_START` FEN equals the
+   corpus root FEN, and its `RUN_START` (mode/seed/threshold/cap/policy version)
+   plus the engine identity line match the pass manifest — a silently unapplied
+   option (e.g. an out-of-range seed) cannot pass,
 3. decoded record streams (payloads only) are identical between the `on` passes
    (deterministic sample selection),
-4. no `MOVE_ATTEMPT` labels an unsearched move; a collection-cap hit is recorded,
-   never silent.
+4. no `MOVE_ATTEMPT` labels an unsearched move (child searches ≥ 1); outcome
+   agrees with the returned value; ROOT_END/RUN_END totals match counted records;
+   a collection-cap hit is recorded (overflow ⇔ error_code 1 ⇔ code-1
+   ERROR_RECORD), never silent.
+
+The runner also fails fast (before any search) when a `--research-seed` or
+`--research-max-records` value lies outside the range the engine itself
+declares for that spin option.
 
 Artifacts land under `runs/<corpus>-d<d>-h<h>-research-<stamp>/` (run-off,
 run-on-1, run-on-2, per-root logs, `research_summary.json`). Decode/validate any
@@ -125,7 +134,9 @@ Written under `tools/policy_research/runs/<corpus>-d<depth>-h<hash>-<stamp>/`:
   source commit)**, **build command**, compiler/arch/settings, host CPU/OS, thread
   count, hash, search depth, value-network path + SHA-256, corpus path + SHA-256,
   applied UCI options (incl. SyzygyPath cleared and UCI_Chess960 false),
-  engine-declared UCI defaults, random seed (n/a).
+  engine-declared UCI defaults, random seed; the research `on` passes add
+  `random_seed`, `research_data_schema: research-data/1`, and
+  `research_log_container: research-log/1`.
 - `run-<uuid>/results.json` — schema `research-result/1`: per-root best move,
   normalized info rows, parsed summary (score/bound/nodes/PV), wall ms.
 - `comparison.json` (verify only) — schema `research-compare/1`: per-root PASS/FAIL
