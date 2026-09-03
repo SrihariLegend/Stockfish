@@ -43,6 +43,9 @@
 #include "types.h"
 #include "uci.h"
 #include "ucioption.h"
+#ifdef POLICY_RESEARCH
+#include "policy_research/research_options.h"
+#endif
 
 namespace Stockfish {
 
@@ -137,6 +140,12 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
           load_network(path_from_utf8(std::string(o)));
           return std::nullopt;
       }));
+
+#ifdef POLICY_RESEARCH
+    // Research-only options (compile flag POLICY_RESEARCH). No search behavior
+    // reads them in this commit; they exist for later research phases.
+    Research::register_options(options);
+#endif
 
     threads.clear();
     threads.ensure_network_replicated();

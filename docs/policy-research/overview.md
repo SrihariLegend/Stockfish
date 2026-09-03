@@ -8,7 +8,7 @@ tests, exit gates, definition of done).
 
 | Phase | Description | Status |
 |---|---|---|
-| 0 | Architecture inventory and mutation audit | **Complete — awaiting review** |
+| 0 | Architecture inventory and mutation audit | **Complete** — reviewed at commit `d2e8a7dc`; decisions in `architecture-inventory.md` §10 |
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11) |
 | 2 | Versioned research logging | Not started |
 | 3 | Observational dataset and calibration baseline | Not started |
@@ -22,6 +22,15 @@ tests, exit gates, definition of done).
 | 11 | Conservative engine integration | Not started |
 | 12 | On-policy data generation (DAgger) | Not started |
 | 13 | LMR shadow modeling | Not started |
+
+## Phase 2 — engine-side scaffold progress
+
+- Research compile flag `POLICY_RESEARCH` (`make build EXTRACXXFLAGS=-DPOLICY_RESEARCH`)
+  and zero-behavior UCI options (`PolicyResearch*`, see
+  `src/policy_research/research_options.h`): **committed and verified** — research vs
+  production builds of the same commit are node-identical (`bench 16 1 10 default depth`
+  = 453 169 nodes for both); invalid option values are rejected with `info string`
+  diagnostics.
 
 ## Phase 0 deliverables
 
