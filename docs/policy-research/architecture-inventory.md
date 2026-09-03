@@ -546,33 +546,273 @@ Worker state entry points for counterfactual cloning (plan §10.3):
 
 ---
 
-# 10. Unresolved architecture questions (to resolve before Phase 1)
+# 10. Resolved architecture decisions
 
-1. TT overlay strategy: template `search`/`qsearch` on a TT accessor vs. research
-   search copy. The hot path currently captures a `TTWriter` into the live table;
-   the chosen approach must keep the production path untouched (§5.2).
-2. ProbCut, singular-extension (`excludedMove`), and null-move searches write TT and
-   mutate worker state too; counterfactual probing must decide whether to include
-   them in shadow subtrees (plan §10.5 restricts the first dataset to one stage and
-   to non-PV/null-window nodes — confirm exclusion covers ProbCut entries).
-3. Continuation-history index details: `MovePicker` uses `contHist[0..3,5]`
-   (`movepick.cpp:203-204`) — the exact (ss-k) mapping and its `[pc][to]` indexing
-   must be recorded as feature semantics (a model input), and the skipping of index
-   4 confirmed intentional.
-4. The exact quantitative semantics of `accumulation` (1024 i16 per side =
-   two 512-halves combined pairwise in `transform_perspective`) must be confirmed
-   against a trainer document before any Jacobian implementation; also confirm
-   `LayerStacks=8` per-material-bucket network stacks and the `bucket=(n-1)/4`
-   rule (already read: `network.cpp`).
-5. Determinism: confirm no remaining nondeterminism beyond `Skill`/debug-print
-   statics when running single-thread fixed-depth (verify with
-   `tests/reprosearch.sh` at the intended research settings).
-6. Root `effort` accumulation (`search.cpp:1462`) already provides per-root-move
-   node accounting — check suitability as an observational cost label before adding
-   new accounting.
-7. Confirm whether constructing an extra `MovePicker` for candidate enumeration at a
-   sampled node has any observable effect (all refs are const; MovePicker is
-   non-copyable and stack-allocated) — must be proven by audit test in Phase 2.
-8. `Value`/`Score` types, move encoding (`Move` = u16 with type/promotion bits,
-   `types.h:443`), and score ranges must be documented as part of the data schema
-   (plan §7) before logging; raw engine values are negamax, side-to-move relative.
+These decisions close the eight questions raised by the initial Phase 0 inventory.
+Implementation remains subject to the phase-specific tests and exit gates in
+`plan.md`.
+
+## 10.1 TT overlay strategy
+
+**Decision:** use one search implementation parameterized by a compile-time TT
+accessor concept; do not copy `search()`/`qsearch()` and do not add virtual dispatch
+to the production hot path.
+
+The accessor concept must provide:
+
+```text
+probe(Key)       -> {hit, TTData, writer}
+generation()     -> u8
+first_entry(Key) -> prefetchable address
+```
+
+The returned writer must provide the existing `write(...)` and `penalize(int)`
+operations. Two implementations are required:
+
+1. `LiveTTAccess`: a zero-overhead forwarding adapter over the current
+   `TranspositionTable`.
+2. `ResearchTTOverlay`: an immutable base TT plus private copy-on-write clusters.
+   On first write to a cluster, copy the whole 32-byte base cluster and apply the
+   existing replacement/write algorithm to the private copy. All later reads of
+   that cluster use the private copy. Discard the overlay after the probe.
+
+`search`, `qsearch`, and recursive calls must receive the accessor statically. A
+research build may tolerate accessor-passing overhead; the normal build must be
+verified to inline the live adapter. If compiler inspection or benchmark shows a
+production regression, put the accessor-parameter form behind `POLICY_RESEARCH`
+while retaining one source body through conditional declarations/helpers. A
+separate copied search implementation is rejected because it will diverge from the
+engine being measured.
+
+`Position::do_move(..., const TranspositionTable*)` uses the TT pointer only to
+prefetch (`position.cpp:1007-1008`); shadow search may prefetch the immutable base or
+pass `nullptr`. This has no search-semantic effect. The current `TTEntry` and
+`Cluster` definitions/replacement logic are private to `tt.cpp`; research overlay
+implementation will require a research-gated internal header/friend API rather than
+reimplementing the layout independently.
+
+**Verification:** normal build bench signature unchanged; no measurable disabled-
+feature NPS regression; overlay unit tests from plan §20.3; base-table checksum
+unchanged after every shadow probe.
+
+## 10.2 ProbCut, singular extension, and null move inside probes
+
+**Decision:** descendants of a counterfactual candidate use the exact current
+search policy, including normal null-move pruning, ProbCut, singular extensions,
+LMR, re-searches, history updates, and TT writes — but all writes go to the probe's
+isolated worker/TT state. The `ScopedShadowProbe` guard disables only recursive
+*instrumentation/intervention*, not normal search behavior.
+
+The first internal dataset is deliberately narrower:
+
+- non-root, `NonPV`, null-window decisions;
+- normal main-search move loop, not qsearch;
+- not in check;
+- `excludedMove == Move::none()`;
+- no tablebase probe;
+- one explicitly named MovePicker stage (initially quiets);
+- TT move already absent or already attempted, so it is not displaced;
+- fixed current `alpha`, `beta`, effective `depth`, `moveCount`, and stage.
+
+Node-level null move and ProbCut occur before `moves_loop`; a sampled move-loop
+decision therefore inherits their real effects in its common pre-decision state.
+Descendant nodes execute them normally. A forced candidate receives the exact
+search treatment of the next slot, including the baseline reduction/window. The
+initial internal counterfactual target is the candidate probe outcome/cost. Full
+"remaining node cost if chosen next" is deferred until the move-loop continuation
+can be isolated without duplicating search logic. Root-level force-first experiments
+remain the first source of complete total-search-cost counterfactuals.
+
+If future experiments include the TT move, singular-extension behavior must remain
+active exactly as in the normal search. It must never be approximated by an
+ordinary child probe.
+
+## 10.3 Continuation-history mapping
+
+At main-search node stack pointer `ss`, `search.cpp` builds:
+
+```text
+contHist[0] = (ss - 1)->continuationHistory   previous move at distance 1
+contHist[1] = (ss - 2)->continuationHistory   previous move at distance 2
+contHist[2] = (ss - 3)->continuationHistory   previous move at distance 3
+contHist[3] = (ss - 4)->continuationHistory   previous move at distance 4
+contHist[4] = (ss - 5)->continuationHistory   previous move at distance 5
+contHist[5] = (ss - 6)->continuationHistory   previous move at distance 6
+```
+
+When parent move `p` is made, `Worker::do_move` sets the parent's stack entry to:
+
+```text
+&continuationHistory[parentWasInCheck][parentWasCapture]
+                    [pieceMovedByParent][parentDestination]
+```
+
+At the child, scoring candidate `m` reads that selected `PieceToHistory` table at:
+
+```text
+[pieceMovedByCandidate][candidateDestination]
+```
+
+Thus each value is a move-pair feature: previous move context × current
+`[piece][to]`.
+
+Quiet MovePicker scoring intentionally reads distances **1, 2, 3, 4, and 6**:
+`contHist[0], [1], [2], [3], [5]`; distance 5 (`contHist[4]`) is explicitly
+omitted in this source revision. The omission is treated as intentional/tuned
+behavior because the accesses are explicit, while `update_continuation_histories`
+separately updates all distances 1 through 6 with weights
+`{520,390,145,251,66,209}`. No unsupported rationale is inferred.
+
+Other uses differ and must be logged separately: quiet pruning and LMR stat score
+use distances 1 and 2; evasion scoring uses distance 1; capture MovePicker scoring
+uses capture history rather than continuation history. Dataset fields will store the
+five quiet-ordering values separately, plus a distance-5 value only if needed for
+an ablation; they must not be represented as one undocumented sum.
+
+## 10.4 Exact value-NNUE accumulator semantics
+
+Runtime inference code is authoritative for the Jacobian experiment; an external
+trainer description is secondary and must be version/checksum matched before using
+training-space gradients.
+
+Verified runtime structure:
+
+- `AccumulatorState` contains, per color, `i16 accumulation[1024]`,
+  `i32 psqtAccumulation[8]`, and `computed` flags, plus `Dirties`.
+- The accumulator begins with FeatureTransformer biases and adds/subtracts full
+  weight columns for active `HalfKAv2_hm`, `FullThreats`, and `PP_3Wide` features.
+  HalfKA columns are i16; threat/pawn-pair columns are i8 widened into i16;
+  corresponding PSQT columns update the 8 i32 buckets
+  (`nnue_accumulator.cpp`, `apply_combined`).
+- For each perspective, `transform_perspective` splits the 1024 accumulator values
+  into two 512-value halves, clips each to `[0,255]`, multiplies corresponding
+  pairs, divides by 512, and emits 512 u8-like transformed features. Concatenating
+  side-to-move and opponent perspectives yields the 1024 inputs consumed by
+  `fc_0`; `NNZInfo<1024>` records nonzero chunks.
+- `LayerStacks = 8`; `Network::evaluate` selects
+  `bucket = (pos.count<ALL_PIECES>() - 1) / 4`, then uses
+  `network[bucket].propagate(...)`.
+- Network topology is sparse affine `1024 -> 32`, squared/clipped and clipped
+  activations, affine `64 -> 32`, squared/clipped and clipped activations, then
+  affine `(64 + 64) -> 1`, with the documented fc0 skip term.
+- A king move requires refresh for that king's perspective; castling is refresh-
+  only there. Captures can change the material bucket. Child side-to-move swaps the
+  perspective concatenation order.
+
+Therefore a naive parent-gradient dot move-delta is not generally valid for:
+king moves/castling, material-bucket-crossing captures, or a child evaluated with
+swapped perspective order. The first Jacobian experiment must restrict its clean
+baseline to quiet non-king moves, hold a canonical evaluation perspective, and
+remain in the same material bucket. Later variants must handle bucket and
+perspective transitions explicitly.
+
+Because production inference is quantized and clipped, "Jacobian" must be named
+precisely: either a derivative of the matched dequantized training graph, a chosen
+straight-through surrogate, or an exact finite-difference sensitivity. Any hand-
+written adjoint must be checked against the actual forward implementation using
+finite differences away from activation boundaries and exact child-value deltas at
+boundaries.
+
+## 10.5 Deterministic research protocol
+
+**Decision:** Phase 1's canonical scientific mode is one thread, fixed depth, fixed
+hash, MultiPV 1, full strength (`Skill Level=20`, `UCI_LimitStrength=false`), fixed
+value-net checksum, tablebases disabled, no ponder/time stop, and a fresh process per
+root for strict experiments. `ucinewgame` + `isready` may be used for the faster
+batched mode only after matching the fresh-process result.
+
+Empirical checks completed on the audited source with an x86-64-avx2 build:
+
+1. Three fresh-process repetitions over startpos, Kiwipete, and a middlegame FEN at
+   depth 11 produced identical best move, score, node count, and PV in every run.
+2. Two complete cycles over the same three positions in one process, with
+   `ucinewgame` + `isready` before each position, were identical. The recorded
+   depth-11 tuples were:
+   - startpos: `e2e4`, `cp 26`, `12455` nodes;
+   - Kiwipete: `e2a6`, `cp -152`, `5400` nodes;
+   - middlegame: `a3a4`, `cp -111`, `15149` nodes.
+
+The repository's `tests/reprosearch.sh` was inspected but not run because `expect`
+was not installed in the environment. Phase 1 must add a dependency-free equivalent
+or install/run `expect` in CI. This evidence establishes the proposed protocol, not
+a universal determinism claim: SMP TT races, time-based stopping, skill RNG, binary/
+compiler differences, network changes, and tablebase configuration remain outside
+it.
+
+## 10.6 `RootMove::effort` as a label
+
+**Decision:** `RootMove::effort` is useful telemetry and a sanity check, but is not
+a primary policy-training label.
+
+At each root move attempt, `N = nodes - nodeCount` includes that move's child
+searches and re-searches, then `rm.effort += N`. `effort` is initialized only when
+new `RootMoves` are constructed for a `go`; it accumulates across iterative-
+deepening depths, aspiration re-searches, and MultiPV activity. It does not retain
+per-attempt depth/window/outcome boundaries. Consequently its final value mixes
+multiple policies and search contexts.
+
+For observational root data, log the local `N` at the existing update site together
+with depth, window, outcome, re-search count, and iteration. For force-first root
+experiments, use total run nodes/wall time as the causal label. Retain final
+`RootMove::effort` only to validate that the sum of logged per-attempt contributions
+matches engine bookkeeping.
+
+## 10.7 Extra MovePicker and candidate enumeration
+
+Source audit confirms MovePicker owns a local `ExtMove[MAX_MOVES]` buffer and local
+cursor/stage state, while Position and history inputs are const references. Its
+scoring, sorting, SEE, and attack queries do not update search state.
+
+An empirical audit was also run in a temporary detached worktree: an independently
+constructed MovePicker was fully drained before the real main-search MovePicker at
+every main-search node. Baseline and audit builds used the same clean source, net,
+compiler, and `ARCH=x86-64-avx2`. On `bench 16 1 10 default depth`, all normalized
+info rows (depth, score, nodes, PV), best moves, and total nodes were identical;
+both searched **453169 nodes**. The extra drain increased runtime, as expected, so
+it is permitted only at sampled research nodes.
+
+**Important limitation:** a fresh MovePicker at an arbitrary later decision point
+starts again from TT/stage zero and includes already-attempted moves. It is not an
+exact snapshot of the remaining candidates. Phase 2 observational logging should
+capture stage-generated lists when the real picker creates/sorts them. If Phase 5
+needs exact remaining-candidate enumeration, add a research-only MovePicker snapshot
+that copies `moves[]`, stage/flags/scalars, and rebases every internal pointer
+(`cur`, `endCur`, `endBadCaptures`, `endCaptures`, `endGenerated`) into the clone's
+own array, then drains only the clone. Do not re-enable the normal deleted copy
+constructor and do not use a raw `memcpy` because the internal pointers would still
+refer to the original buffer.
+
+## 10.8 Serialization types, move encoding, score ranges, and perspective
+
+The version-1 data schema must use fixed-width fields independent of native C++ ABI:
+
+- `move_raw: uint16` reproduces `Move::raw()`:
+  - bits 0-5 destination square;
+  - bits 6-11 origin square;
+  - bits 12-13 promotion piece type minus KNIGHT;
+  - bits 14-15 move type (`0 normal`, `1 promotion`, `2 en passant`, `3 castling`);
+  - `Move::none() = 0`, `Move::null() = 65`.
+- Internal castling encodes king-from to friendly-rook-from ("king captures friendly
+  rook", `position.cpp:1320`), not necessarily the external UCI destination.
+  Therefore also store canonical decoded `from:uint8`, `to:uint8`,
+  `move_type:uint8`, `promotion_type:uint8`, `is_chess960:bool`, and an optional UCI
+  string for diagnostics. Legal candidate records must never contain none/null.
+- `Value` and `Depth` are native `int`; serialize as signed `int32`.
+  `VALUE_DRAW=0`, `VALUE_MATE=32000`, `VALUE_INFINITE=32001`,
+  `VALUE_NONE=32002`; `DEPTH_QS=0`, `DEPTH_UNSEARCHED=-2`, `DEPTH_NONE=-3`.
+  Store an explicit validity/status flag rather than interpreting a sentinel as a
+  searched score.
+- `Bound` serializes as `uint8`: none=0, upper=1, lower=2, exact=3.
+- Do not serialize C++ `Score` as the primary target. `Score` is a presentation
+  variant (`Mate`, `Tablebase`, `InternalUnits`); ordinary UCI cp conversion is
+  position dependent (`UCIEngine::to_cp`). Store raw `Value`, bound, alpha, beta,
+  and position context; derive UCI presentation offline when needed.
+- Search values, alpha, beta, static evaluation, and returned candidate value are
+  all recorded in the **current parent node's side-to-move/negamax perspective**.
+  A child return must be negated before logging as the candidate's parent-facing
+  value. Store the pre-attempt alpha and beta. Classify at that same parent window:
+  `fail_high = value >= beta`, `alpha_raise = alpha < value < beta`, and
+  `fail_low = value <= alpha`; retain exact/TT bound separately.
+- Store colors, pieces, and squares as explicit fixed-width numeric fields under a
+  schema version, plus a position/root identifier. Never dump native `Move`,
+  `Score`, or padded structs directly.

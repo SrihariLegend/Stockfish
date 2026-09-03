@@ -8,7 +8,7 @@ tests, exit gates, definition of done).
 
 | Phase | Description | Status |
 |---|---|---|
-| 0 | Architecture inventory and mutation audit | **In progress** (this branch) |
+| 0 | Architecture inventory and mutation audit | **Complete — awaiting review** |
 | 1 | Deterministic research harness | Not started |
 | 2 | Versioned research logging | Not started |
 | 3 | Observational dataset and calibration baseline | Not started |

@@ -24,10 +24,10 @@ implementing.
 
 | Object | Type / size | Write sites | Treatment |
 |---|---|---|---|
-| `mainHistory` | `Stats<i16,7183,2,65536>` ≈ 1.9 MB | `clear()` search.cpp:692; eval-diff shift search.cpp:975; TT-cutoff bonus search.cpp:888; `update_quiet_histories` search.cpp:2047; fail-low countermove search.cpp:1588 | **clone** (or **restore**) |
-| `lowPlyHistory` | `Stats<i16,7183,5,65536>` ≈ 4.7 MB | `clear()` search.cpp:693; `update_quiet_histories` search.cpp:2050 | **clone/restore** |
-| `captureHistory` | `Stats<i16,10692,16,64,8>` ≈ 17.9 MB | `clear()` search.cpp:693; `update_all_stats` capture paths search.cpp:2001,2019; prior-capture countermove search.cpp:1611 | **clone/restore** |
-| `continuationCorrectionHistory` | `CorrectionHistory<Continuation>` = per-ply pointer targets `[pc][to]` of `PieceToHistory`-sized correction stats; worker-local 16×64 tables of 2×65536-entry atomic i16 (large) | `clear()` search.cpp:708; `update_correction_history` search.cpp:130-131 (via `(ss-2)/(ss-4)->continuationCorrectionHistory`); read by `correction_value` search.cpp:85-101 | **clone/restore** (accessed through `Stack` pointers, which must also be fixed up) |
+| `mainHistory` | `Stats<i16,7183,2,65536>` = **262,144 B (256 KiB)** | `clear()` search.cpp:692; eval-diff shift search.cpp:975; TT-cutoff bonus search.cpp:888; `update_quiet_histories` search.cpp:2047; fail-low countermove search.cpp:1588 | **clone** (or **restore**) |
+| `lowPlyHistory` | `Stats<i16,7183,5,65536>` = **655,360 B (640 KiB)** | `clear()` search.cpp:693; `update_quiet_histories` search.cpp:2050 | **clone/restore** |
+| `captureHistory` | `Stats<i16,10692,16,64,8>` = **16,384 B (16 KiB)** | `clear()` search.cpp:693; `update_all_stats` capture paths search.cpp:2001,2019; prior-capture countermove search.cpp:1611 | **clone/restore** |
+| `continuationCorrectionHistory` | `CorrectionHistory<Continuation>` = **2,097,152 B (2 MiB)**; worker-local nested `[previous pc][previous to][candidate pc][candidate to]` correction stats | `clear()` search.cpp:708; `update_correction_history` search.cpp:130-131 (via `(ss-2)/(ss-4)->continuationCorrectionHistory`); read by `correction_value` search.cpp:85-101 | **clone/restore** (accessed through `Stack` pointers, which must also be fixed up) |
 | `ttMoveHistory` | `StatsEntry<i16,8192>` (scalar) | `clear()` search.cpp:714; `<< -421-110*depth` multi-cut search.cpp:1294; `<< ±` best-move-vs-ttMove search.cpp:1571 | **clone/restore** |
 | `nodes`, `tbHits`, `bestMoveChanges` | `RelaxedAtomic<u64>` | `do_move` search.cpp:654 (`++nodes`); TB probe search.cpp:952 (`++tbHits`); root bestMoveChanges search.cpp:1526 | **isolate** (shadow nodes must not pollute real counters) |
 | `selDepth`, `nmpMinPly` | `int` | `selDepth` search.cpp:781; `nmpMinPly` null-move verification search.cpp:1040-1046 | **restore** around probes |
@@ -35,7 +35,7 @@ implementing.
 | `reductions[MAX_MOVES]` | `std::array<int, MAX_MOVES>` | `clear()` search.cpp:716-717 (read-only afterwards) | n/a (const during search) |
 | `rootPos`, `rootState`, `rootMoves`, `rootDepth`, `rootDelta`, `pvIdx`, `pvLast`, `lastIterationIdxPV` | Position+StateInfo / RootMoves / Depth / Value / usize / PVMoves | root-level only (iterative_deepening) | **clone** if an internal probe must re-enter root-level code (not needed for subtree-only probes; guard against it) |
 | `limits` | `LimitsType` | set per search start | n/a (read-only during search) |
-| `accumulatorStack` | `AccumulatorStack`, `(MAX_PLY+1)` × `AccumulatorState` ≈ 1000 × 9 KB ≈ 9 MB | `push` in do_move search.cpp:656; `pop` in undo_move search.cpp:685; `reset` start_searching search.cpp:193; refreshed on king moves / null-window eval | **clone/restore** (shadow subtree must evaluate; its pushes/pops must not desync the real stack) |
+| `accumulatorStack` | `AccumulatorStack` = **1,138,240 B (~1.086 MiB)** on the audited build: `(MAX_PLY+1 = 247)` × `AccumulatorState` (4,608 B) plus stack index/padding | `push` in do_move search.cpp:656; `pop` in undo_move search.cpp:685; `reset` start_searching search.cpp:193; refreshed on king moves / null-window eval | **clone/restore** (shadow subtree must evaluate; its pushes/pops must not desync the real stack) |
 | `refreshTable` | `AccumulatorCaches` (64 king squares × 2 colors refresh entries of 1024 i16 + 8 i32 + board) | `clear()` search.cpp:719; used during accumulator refresh | **clone/restore** |
 | `continuationHistory` (member ref to shared `[2][2]` block) and `sharedHistory` | `SharedHistories&` (NUMA-shared, atomic entries) | see section C | **shared → clone per research worker** for deterministic probes |
 | `tbConfig` | `Tablebases::Config` | per search start | n/a (TB disabled initially) |
@@ -79,9 +79,9 @@ Shared across the threads of one NUMA node. Entries are atomic
 
 | Object | Approx. size per NUMA node | Write sites | Treatment |
 |---|---|---|---|
-| `continuationHistoryBlock` = `ContinuationHistory table[2][2]` (`[inCheck][capture]`) of `PieceToHistory` (`AtomicStats<i16,30000,16,64>`) | 2×2×16×64×2×30000… see `PieceToHistory` below (large, NUMA-shared) | `update_continuation_histories` search.cpp:2025-2042 (weighted, bounded +/−30000) | **shared → isolate** in research worker clone |
-| `pawnHistory` `DynStats<AtomicStats<i16,8192,16,64>, 8192>` | sized `threadCount × 8192` entries | `clear_range` search.cpp:699; `update_quiet_histories` search.cpp:2056-2058; eval-diff pawn path search.cpp:977; fail-low pawn path search.cpp:1590 | **shared → isolate** |
-| `correctionHistory` `UnifiedCorrectionHistory` (DynStats of `MultiArray<CorrectionBundle<i16,1024>,2>`) | sized `threadCount × 65536` bundles | `clear_range` search.cpp:698; `update_correction_history` search.cpp:118-131 | **shared → isolate** |
+| `continuationHistoryBlock` = `ContinuationHistory table[2][2]` (`[inCheck][capture]`) of `PieceToHistory` (`AtomicStats<i16,30000,16,64>`) | `PieceToHistory` = 2,048 B; one `ContinuationHistory` = 2 MiB; full block = **8,388,608 B (8 MiB)** | `update_continuation_histories` search.cpp:2025-2042 (weighted, bounded +/−30000) | **shared → isolate** in research worker clone |
+| `pawnHistory` `DynStats<AtomicStats<i16,8192,16,64>, 8192>` | **16 MiB per configured NUMA thread unit** (`threadCount × 8192 × 2048 B`) | `clear_range` search.cpp:699; `update_quiet_histories` search.cpp:2056-2058; eval-diff pawn path search.cpp:977; fail-low pawn path search.cpp:1590 | **shared → isolate** |
+| `correctionHistory` `UnifiedCorrectionHistory` (DynStats of `MultiArray<CorrectionBundle<i16,1024>,2>`) | **1 MiB per configured NUMA thread unit** (`threadCount × 65536 × 16 B`) | `clear_range` search.cpp:698; `update_correction_history` search.cpp:118-131 | **shared → isolate** |
 
 `PieceToHistory` is also the type of each per-worker continuation-correction table
 entry and of the contHist targets; entries are `AtomicStats` with `D=30000`.
@@ -173,8 +173,18 @@ when replaying a node:
 6. **No hidden global mutable state was found on the hot path** other than those
    listed in §F; the codebase is otherwise worker/stack disciplined.
 
+The static size audit was verified with a temporary `sizeof(...)` program against
+this source/build configuration: `ButterflyHistory=262144`,
+`LowPlyHistory=655360`, `CapturePieceToHistory=16384`,
+`PieceToHistory=2048`, `ContinuationHistory=2097152`,
+`ContinuationHistoryBlock=8388608`,
+`CorrectionHistory<Continuation>=2097152`, `Accumulator=4224`,
+`AccumulatorState=4608`, `AccumulatorStack=1138240`, `Stack=56`, and
+`StateInfo=192` bytes. Dynamic history sizes scale with configured NUMA thread
+count as described above.
+
 Exit gate satisfied: every mutable object reachable from recursive search is
-accounted for in sections A-F, with update sites and a proposed treatment. Open
-design decisions (overlay mechanism, clone method for `Position`/`Worker`,
-probe-stop mechanism) are tracked in `architecture-inventory.md` §10 and must be
-resolved before Phase 5 implementation.
+accounted for in sections A-F, with update sites and a proposed treatment. The
+design decisions for the eight original open questions are recorded in
+`architecture-inventory.md` §10. Concrete overlay/worker-clone implementation is
+still deferred to its planned phase and must satisfy the listed verification gates.
