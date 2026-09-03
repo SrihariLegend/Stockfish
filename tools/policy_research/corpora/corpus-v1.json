@@ -3,7 +3,11 @@
   "corpus_id": "policy-research-corpus-v1",
   "title": "Policy research starter corpus v1",
   "description": "Starter root corpus for Phase 1 deterministic runs. Versioned; extend only by creating corpus/v2. Small by design: fast enough to run repeatedly while covering openings, middle games, endgames, tactical and in-check roots.",
+  "history": [
+    "2026-09-03: corrected tags.castling for c1-t-001 (kq rights present: true) and c1-t-002 (no rights: false); documented tag_semantics. Metadata-only; FENs, ids, sets, and splits unchanged. Commit: see git history for the repair pass."
+  ],
   "split_rule": "split by root position (never by internal node); all positions taken from one source game stay in one set",
+  "tag_semantics": "phase: opening|middlegame|endgame; check: side to move is in check; castling: the FEN declares castling rights for either side; material: queens present or not",
   "positions": [
     {
       "id": "c1-d-001",
@@ -88,7 +92,7 @@
       "source": "Anderssen-Kieseritzky, London 1851 (the Immortal Game) after 19...Qxa1+ (White to move, in check).",
       "license": "public domain (game from 1851)",
       "source_line_moves": ["e2e4", "e7e5", "f2f4", "e5f4", "f1c4", "d8h4", "e1f1", "b7b5", "c4b5", "g8f6", "g1f3", "h4h6", "d2d3", "f6h5", "f3h4", "h6g5", "h4f5", "c7c6", "g2g4", "h5f6", "h1g1", "c6b5", "h2h4", "g5g6", "h4h5", "g6g5", "d1f3", "f6g8", "c1f4", "g5f6", "b1c3", "f8c5", "c3d5", "f6b2", "f4d6", "c5g1", "e4e5", "b2a1"],
-      "tags": {"phase": "middlegame", "check": true, "castling": false, "material": "queens"}
+      "tags": {"phase": "middlegame", "check": true, "castling": true, "material": "queens"}
     },
     {
       "id": "c1-t-002",
@@ -96,7 +100,7 @@
       "fen": "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
       "source": "Classic chess-programming perft test position (CPW perft suite position 6).",
       "license": "public domain (position facts)",
-      "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens"}
+      "tags": {"phase": "middlegame", "check": false, "castling": false, "material": "queens"}
     },
     {
       "id": "c1-t-003",

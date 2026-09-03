@@ -64,6 +64,8 @@ PINNED_UCI_OPTIONS = [
     ("Ponder", "false"),
     ("Skill Level", "20"),
     ("UCI_LimitStrength", "false"),
+    ("UCI_Chess960", "false"),
+    ("SyzygyPath", "<empty>"),
 ]
 
 # Options recorded as engine-declared defaults in the manifest (complement of the
@@ -76,6 +78,7 @@ DEFAULT_OPTIONS_TO_RECORD = [
     "Ponder",
     "Skill Level",
     "UCI_LimitStrength",
+    "UCI_Chess960",
     "SyzygyPath",
     "EvalFile",
 ]
@@ -261,6 +264,21 @@ def engine_compile_info(engine: Path, cwd: Path, timeout: float = 60.0) -> dict:
     return info
 
 
+def engine_banner(engine: Path, cwd: Path, timeout: float = 60.0) -> str | None:
+    """Return the engine's identity line from `uci` (e.g. the embedded commit).
+
+    The first line of the `uci` reply is the `id name` banner, which embeds the
+    source commit the executable was built from. This is recorded because the
+    repository HEAD is not a reliable proxy for what a given binary contains.
+    """
+    stdout, _, _ = _run_process(engine, "uci\nquit\n", timeout, cwd)
+    for line in stdout.splitlines():
+        line = line.strip()
+        if line and not line.startswith(("option ", "uciok")):
+            return line
+    return None
+
+
 def engine_uci_defaults(engine: Path, cwd: Path, timeout: float = 60.0) -> dict:
     """Return engine-declared defaults for the UCI options we record."""
     stdout, _, _ = _run_process(engine, "uci\nquit\n", timeout, cwd)
@@ -369,13 +387,54 @@ def summarize_info_row(line: str) -> dict:
     return summary
 
 
+def validate_completion(info_lines: list[str], expected_depth: int) -> list[str]:
+    """Return a list of problems proving the fixed-depth search completed.
+
+    An engine that was cancelled (e.g. by a stray `quit`) can emit an
+    `info depth 1 ... pv` row with zero nodes and then a fallback bestmove; two
+    such identical aborted searches would otherwise satisfy the determinism
+    gate. Completion requires, for a fixed-depth `go depth N` search:
+
+    - at least one info row with a score and a non-empty PV;
+    - a positive node count in the final row;
+    - the final row reaches depth N, OR a mate was announced at any depth
+      (mate announcements legitimately end the iteration ladder early).
+    """
+    problems: list[str] = []
+    if not info_lines:
+        return ["no info rows were emitted"]
+
+    rows = [normalize_info_row(ln) for ln in info_lines]
+    scores = [r for r in rows if re.search(r"\bscore (cp -?\d+|mate -?\d+)\b", r)]
+    if not scores:
+        problems.append("no info row carries a score")
+
+    pv_rows = [r for r in rows if re.search(r"\bpv [a-h][1-8]", r)]
+    if not pv_rows:
+        problems.append("no info row carries a non-empty PV")
+
+    last = rows[-1]
+    nodes_match = re.search(r"\bnodes (\d+)\b", last)
+    if not nodes_match or int(nodes_match.group(1)) <= 0:
+        problems.append("final row has no positive node count")
+
+    if not any(re.search(r"\bscore mate -?\d+\b", r) for r in rows):
+        depth_match = re.search(r"\bdepth (\d+)\b", last)
+        if not depth_match or int(depth_match.group(1)) < expected_depth:
+            problems.append(
+                f"final row depth {depth_match.group(1) if depth_match else '?'} "
+                f"< requested {expected_depth} without a mate announcement"
+            )
+    return problems
+
+
 def run_root(
     engine: Path,
     cwd: Path,
     fen: str,
     depth: int,
     hash_mb: int,
-    eval_file: str | None,
+    eval_file: str,
     timeout: float,
 ) -> dict:
     """Run one root in a fresh engine process. Returns per-root result dict."""
@@ -417,6 +476,13 @@ def run_root(
         tail = "\n".join(lines)[-1200:]
         raise RuntimeError(f"engine failed for root:\n{tail}")
 
+    completion_problems = validate_completion(info_lines, depth)
+    if completion_problems:
+        raise RuntimeError(
+            "search for root did not demonstrably complete fixed-depth search "
+            f"(expected depth {depth}); problems: {completion_problems}"
+        )
+
     rows = [normalize_info_row(ln) for ln in info_lines]
     pv_rows = [ln for ln in info_lines if re.search(r"\bpv ", ln)]
     summary = summarize_info_row(pv_rows[-1]) if pv_rows else {}
@@ -442,6 +508,7 @@ def make_manifest(
     eval_file: str | None,
     depth: int,
     hash_mb: int,
+    build_command: str | None = None,
 ) -> dict:
     compile_info = engine_compile_info(engine, cwd)
     uci_defaults = engine_uci_defaults(engine, cwd)
@@ -461,13 +528,16 @@ def make_manifest(
         "worktree_dirty": git["dirty"],
         "worktree_dirty_file_count": git["dirty_file_count"],
         "engine_executable": str(engine.resolve()),
+        "engine_executable_sha256": file_sha256(engine),
+        "engine_banner": engine_banner(engine, cwd),
+        "build_command": build_command,
         "compiler": compile_info,
         "host": hinfo,
         "threads": 1,
         "hash_mb": hash_mb,
         "search_depth": depth,
         "value_network": {
-            "path": str(eval_file) if eval_file else None,
+            "path": str(Path(eval_file).resolve()) if eval_file else None,
             "sha256": file_sha256(Path(eval_file)) if eval_file else None,
         },
         "policy_network": None,
@@ -477,8 +547,11 @@ def make_manifest(
         "random_seed": None,
         "notes": (
             "Deterministic research profile: 1 thread, fixed depth, MultiPV 1, "
-            "ponder off, full strength, no external stop, no tablebases "
-            "(SyzygyPath default <empty>), fresh engine process per root."
+            "ponder off, full strength, UCI_Chess960 false, no external stop, "
+            "tablebases disabled (SyzygyPath explicitly cleared to <empty>), "
+            "fresh engine process per root. Record engine_executable_sha256 / "
+            "engine_banner (embedded source commit) / build_command to identify "
+            "the exact binary; the repository HEAD alone is not sufficient."
         ),
     }
     return manifest
@@ -494,6 +567,7 @@ def execute_run(engine: Path, cwd: Path, corpus: dict, corpus_sha: str, args) ->
         eval_file=args.eval_file,
         depth=args.depth,
         hash_mb=args.hash,
+        build_command=getattr(args, "build_command", None),
     )
     positions = []
     for pos in corpus["positions"]:
@@ -569,6 +643,14 @@ def compare_results(run_a: dict, run_b: dict) -> tuple[bool, list[dict]]:
         entry["ok"] = not entry["differences"]
         ok = ok and entry["ok"]
         issues.append(entry)
+    # Asymmetry check: positions present in run B but not in run A.
+    ids_a = {pos["id"] for pos in run_a["positions"]}
+    for pos_b in run_b["positions"]:
+        if pos_b["id"] not in ids_a:
+            issues.append(
+                {"id": pos_b["id"], "ok": False, "differences": ["extra position in run B"]}
+            )
+            ok = False
     return ok, issues
 
 
@@ -576,18 +658,34 @@ def compare_results(run_a: dict, run_b: dict) -> tuple[bool, list[dict]]:
 # CLI
 # ---------------------------------------------------------------------------
 
-def _resolve_eval_file(args, engine: Path, cwd: Path) -> str | None:
-    if args.eval_file:
-        path = Path(args.eval_file).expanduser().resolve()
+def _resolve_eval_file(engine: Path, cwd: Path, explicit: str | None) -> str | None:
+    """Resolve the value-network file, mirroring the engine's search order.
+
+    The engine looks for its EvalFile default relative to the binary directory
+    and the current directory. We additionally try <repo>/src. Raises SystemExit
+    when nothing is found: research runs must always pin an explicit network
+    whose checksum is recorded in the manifest.
+    """
+    if explicit:
+        path = Path(explicit).expanduser().resolve()
         if not path.is_file():
             raise SystemExit(f"--eval-file not found: {path}")
         return str(path)
     name = engine_uci_defaults(engine, cwd).get("EvalFile")
-    if name:
-        candidate = (cwd / "src" / name).resolve()
+    if not name:
+        raise SystemExit("engine reported no EvalFile default; pass --eval-file explicitly")
+    candidates = [
+        cwd / "src" / name,
+        engine.resolve().parent / name,
+        cwd / name,
+    ]
+    for candidate in candidates:
         if candidate.is_file():
-            return str(candidate)
-    return None
+            return str(candidate.resolve())
+    raise SystemExit(
+        f"cannot locate value network '{name}' next to the engine or in the "
+        f"repository; build it with 'make -C src net' or pass --eval-file"
+    )
 
 
 def common_parser(subp) -> None:
@@ -603,6 +701,11 @@ def common_parser(subp) -> None:
     subp.add_argument("--eval-file", default=None, help="absolute path to the value network file")
     subp.add_argument("--only", default=None, help="comma-separated subset of corpus ids (smoke tests)")
     subp.add_argument("--timeout", type=float, default=900.0, help="per-root timeout in seconds")
+    subp.add_argument(
+        "--build-command",
+        default=None,
+        help="verbatim build command that produced --engine (recorded in the manifest)",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -627,7 +730,7 @@ def main(argv: list[str] | None = None) -> int:
 
     corpus, canonical = load_corpus(corpus_path)
     corpus_sha = corpus_sha256(canonical)
-    eval_file = _resolve_eval_file(args, engine, cwd)
+    eval_file = _resolve_eval_file(engine, cwd, args.eval_file)
     args.only = set(args.only.split(",")) if args.only else None
     args.corpus = str(corpus_path)
     args.engine = str(engine)

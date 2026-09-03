@@ -10,6 +10,20 @@
   behavior". The options below are registered and validated but nothing in the
   search reads them yet; later commits consume Research::config() under the same
   macro. See docs/policy-research/plan.md sections 2.2 and 7.1.
+
+  Option semantics (documented):
+  - PolicyResearch: master switch ('on'/'off'). 'off' disables all research
+    behavior regardless of PolicyResearchMode.
+  - PolicyResearchMode: active mode; meaningful only when PolicyResearch is
+    'on'. 'off' disables research even when the master switch is 'on'.
+  - Canonical predicate: Research::enabled() == (switchOn && mode != Mode::Off).
+  - PolicyResearchMaxRecords: 0 means 'no explicit cap set'; the recorder MUST
+    still enforce a finite internal hard cap (Phase 2) so collection can never
+    be unbounded. The same rule applies to PolicyResearchTopK and
+    PolicyResearchNodeBudget (0 = not set, not literally unlimited).
+  - Validation errors are surfaced as 'info string' diagnostics AND the option
+    value is rolled back to its previous value, so the option map and
+    Research::config() never disagree (ucioption.cpp, POLICY_RESEARCH builds).
 */
 
 #ifndef POLICY_RESEARCH_OPTIONS_H_INCLUDED
@@ -20,6 +34,7 @@
 #include <optional>
 #include <string>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 
 #include "../types.h"
@@ -83,7 +98,7 @@ inline std::optional<std::string> parse_mode(const std::string& token, Mode& out
 inline std::optional<std::string> parse_sample_rate(const std::string& token, double& out) {
     char* end = nullptr;
     double v  = std::strtod(token.c_str(), &end);
-    if (end == token.c_str() || *end != '\0' || v <= 0.0 || v > 1.0)
+    if (end == token.c_str() || *end != '\0' || !std::isfinite(v) || v <= 0.0 || v > 1.0)
         return "invalid sample rate '" + token + "' (expected 0 < rate <= 1)";
     out = v;
     return std::nullopt;
@@ -99,9 +114,14 @@ inline std::optional<std::string> parse_u64(const std::string& token, u64& out) 
 }
 
 inline std::optional<std::string> parse_switch(const std::string& token, bool& out) {
-    if (token == "true" || token == "on" || token == "yes")
+    // Case-insensitive like parse_mode().
+    std::string t;
+    t.reserve(token.size());
+    for (char c : token)
+        t.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    if (t == "true" || t == "on" || t == "yes")
         out = true;
-    else if (token == "false" || token == "off" || token == "no")
+    else if (t == "false" || t == "off" || t == "no")
         out = false;
     else
         return "invalid value '" + token + "' (expected on/off)";
@@ -112,6 +132,11 @@ inline std::optional<std::string> parse_switch(const std::string& token, bool& o
 inline Config& config() {
     static Config cfg;
     return cfg;
+}
+
+// Canonical activation predicate: the master switch AND a non-off mode.
+inline bool enabled() {
+    return config().switchOn && config().mode != Mode::Off;
 }
 
 inline void register_options(OptionsMap& options) {

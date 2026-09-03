@@ -135,6 +135,10 @@ VPATH = syzygy:nnue:nnue/features
 # lasx = yes/no       --- -mlasx             --- Use Loongson Advanced SIMD eXtension
 # relaxedsimd = y/n   --- -mrelaxed-simd     --- Use WebAssembly relaxed SIMD extension
 # syzygy = yes/no     --- -DNO_TABLEBASES    --- Support Syzygy tablebase probing
+# research = yes/no   --- -DPOLICY_RESEARCH  --- Compile in policy-research code
+#                                                (research builds only; use the
+#                                                research-build target below so
+#                                                stale objects are not reused)
 #
 # Note that Makefile is space sensitive, so when adding new architectures
 # or modifying existing flags, you have to make sure there are no extra spaces
@@ -176,6 +180,7 @@ endif
 
 optimize = yes
 debug = no
+research = no
 sanitize = none
 bits = 64
 prefetch = no
@@ -500,6 +505,10 @@ ifeq ($(MAKELEVEL),0)
 endif
 
 CXXFLAGS = $(ENV_CXXFLAGS) -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRACXXFLAGS)
+
+ifeq ($(research),yes)
+CXXFLAGS += -DPOLICY_RESEARCH
+endif
 DEPENDFLAGS = $(ENV_DEPENDFLAGS) -std=c++17
 LDFLAGS = $(ENV_LDFLAGS) $(EXTRALDFLAGS)
 
@@ -1102,7 +1111,8 @@ ifneq ($(SUPPORTED_ARCH), true)
 endif
 
 
-.PHONY: help analyze build profile-build macos-lipo strip install clean net \
+.PHONY: help analyze build profile-build research-build research-profile-build \
+	macos-lipo strip install clean net \
 	objclean profileclean config-sanity \
 	icx-profile-use icx-profile-make \
 	gcc-profile-use gcc-profile-make \
@@ -1128,6 +1138,36 @@ profile-build: net config-sanity objclean profileclean
 	@echo "Step 3/4. Building optimized executable ..."
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) objclean
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) $(profile_use)
+	@echo ""
+	@echo "Step 4/4. Deleting profile data ..."
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) profileclean
+
+# Policy-research builds: compile with -DPOLICY_RESEARCH.
+#
+# The Makefile does not rebuild objects when CXXFLAGS change, so switching the
+# macro on without cleaning silently reuses stale macro-less objects. These
+# targets objclean first and therefore always produce a consistent binary.
+#
+#   make research-build ARCH=x86-64-avx2          # plain build, macro on
+#   make research-profile-build ARCH=x86-64-avx2  # PGO build, macro on
+#
+# research-profile-build relies on EXTRAPROFILEFLAGS, which only the GCC
+# profile targets append (see gcc-profile-make / gcc-profile-use).
+research-build: net config-sanity objclean
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) research=yes all
+
+research-profile-build: net config-sanity objclean profileclean
+	@echo ""
+	@echo "Step 1/4. Building instrumented executable (research) ..."
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) EXTRAPROFILEFLAGS=' -DPOLICY_RESEARCH' $(profile_make)
+	@echo ""
+	@echo "Step 2/4. Running benchmark for pgo-build ..."
+	$(PGOBENCH) > PGOBENCH.out 2>&1
+	tail -n 4 PGOBENCH.out
+	@echo ""
+	@echo "Step 3/4. Building optimized executable ..."
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) objclean
+	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) EXTRAPROFILEFLAGS=' -DPOLICY_RESEARCH' $(profile_use)
 	@echo ""
 	@echo "Step 4/4. Deleting profile data ..."
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) profileclean

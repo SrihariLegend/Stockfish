@@ -152,6 +152,8 @@ Option& Option::operator=(const std::string& v) {
 
     assert(!type.empty());
 
+    const std::string previousValue = currentValue;
+
     if ((type != "button" && type != "string" && v.empty())
         || (type == "check" && v != "true" && v != "false")
         || (type == "spin" && !value_in_range(v, min, max)))
@@ -177,8 +179,20 @@ Option& Option::operator=(const std::string& v) {
     {
         const auto ret = on_change(*this);
 
-        if (ret && parent != nullptr && parent->info != nullptr)
-            parent->info(ret);
+        if (ret)
+        {
+            if (parent != nullptr && parent->info != nullptr)
+                parent->info(ret);
+
+#ifdef POLICY_RESEARCH
+            // Research builds reject invalid option values outright: restore the
+            // previous value so the option map and Research::config() agree.
+            // (Production builds keep Stockfish's stock semantics: the value
+            // stays set and only an 'info string' diagnostic is emitted.)
+            if (type != "button")
+                currentValue = previousValue;
+#endif
+        }
     }
 
     return *this;

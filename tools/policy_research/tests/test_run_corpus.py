@@ -9,6 +9,7 @@ Run with:  python3 -m unittest discover -s tools/policy_research/tests -v
 
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -144,6 +145,57 @@ class TestCompare(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(issues[0]["differences"], ["missing in run B"])
 
+    def test_extra_position_in_run_b_fails(self):
+        a = {"positions": [{"id": "p1", "bestmove": "e2e4", "rows": []}]}
+        b = {
+            "positions": [
+                {"id": "p1", "bestmove": "e2e4", "rows": []},
+                {"id": "p2", "bestmove": "d2d4", "rows": []},
+            ]
+        }
+        ok, issues = rc.compare_results(a, b)
+        self.assertFalse(ok)
+        self.assertTrue(any("extra position in run B" in d for x in issues for d in x["differences"]))
+
+
+class TestCompletion(unittest.TestCase):
+    FULL_ROW = (
+        "info depth 6 seldepth 8 multipv 1 score cp 40 nodes 500 hashfull 1 "
+        "tbhits 0 pv e2e4 e7e5 g1f3"
+    )
+
+    def test_complete_search_passes(self):
+        self.assertEqual(rc.validate_completion([self.FULL_ROW], 6), [])
+
+    def test_complete_search_with_higher_final_depth_passes(self):
+        deeper = self.FULL_ROW.replace("depth 6", "depth 7")
+        self.assertEqual(rc.validate_completion([deeper], 6), [])
+
+    def test_mate_announcement_passes_without_full_depth(self):
+        row = "info depth 3 seldepth 6 multipv 1 score mate 2 nodes 42 hashfull 1 tbhits 0 pv g1f3 e7e5 f3g5"
+        self.assertEqual(rc.validate_completion([row], 11), [])
+
+    def test_aborted_search_fails(self):
+        # The buffered-quit bug produced exactly this shape: depth 1, zero nodes,
+        # empty PV, then a fallback bestmove.
+        aborted = "info depth 1 seldepth 0 multipv 1 score cp 0 nodes 0 hashfull 0 tbhits 0 pv "
+        problems = rc.validate_completion([aborted], 11)
+        self.assertTrue(problems)
+        joined = " ".join(problems)
+        self.assertIn("no positive node count", joined)
+        self.assertIn("no info row carries a non-empty PV", joined)
+        self.assertIn("final row depth 1 < requested 11", joined)
+
+    def test_no_info_rows_fails(self):
+        self.assertTrue(rc.validate_completion([], 6))
+
+
+class TestEvalResolution(unittest.TestCase):
+    def test_missing_explicit_eval_file_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(SystemExit):
+                rc._resolve_eval_file(Path("/nonexistent-engine"), Path(d), "/nonexistent-net.nnue")
+
 
 class TestIntegration(unittest.TestCase):
     ENGINE = os.environ.get("STOCKFISH_ENGINE")
@@ -171,10 +223,22 @@ class TestIntegration(unittest.TestCase):
         sha = corpus_sha256(canonical)
         args = Args()
         args.corpus = corpus_path
+        args.eval_file = rc._resolve_eval_file(engine, cwd, None)
+        args.build_command = "make build ARCH=x86-64-avx2 (integration test)"
+        self.assertIsNotNone(args.eval_file)
         run_a = execute_run(engine, cwd, corpus, sha, args)
         run_b = execute_run(engine, cwd, corpus, sha, args)
         ok, issues = compare_results(run_a, run_b)
         self.assertTrue(ok, msg=str(issues))
+        # Phase 1 hardening: each root must have completed depth-6 search.
+        for run in (run_a, run_b):
+            pos = run["positions"][0]
+            self.assertTrue(pos["summary"]["pv"], "root search produced no PV")
+            self.assertGreaterEqual(
+                int(re.search(r"depth (\d+)", pos["rows"][-1]).group(1)), args.depth
+            )
+            self.assertGreater(pos["summary"]["nodes"], 0)
+            self.assertIsNotNone(pos["summary"]["score"])
 
 
 if __name__ == "__main__":
