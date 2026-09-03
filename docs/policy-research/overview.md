@@ -10,7 +10,7 @@ tests, exit gates, definition of done).
 |---|---|---|
 | 0 | Architecture inventory and mutation audit | **Complete** — reviewed at commit `d2e8a7dc`; decisions in `architecture-inventory.md` §10 |
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
-| 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; full depth-11 gate **PASSED** (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260903T234319/`) |
+| 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260903T234538/`) |
 | 3 | Observational dataset and calibration baseline | Not started |
 | 4 | Root-level counterfactual experiments | Not started |
 | 5 | Internal counterfactual search sandbox | Not started |
@@ -61,10 +61,12 @@ tests, exit gates, definition of done).
   off vs on#1 vs on#2 passes, search-result equality across all three, decoded
   record-stream equality between on passes, per-root FEN cross-check).
   Recordings land under `tools/policy_research/runs/*research-*/` (git-ignored).
-- Gate evidence (pre-commit, research build of the same tree): full corpus,
-  depth 11, hash 16, 5% sample — search results (bestmove/normalized rows/nodes)
-  identical across off/on/on for all 12 roots; decoded records identical between
-  the on passes; all logs decode clean and match corpus root FENs.
+- Gate evidence (research build of the committed tree, clean banner): full
+  corpus, depth 11, hash 16, 5% sample — search results (bestmove/normalized
+  rows/nodes) identical across off/on/on for all 12 roots; decoded records
+  identical between the on passes; all logs decode clean and match corpus root
+  FENs. Artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-
+  research-20260903T234538/` (git-ignored).
 
 ## Phase 1 hardening (review repair pass)
 
