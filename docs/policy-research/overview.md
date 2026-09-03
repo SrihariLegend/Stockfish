@@ -12,7 +12,7 @@ tests, exit gates, definition of done).
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
 | 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
 | 3 | Observational dataset and calibration baseline | **Complete (schema-derivable subset)** — prefix-free uniform-rate dataset v2 + root-held-out baseline report (protocol P3.2) landed; the P3.1 evaluation review (leaky row-random split + duplicated iterative-deepening prefixes, row-level SEs on 12 roots, non-random cell exclusion, collinear margins, in-sample isotonic fit) was fully addressed. §8.3 history / §8.4 baseline-score calibration and candidate-denominator analyses remain gated on the counterfactual candidate-enumeration schema (Phases 4/5). Strong *generalization* claims need a larger root sample (corpus/v2) |
-| 4 | Root-level counterfactual experiments | Not started |
+| 4 | Root-level counterfactual experiments | **In progress (P4.1 kickoff)** — research-only root force-first override landed (commit `b5ab17f7`), determinism + parity verified, smoke-pilot oracle gap measured on 3 roots (R_norm 0.055–0.924 at fixed depth 14) |
 | 5 | Internal counterfactual search sandbox | Not started |
 | 6 | Oracle / ratio / interaction-gap studies | Not started |
 | 7 | Proof-time survival modeling | Not started |
@@ -22,6 +22,61 @@ tests, exit gates, definition of done).
 | 11 | Conservative engine integration | Not started |
 | 12 | On-policy data generation (DAgger) | Not started |
 | 13 | LMR shadow modeling | Not started |
+
+## Phase 4 — root-level counterfactual experiments
+
+### P4.1 kickoff — research-only root force-first override (`b5ab17f7`)
+
+First engine-side Phase 4 unit (plan §9.1). Research build only; macro-off
+engine source untouched.
+
+- New UCI option `PolicyResearchForceFirstMove` (string, default empty),
+  honored only when the research master switch is on with mode
+  `RootCounterfactual`:
+  - the named legal root move is rotated to the front of the root move order
+    at the start of every root iteration on the main thread (searched first
+    at the new depth);
+  - all remaining root moves keep their relative baseline order and ordinary
+    root/PVS semantics stay intact — this is an explicit order override,
+    never a `searchmoves`-style restriction (plan §9.1);
+  - inactive in `Observational` mode (corpus labels stay baseline-policy
+    conditioned) and when the master switch is off; default option is a
+    strict no-op;
+  - an illegal root move is ignored with a one-time `info string`
+    diagnostic and the search is identical to the no-override search.
+- Hook: `Search::Worker::iterative_deepening()` in `src/search.cpp`
+  (research-gated), main thread only, `multiPV == 1`.
+- 5 engine-gated integration tests (`TestForceFirstRootOrder`): repeat-run
+  determinism of baseline and forced-first searches, node-cost change under
+  a non-best forced first move, illegal-move parity + diagnostic,
+  observational-mode and master-off parity with baseline.
+- Standing zero-regression gate re-verified: macro-off `bench 16 1 10 default
+  depth` = **453 169 nodes** (identical to prior commits); the override code
+  is fully `#ifdef POLICY_RESEARCH`-gated.
+
+Smoke pilot (research build `dev-20260904-b5ab17f7`, fresh process per
+intervention, fixed depth 14, Hash 16, Threads 1; candidates = engine top-4
+MultiPV at depth 10):
+
+| root | C_base | forced-first nodes (best move unchanged vs baseline in every run) | min | R_norm |
+|---|---|---|---|---|
+| c1-d-001 | 43 275 | e2e4 25 317, d2d4 49 065, g1f3 38 603, c2c4 21 146 | 21 146 | 0.511 |
+| c1-v-001 | 20 956 | d4c5 29 994, c4f7 2 233, e1g1 2 482, b1c3 1 600 | 1 600 | 0.924 |
+| c1-t-001 | 26 292 | f1e2 24 839, f1g2 31 976, f3d1 320 781 | 24 839 | 0.055 |
+
+Honest framing (no over-claiming): this is a **necessary-mechanism and
+magnitude smoke check**, not the plan-§9.3–9.6 oracle-gap report. It compares
+fixed-depth node cost only (no wall time, no §9.4 reference-quality
+confirmation at depth), the candidate set is the engine's own top-k at a
+shallower depth (self-referential — an upper bound on ordering opportunity),
+and 3 roots cannot carry bootstrap confidence intervals. Notably, forcing the
+baseline's own best move first does *not* reproduce baseline cost (e.g.
+c1-d-001: 25 317 vs 43 275): the always-first semantics removes the
+best-move-switch churn the baseline pays for, which is itself an ordering
+cost worth quantifying later. Next increments: P4.2 reference-result study
+(§9.3/§9.4 measurements incl. wall time and deeper/reduced-selectivity
+reference), then a larger root sample before oracle-gap claims
+(`tools/policy_research/p4_force_first.py` reproduces the pilot table).
 
 ## Phase 3 — observational dataset and calibration baseline
 

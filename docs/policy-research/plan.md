@@ -978,6 +978,40 @@ Do not choose a universal pass threshold in code. Report:
 
 ---
 
+**Status — P4.1 kickoff landed (engine work `b5ab17f7`, docs round follows).**
+§9.1's override exists as a research-only unit:
+`PolicyResearchForceFirstMove` (UCI string, default empty; honored only with
+`PolicyResearch` on + mode `RootCounterfactual`, main thread, `multiPV == 1`;
+hook at the per-iteration start in `Worker::iterative_deepening()`,
+`#ifdef POLICY_RESEARCH`-gated). It rotates the named legal root move to the
+front of `rootMoves` before the PV loop each root iteration — searched first
+at the new depth, all remaining moves in their relative baseline order, no
+`searchmoves` restriction — and is deliberately inert in `Observational`
+mode and when the master switch is off. Illegal root moves are ignored with
+an `info string` diagnostic (search identical to no override).
+
+Verified on the research build (`dev-20260904-b5ab17f7`):
+
+- Repeat runs are deterministic for baseline and forced-first searches;
+  forcing a non-best move changes node cost at fixed depth (startpos depth 8:
+  2 712 → 8 466 nodes) while the final best move is unchanged.
+- Observational-mode and master-off runs are node-identical to baseline;
+  macro-off `bench 16 1 10 default depth` = 453 169 nodes (standing gate
+  unchanged).
+- 5 engine-gated integration tests (`TestForceFirstRootOrder`, engine 90-test
+  suite green).
+
+Smoke pilot (`tools/policy_research/p4_force_first.py`, depth 14, candidates
+= engine top-4 MultiPV at depth 10, fresh process per intervention):
+R_norm = min_m C(r|m first) gap over C_base of **0.511 (c1-d-001), 0.924
+(c1-v-001), 0.055 (c1-t-001)**; final best move agreed with baseline in every
+forced run. Caveats: fixed-depth node cost only (no wall-time/reference
+measurements of §9.3–9.5), candidate set is self-referential, 3 roots cannot
+support the §9.6 CI claims. P4.2 must add the §9.3 measurement set, a §9.4
+reference result, and a larger root sample.
+
+---
+
 # 10. Phase 5: internal counterfactual search sandbox
 
 Most difficult engineering phase. Implement only after the mutation audit.

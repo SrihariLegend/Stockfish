@@ -268,3 +268,55 @@ change, `src/stockfish` stayed macro-off.
    plus the report tool's git commit and worktree-dirty file count. Report
    artifacts are regenerated after the tooling commit so the recorded tool
    commit is clean and matches the committed reporter.
+
+## Protocol P4.1 (executed 2026-09-04) — root force-first smoke pilot
+
+Purpose: verify the §9.1 research-only root-order override mechanism
+(determinism, parity, diagnostic) and take a first, honestly-framed look at
+the magnitude of fixed-depth node-cost ordering sensitivity before committing
+to the full §9.3–9.6 oracle-gap study.
+
+Engine build: `make research-build ARCH=x86-64-avx2` on commit `b5ab17f7`;
+banner `dev-20260904-b5ab17f7` (clean worktree). Tool:
+`tools/policy_research/p4_force_first.py`. Common state per intervention:
+fresh engine process, same FEN, Hash 16, Threads 1, MultiPV 1, fixed depth,
+no time limit (plan §9.2). Candidate set: engine's own top-4 MultiPV listing
+at depth 10 (self-referential — an upper bound on ordering opportunity).
+
+Verification results:
+
+1. **Determinism**: baseline and forced-first repeat runs are node/bestmove
+   identical (startpos depth 8 baseline 2 712 nodes; forced `d2d4` first
+   8 466, both repeated exactly).
+2. **Effect**: forcing a non-best first move changes fixed-depth node cost;
+   forcing the baseline best first does *not* reproduce baseline cost
+   (startpos depth 14: 25 317 vs 43 275) because the always-first semantics
+   removes baseline's best-move-switch churn.
+3. **Parity gates**: observational-mode runs and master-switch-off runs with
+   the option set are node-identical to baseline; an illegal force move
+   (`e2e5` from startpos) leaves the search unchanged and emits exactly one
+   `info string` diagnostic; macro-off `bench 16 1 10 default depth` =
+   453 169 nodes (standing zero-regression gate unchanged).
+4. **Fixed-depth-14 node costs** (forced-first candidates; the final best
+   move matched baseline in every run):
+
+   | root | C_base (best) | forced-first nodes | R_norm |
+   |---|---|---|---|
+   | c1-d-001 | 43 275 (e2e4) | e2e4 25 317, d2d4 49 065, g1f3 38 603, c2c4 21 146 | 0.511 |
+   | c1-v-001 | 20 956 (d4c5) | d4c5 29 994, c4f7 2 233, e1g1 2 482, b1c3 1 600 | 0.924 |
+   | c1-t-001 | 26 292 (f1e2) | f1e2 24 839, f1g2 31 976, f3d1 320 781 | 0.055 |
+
+   Read: at these roots a different first move can be ~10× cheaper (c1-v-001)
+   or ~12× more expensive (c1-t-001 `f3d1`) than the baseline ordering at
+   the same depth; the baseline's own best move is not always the cheapest
+   first move (c1-d-001, c1-v-001), and where the baseline lead move is
+   already cheapest the gap is small (c1-t-001).
+
+Limitations (no over-claiming): fixed-depth node cost only — no wall-time
+measurement, no §9.4 reference-quality confirmation (depth-14 results could
+be re-checked by deeper or reduced-selectivity reference before any run is
+called oracle), 3 roots cannot support the §9.6 bootstrap-CI aggregates, and
+the candidate set is engine-self-referential. Integration tests
+(`TestForceFirstRootOrder`, 5 cases, engine-gated) keep the mechanism
+regression-covered. P4.2 must add the §9.3 measurement set (alpha raise,
+re-search, wall time), a §9.4 reference result, and a larger root sample.

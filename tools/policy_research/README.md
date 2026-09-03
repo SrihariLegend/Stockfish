@@ -11,6 +11,7 @@ tools/policy_research/
   run_corpus.py                 deterministic runner + manifest writer + verifier
   decode_research_log.py        binary log decoder / validator / compare / JSONL
   p3_dataset.py                 Phase 3 dataset collector + baseline reporter
+  p4_force_first.py             Phase 4 force-first root-order pilot driver
   corpora/corpus-v1.json        versioned root corpus (schema corpus/v1)
   tests/test_run_corpus.py      unit tests (stdlib unittest)
   tests/test_p3_dataset.py      unit tests (stdlib unittest)
@@ -232,6 +233,27 @@ STOCKFISH_ENGINE=$PWD/src/stockfish \
 
 The decoder tests are engine-free (synthetic logs); the full `verify-research`
 gate doubles as the end-to-end engine test for Phase 2.
+
+## Phase 4 root force-first pilot (`p4_force_first.py`)
+
+Requires a `POLICY_RESEARCH` build (option `PolicyResearchForceFirstMove` only
+exists there). Runs each candidate in its own fresh process with the research
+master switch on, mode `root_counterfactual`, fixed depth, Hash 16,
+Threads 1, and reports baseline vs forced-first node cost plus best-move
+agreement (plan §9.2 common state).
+
+```bash
+make -C src research-build ARCH=x86-64-avx2
+STOCKFISH_ENGINE=$PWD/src/stockfish \
+  python3 tools/policy_research/p4_force_first.py \
+    --depth 14 --k 4 --ids c1-d-001,c1-v-001,c1-t-001 --out /tmp/p4kickoff.json
+```
+
+Pilot semantics and limits are documented in `overview.md` (P4.1) and
+`experiment-protocols.md` (Protocol P4.1): the candidate set is the engine's
+own top-k at a shallower depth (self-referential upper bound), and the tool
+measures fixed-depth node cost, not yet the plan-§9.3 wall-time / reference
+measurements.
 
 ## Extending the corpus
 
