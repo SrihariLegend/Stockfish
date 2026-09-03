@@ -84,6 +84,18 @@ re-run collection with the extended record types.
 
 ## Protocol P3.1 (executed 2026-09-04) — observational dataset v1
 
+> **Superseded by P3.2 (same day).** The P3.1 evaluation protocol was reviewed
+> and found to (1) randomly split rows across the same roots/search trees and
+> include exact iterative-deepening prefix duplicates (~28.9% of rows are
+> byte-identical repeats across the 14/17/20 target-depth runs); (2) treat 10M+
+> rows as independent observations when only 12 root positions are the sample
+> unit; (3) exclude the non-random cell `c1-d-004@20`; (4) use a logistic +
+> isotonic fit whose margins are collinear (`margin_alpha == 1 - margin_beta`)
+> and whose isotonic calibrator was fit on in-sample logistic predictions;
+> and (5) overstate an attempt-cost sum and a 0.0005 isotonic ECE as unique
+> node totals / robust calibration. The v1 dataset directory was removed after
+> P3.2 landed; the v1 numbers below are preserved as the historical record.
+
 Purpose: collect the behavior-conditioned quiet-move survival dataset that
 `research-data/1` can produce (per Protocol P3.x above) and generate the
 calibration baseline report (plan §8.1/§8.2 derivable subset). Tools:
@@ -127,5 +139,72 @@ change; `src/stockfish` stayed macro-off.
    isotonic ECE 0.0005, Brier 0.0616, log-loss 0.2083.
 8. Artifacts: `tools/policy_research/runs/
    policy-research-corpus-v1-d14-17-20-h16-rate1.0-dataset-20260904T010204/`
-   (git-ignored). Regenerate everything if the executable is ever rebuilt
-   (determinism is per executable).
+   (git-ignored; removed when P3.2 landed). Regenerate everything if the
+   executable is ever rebuilt (determinism is per executable).
+
+## Protocol P3.2 (executed 2026-09-04) — prefix-free uniform-rate dataset v2
+
+Purpose: address every methodological finding of the P3.1 review and produce
+an honest, root-aware calibration baseline. Tools:
+`tools/policy_research/p3_dataset.py` (`collect`, then `report`); no engine
+change, `src/stockfish` stayed macro-off.
+
+1. Executable and corpus identical to P3.1: research build of committed tree
+   `c9878d11` (banner `Stockfish dev-20260904-c9878d11`), `make -C src
+   research-build ARCH=x86-64-avx2`; corpus-v1 (SHA-256
+   `019667e200c48ea0b69ce374418b4b09634e0c6bc08be6af172d3cad56eab46a`).
+2. Dataset design — **prefix-free and uniform**: one fresh process/log run per
+   corpus root at fixed `go depth` 20 and node-sample rate 0.5 (seed 101,
+   `PolicyResearchSampleRate 0.5`). A deeper target run replays shallower
+   iterations byte-identically, so re-collecting shallow targets (P3.1's
+   14/17/20 ladder) only duplicated rows; P3.2 takes the single deepest run
+   per root, making every row unique by construction. Rate 0.5 is uniform
+   across roots, so `c1-d-004@20` now fits (3 103 654 records < the 4 194 304
+   hard cap) — **no excluded cells**. Every row records
+   `node_weight = 1 / sample_rate`. Other settings as P3.1 (hash 16, MultiPV
+   1, one thread, Syzygy cleared, mode `observational`, `MaxRecords
+   2147483647`, policy `baseline-observational-v1`, eval = engine default).
+3. Volume: 12 runs in ~111 s wall; 2 135 633 decision rows and 5 607 088
+   attempt rows; engine root-search totals 19 720 628 nodes; zero overflow,
+   zero exclusions, zero ABORTED_STOP rows (outcomes 1/2 exact). Every log
+   decodes and cross-checks RUN_START/ROOT_START as in P3.1. Artifacts:
+   `tools/policy_research/runs/
+   policy-research-corpus-v1-d20-h16-rate0.5-dataset-20260904T014612/`
+   (git-ignored; manifest records `collection_protocol` and `sample_rate`).
+4. Report (`research-baseline-report/2`) changes that address the review:
+   - **Root-aware statistics**: every rate/cost table reports pooled numbers
+     alongside between-root macro columns (`n_roots`, `macro_mean`,
+     `macro_sd`, `macro_min`, `macro_max`); row-level SE/CI columns are gone.
+   - **Grouped calibration**: logistic (ridge on standardized features,
+     unpenalized intercept, convergence reported) is fit on the
+     development-set roots; PAV-isotonic is fit on the validation-set roots;
+     every metric is evaluated only on the test-set roots (n = 3), pooled and
+     macro. `margin_alpha` is dropped (exactly `1 - margin_beta` at
+     null-window nodes). Standardized coefficients and reliability tables are
+     reported.
+   - **Node-level section**: attempts are joined onto their decision nodes
+     (1 507 083 nodes with ≥1 searched quiet move of 2 135 633 sampled):
+     share of nodes whose quiet loop ends in a quiet cutoff, quiet-cutoff
+     ordinal distribution, wasted-before-cut and non-cutting-node quiet costs
+     by remaining depth.
+   - **Honest node-cost wording**: `nodes_consumed` is the *local*, nested
+     per-attempt subtree count; the attempt-cost sum is overlapping, not
+     unique engine work (engine root-search totals are reported separately).
+5. Headline results (behavior-policy-conditioned; not unbiased for unsearched
+   moves): statuses OBSERVED_FAIL_HIGH 556 059 (9.92%) and OBSERVED_FAIL_LOW
+   5 051 029; quiet-ordinal-1 cutoff 29.2% pooled (macro 31.3 ± 7.8%); quiet
+   TT-move cutoff rate 69.7% (macro 70.1 ± 5.1%) vs 6.7% for non-TT quiet
+   moves; re-search rate 2.39% (re-searched fail-lows: mean 69.9, median 25
+   nodes); node level: 37% of
+   nodes with a quiet attempt end in a quiet cutoff (root span 29–56%) and
+   79.1% of those cutoffs happen at the first quiet attempt. Test-root
+   calibration (847 222 completed attempts): full-model AUC 0.9360 (macro
+   0.932 ± 0.011); validation-fitted isotonic gives a small honest gain over
+   logistic — Brier 0.0605 → 0.0598, log-loss 0.2030 → 0.2015, ECE10 0.0195
+   → 0.0176 — nothing like the v1 in-sample 0.0005 ECE. Ablations: ordinal
+   0.865 / tt 0.779 / context 0.812 AUC.
+6. Remaining limitation, documented in the report: 12 corpus roots (3 test
+   roots) is a small cluster count; the macro columns quantify the between-
+   root spread but cannot substitute for a larger root sample. A larger,
+   game-diverse corpus (corpus/v2) is a prerequisite before strong
+   generalization claims (tracked in plan.md §8.5/§12.6).

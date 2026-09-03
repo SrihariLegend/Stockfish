@@ -11,7 +11,7 @@ tests, exit gates, definition of done).
 | 0 | Architecture inventory and mutation audit | **Complete** — reviewed at commit `d2e8a7dc`; decisions in `architecture-inventory.md` §10 |
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
 | 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
-| 3 | Observational dataset and calibration baseline | **Complete (schema-derivable subset)** — dataset v1 + baseline report at `e77f94a6` (protocol P3.1); §8.3 history / §8.4 baseline-score calibration and candidate-denominator analyses are gated on counterfactual candidate enumeration (Phase 4/5 schema) |
+| 3 | Observational dataset and calibration baseline | **Complete (schema-derivable subset)** — prefix-free uniform-rate dataset v2 + root-held-out baseline report (protocol P3.2) landed; the P3.1 evaluation review (leaky row-random split + duplicated iterative-deepening prefixes, row-level SEs on 12 roots, non-random cell exclusion, collinear margins, in-sample isotonic fit) was fully addressed. §8.3 history / §8.4 baseline-score calibration and candidate-denominator analyses remain gated on the counterfactual candidate-enumeration schema (Phases 4/5). Strong *generalization* claims need a larger root sample (corpus/v2) |
 | 4 | Root-level counterfactual experiments | Not started |
 | 5 | Internal counterfactual search sandbox | Not started |
 | 6 | Oracle / ratio / interaction-gap studies | Not started |
@@ -26,49 +26,72 @@ tests, exit gates, definition of done).
 ## Phase 3 — observational dataset and calibration baseline
 
 - New tool `tools/policy_research/p3_dataset.py` (`collect` / `report`):
-  full-rate (`PolicyResearchSampleRate 1.0`) corpus collection at fixed depths
-  with a fresh engine process and log per (depth, root), decode + RUN_START/
-  ROOT_START cross-checks per run (same conventions as `verify-research`), and
-  per-root JSONL rows: one **attempt row per searched quiet move** at sampled
-  eligible nodes (decision features copied inline for self-contained modeling)
-  plus a decisions table carrying the FENs.
-- Dataset v1 (executed protocol P3.1, engine = research build of `c9878d11`):
-  corpus-v1 at depths 14/17/20, hash 16, rate 1.0, seed 101, policy
-  `baseline-observational-v1`; **35 runs, 4 097 558 decisions, 10 469 036
-  attempt rows**, 93.4M nodes consumed by the attempts, ~3.3 min wall.
-  Artifacts under `tools/policy_research/runs/
-  policy-research-corpus-v1-d14-17-20-h16-rate1.0-dataset-20260904T010204/`
-  (git-ignored), incl. `manifest.json` (provenance + exclusions) and
+  uniform-rate corpus collection with a fresh engine process and log per
+  (depth, root), decode + RUN_START/ROOT_START cross-checks per run (same
+  conventions as `verify-research`), and per-root JSONL rows: one **attempt
+  row per searched quiet move** at sampled eligible nodes (decision features
+  copied inline for self-contained modeling) plus a decisions table carrying
+  the FENs. Every row records `node_weight = 1/sample_rate`.
+- Dataset v2 (protocol P3.2, engine = research build of `c9878d11`): one
+  run per corpus root at depth 20, node-sample rate 0.5, hash 16, seed 101,
+  policy `baseline-observational-v1`; **12 runs, 2 135 633 decisions,
+  5 607 088 attempt rows**, ~2 min wall. The design is **prefix-free and
+  uniform**: single deepest run per root (a deeper run replays shallower
+  iterations byte-identically, so P3.1's 14/17/20 ladder triplicated ~29% of
+  rows — now impossible by construction) and rate 0.5 is uniform across all
+  roots, so the previously excluded `c1-d-004@20` cell fits (3 103 654
+  records < the engine hard cap). **No excluded cells, zero overflow, zero
+  ABORTED_STOP rows.** Artifacts under `tools/policy_research/runs/
+  policy-research-corpus-v1-d20-h16-rate0.5-dataset-20260904T014612/`
+  (git-ignored): `manifest.json`, `logs/`, `rows/`, and
   `baseline-report.{md,json}`.
-- One cell excluded (`c1-d-004@20`): the full-rate (root, depth-20) record
-  volume exceeds the engine's per-run hard cap (4 194 304 records / 256 MiB),
-  a physical `research-data/1` limit; recorded in the manifest as
-  `excluded_cells`. No cap overflow occurred in any collected run.
-- Zero censoring in the corpus protocol: ABORTED_STOP rows = 0 (fixed-depth
-  single-`go` searches never hit a stop condition), so outcome 1 vs 2 are exact
-  for these rows.
+- The superseded P3.1 dataset (depths 14/17/20 at rate 1.0, 11 GB, ~29%
+  duplicate prefixes, one excluded cell) was removed after its review
+  findings were fixed; its numbers are preserved in the Protocol P3.1 record
+  in `experiment-protocols.md`.
+- Report v2 (`research-baseline-report/2`) fixes, addressing the review:
+  every rate/cost table reports pooled numbers **plus between-root macro
+  columns** (roots are the sample unit — 12 of them — not the 5.6M rows);
+  **grouped calibration** (logistic fit on development-set roots, isotonic
+  fit on validation-set roots, metrics only on test-set roots); features are
+  standardized, the intercept is unpenalized, `margin_alpha` is dropped as
+  exactly `1 - margin_beta` at null-window nodes, and coefficients +
+  convergence are reported; an **isotonic fit on validation roots** replaces
+  the in-sample fit; a **node-level section** joins attempts to their
+  decision nodes; node-count wording distinguishes local nested attempt
+  costs from unique engine root-search totals (19 720 628 nodes across the
+  runs).
 - Baseline headline numbers (behavior-policy-conditioned — the engine's own
-  policy at sampled nodes, **not** unbiased for unsearched moves): overall
-  cutoff rate 11.63%; TT-move cutoff success 71.1% vs 7.4% for non-TT moves;
-  re-search rate 2.22%; cutoff rate monotone in quiet ordinal (33.1% at k=1 →
-  0.48% at k=12); fail-low mean cost 5.8 nodes (median 1), monotone in
-  remaining depth (1.28 at depth [1,3) → 22.8 at depth ≥13).
-- Cutoff calibration of the recorded context features (logistic ridge on
-  ordinal/depth/ply/iter/flags/margins, then PAV-isotonic on the logistic
-  output): held-out test 3.14M rows, logistic AUC 0.9165 / Brier 0.0621 /
-  log-loss 0.2114 / ECE 0.0111; isotonic-calibrated ECE 0.0005, Brier 0.0616.
-  History/baseline-score calibration (§8.3) remains out of scope for
-  `research-data/1` (requires candidate enumeration; see Protocol P3.x).
+  policy at sampled nodes, **not** unbiased for unsearched moves): cutoff
+  rate 9.92% of completed attempts; first-quiet-move cutoff 29.2% pooled
+  (macro 31.3 ± 7.8% across roots); quiet TT-move cutoff 69.7% vs 6.7%
+  non-TT; re-search rate 2.39%; node level: 37% of nodes with ≥1 searched
+  quiet move end in a quiet cutoff (root span 29–56%), 79.1% of those at the
+  first quiet attempt.
+- Test-root calibration (3 held-out roots, 847 222 completed attempts):
+  full-model AUC 0.936 (macro 0.932 ± 0.011); validation-fitted isotonic
+  yields a small honest gain over logistic — Brier 0.0605 → 0.0598,
+  log-loss 0.2030 → 0.2015, ECE10 0.0195 → 0.0176 — not the in-sample
+  0.0005 ECE of the v1 report. Ablations: ordinal 0.865 / tt-only 0.779 /
+  context-only 0.812 AUC. History/baseline-score calibration (§8.3/§8.4)
+  remains out of scope for `research-data/1` (requires candidate
+  enumeration; see experiment-protocols.md).
+- Documented limitation: 12 corpus roots (3 test roots) is a small cluster
+  count; macro columns quantify between-root spread but cannot substitute
+  for a larger root sample. Growing corpus/v2 (many game-diverse positions,
+  split by source game) is a prerequisite before strong generalization
+  claims.
 - Tools/docs only: no engine change, macro-off production build untouched.
-- Unit suite grows to 68 tests (13 new in `tests/test_p3_dataset.py` covering
-  FEN piece lookup, row derivation, buckets/status tables, weighted PAV, the
-  full calibration fit, markdown rendering, and a report smoke test).
+- Unit suite: 73 tests (1 skipped), incl. grouped macro tables, node-frame
+  invariants, grouped root-held-out calibration, weighted PAV, report smoke
+  over a three-set synthetic dataset.
 - Phase 3 exit gate (§8.5): met for the `research-data/1`-derivable subset —
-  the report at `baseline-report.{md,json}` is reproducible from the manifest
+  `baseline-report.{md,json}` is reproducible from the manifest
   (per-executable determinism) and establishes quality/calibration of the
-  recorded context heuristics without claiming policy improvement. The plan's
-  full §8.2–§8.4 lists need candidate enumeration + MovePicker baseline
-  features (counterfactual schema, Phases 4/5) and are tracked there.
+  recorded context heuristics without claiming policy improvement. The
+  plan's full §8.2–§8.4 lists need candidate enumeration + MovePicker
+  baseline features (counterfactual schema, Phases 4/5) and are tracked
+  there.
 
 ## Phase 2 — engine-side scaffold progress
 

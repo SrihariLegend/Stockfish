@@ -154,14 +154,16 @@ committed.
 
 ## Phase 3 dataset collection and baseline report
 
-`p3_dataset.py` turns full-rate observational logs into one modeling row per
-**searched quiet move** at sampled eligible nodes, then produces the
+`p3_dataset.py` turns uniform-rate observational logs into one modeling row
+per **searched quiet move** at sampled eligible nodes, then produces the
 calibration-baseline report. Requires `numpy` and `pandas` (no sklearn).
 
 ```bash
-# collect at fixed depths with a fresh engine process/log per (depth, root)
+# collect one fresh-process run per (depth, root); dataset protocol P3.2:
+# prefix-free and uniform — a single target depth per root (iterative-
+# deepening prefixes are not re-collected) at one node-sample rate
 python3 tools/policy_research/p3_dataset.py collect \
-    --engine src/stockfish --depths 14,17,20 --rate 1.0 --seed 101 \
+    --engine src/stockfish --depths 20 --rate 0.5 --seed 101 \
     --hash 16
 # aggregate into baseline-report.{md,json} in the dataset dir
 python3 tools/policy_research/p3_dataset.py report <dataset-dir>
@@ -173,14 +175,22 @@ Collection details:
   request (same conventions as `verify-research`);
 - rows split per root into `rows/d<depth>/root-<id>.attempts.jsonl`
   (self-contained modeling rows) and `...decisions.jsonl` (the decision FENs);
-- a run whose full-rate record volume exceeds the engine's per-run hard cap
-  (4 194 304 records / 256 MiB) cannot be held by `research-data/1` and must be
-  excluded explicitly (`--exclude-cells c1-d-004@20`), which is recorded in
-  `manifest.json`; a cap hit inside a run is always an ERROR_RECORD and is
-  never silently accepted as a dataset row;
-- `report` implements ridge-IRLS logistic calibration and PAV-isotonic
-  calibration over binned training predictions (numpy only). History-score
-  calibration is out of scope for `research-data/1` (see
+  every row records `node_weight = 1/sample_rate` so non-uniform rate designs
+  can be aggregated without bias;
+- collecting two target depths for the same root re-collects byte-identical
+  iterative-deepening prefixes (a deeper run replays shallower iterations) and
+  is warned against; the P3.2 report assumes prefix-free rows;
+- a run whose record volume would exceed the engine's per-run hard cap
+  (4 194 304 records / 256 MiB) cannot be held by `research-data/1`; lower the
+  uniform sample rate rather than excluding a cell (P3.2 has no exclusions). A
+  cap hit inside a run is always an ERROR_RECORD and is never silently
+  accepted as a dataset row;
+- `report` aggregates root-aware statistics (pooled numbers plus between-root
+  `macro_*` columns; roots, not rows, are the sample unit), a decision-joined
+  node-level section, and grouped cutoff calibration (ridge-IRLS logistic on
+  standardized features fit on development-set roots, PAV-isotonic fit on
+  validation-set roots, metrics evaluated on test-set roots only; numpy only).
+  History-score calibration is out of scope for `research-data/1` (see
   `docs/policy-research/experiment-protocols.md` Protocol P3.x).
 
 Artifacts from a run must be regenerated whenever the executable is rebuilt

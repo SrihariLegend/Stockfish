@@ -772,18 +772,24 @@ to the counterfactual phases (see experiment-protocols.md P3.x). Until then,
 history/baseline-score calibration (§8.3) cannot be grounded in `research-data/1`
 alone.
 
-Status — **Protocol P3.1 executed (2026-09-04)**: dataset v1 collected with
-`tools/policy_research/p3_dataset.py collect` over corpus-v1 at fixed depths
-14/17/20, hash 16, `PolicyResearchSampleRate 1.0` (every eligible NonPV node),
-seed 101, policy `baseline-observational-v1`, one fresh engine process/log per
-(depth, root) run of the research build of `c9878d11`. 35 runs, 4 097 558
-DECISION_POINT rows and 10 469 036 MOVE_ATTEMPT rows (93.4M nodes consumed).
-Artifacts and the baseline report live under `tools/policy_research/runs/
-policy-research-corpus-v1-d14-17-20-h16-rate1.0-dataset-20260904T010204/`
-(manifest schema `research-dataset/1`, git-ignored). One (root, depth) cell
-(`c1-d-004@20`) is excluded: its full-rate record volume exceeds the engine's
-per-run hard cap, a physical `research-data/1` limit (see experiment-protocols.md
-Protocol P3.1). No ABORTED_STOP rows occurred in any corpus run.
+Status — **Protocol P3.2 executed (2026-09-04)**: the P3.1 dataset v1 was
+reviewed and found methodologically flawed for its claims (row-random split
+across shared trees, ~28.9% exact iterative-deepening prefix duplicates, row-
+level SEs over only 12 roots, non-random cell exclusion, collinear margins,
+in-sample isotonic fit). Dataset v2 collects with
+`tools/policy_research/p3_dataset.py collect` one fresh-process run per corpus
+root at fixed depth 20 and `PolicyResearchSampleRate 0.5` (uniform across
+roots, seed 101, policy `baseline-observational-v1`) of the research build of
+`c9878d11`: **12 runs, 2 135 633 DECISION_POINT rows, 5 607 088 MOVE_ATTEMPT
+rows** (~2 min wall). Prefix-free by construction (a deeper run replays
+shallower iterations byte-identically, so only the deepest run per root is
+collected) and no excluded cell — `c1-d-004@20` fits at rate 0.5 (3 103 654
+records < the engine's hard cap). No ABORTED_STOP rows occurred. Artifacts and
+the baseline report live under `tools/policy_research/runs/
+policy-research-corpus-v1-d20-h16-rate0.5-dataset-20260904T014612/`
+(manifest schema `research-dataset/1`, git-ignored). The superseded 11 GB v1
+dataset directory was removed (its numbers are preserved in
+experiment-protocols.md Protocol P3.1).
 
 ## 8.2 Initial observational analyses
 
@@ -825,17 +831,25 @@ Report:
 
 Do not treat the observational calibration result as unbiased for unsearched moves. Label it explicitly as behavior-policy-conditioned.
 
-Status — the P3.1 baseline report covers every §8.2 item derivable from
+Status — the P3.2 baseline report covers every §8.2 item derivable from
 `research-data/1`: status distribution (cutoff/fail-low/aborted), cutoff rate
-and fail-low cost by quiet ordinal, remaining depth, ply, margin, and node-type
-flags, re-search rate, and TT-move success; `window` is 1 by construction at
-sampled nodes. Reduction rates are not derivable (no LMR fields in
-`research-data/1`; LMR shadow modeling is Phase 13). Cutoff calibration is
-performed against the recorded context features (logistic + isotonic; held-out
-ECE 0.0005, Brier 0.0616, AUC 0.916 on 3.14M test rows) and is explicitly
+and fail-low cost by quiet ordinal, remaining depth, ply, margin, and node-
+type flags, re-search rate, and TT-move success — every table with pooled
+numbers plus between-root macro columns (roots, not rows, are the sample
+unit). A node-level section joins attempts to their decision nodes (share of
+nodes ending in a quiet cutoff, cutoff-ordinal distribution, wasted-before-cut
+costs). `window` is 1 by construction at sampled nodes. Reduction rates are not
+derivable (no LMR fields in `research-data/1`; LMR shadow modeling is Phase
+13). Cutoff calibration is grouped by corpus set: logistic (ridge on
+standardized features, unpenalized intercept) fit on development-set roots,
+PAV-isotonic fit on validation-set roots, all metrics evaluated on test-set
+roots only (n = 3, 847 222 completed attempts): full-model AUC 0.936 (macro
+0.932 ± 0.011); isotonic gives a small honest out-of-sample gain (Brier 0.0605
+→ 0.0598, ECE10 0.0195 → 0.0176). All numbers are explicitly
 behavior-policy-conditioned. §8.3 history calibration and baseline-score
 calibration require MovePicker baseline features and candidate enumeration
-(counterfactual schema).
+(counterfactual schema). A larger root sample (corpus/v2) is the prerequisite
+before strong generalization claims.
 
 ## 8.4 Cheap baselines
 
