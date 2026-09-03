@@ -189,7 +189,28 @@ Collection details:
   `macro_*` columns; roots, not rows, are the sample unit), a decision-joined
   node-level section, and grouped cutoff calibration (ridge-IRLS logistic on
   standardized features fit on development-set roots, PAV-isotonic fit on
-  validation-set roots, metrics evaluated on test-set roots only; numpy only).
+  validation-set roots, metrics evaluated on test-set roots only; numpy only;
+  report schema `research-baseline-report/3`). The report additionally:
+  - reports a **within-node reordering probe** per model (does the fit prefer
+    the observed quiet cutoff move over the fail-low predecessors the
+    baseline searched at the same node? a necessary-condition probe, not a
+    counterfactual savings estimate);
+  - fits **row-weighted and root-balanced** objectives side by side (equal
+    full-rate mass per corpus root) with coefficient deltas, because one
+    development root can dominate a row-weighted fit;
+  - adds per-bin `gap` columns to the reliability tables with a worst-bin
+    |gap| headline (pooled ECE hides local gaps);
+  - shows a **per-root volume table** (attempt rows, per-set shares, engine
+    nodes, wall ms);
+  - honors per-row `node_weight` (IPW) for pooled attempt-level rates and
+    both calibration objectives when a dataset is non-uniform — uniform
+    datasets take a fast path that reproduces the unweighted numbers
+    exactly — and labels sampled row counts as recorded;
+  - sizes the **observational opportunity accounting** (wasted-before-cut,
+    no-quiet-cut loop cost, TT-fail-low and re-search costs as shares of
+    local fail-low cost; descriptive, not causal);
+  - records provenance (research binary banner-embedded commit, report
+    tool git commit and worktree-dirty state).
   History-score calibration is out of scope for `research-data/1` (see
   `docs/policy-research/experiment-protocols.md` Protocol P3.x).
 

@@ -241,6 +241,9 @@ def _synthetic_cal_df(seed=11):
                 "ply": 12, "improving": False, "tt_hit": False,
                 "tt_move_present": False, "gives_check": False,
                 "is_tt_move": False, "margin_beta": np.round(300 * lo).astype(int),
+                # node identity + local cost (within-node probe inputs)
+                "root_depth": 9, "node_serial": np.arange(n),
+                "nodes_consumed": rng.integers(1, 9, size=n),
             })
             parts.append(df)
     return pd.concat(parts, ignore_index=True)
@@ -267,6 +270,30 @@ class TestGroupedCalibration(unittest.TestCase):
         self.assertLess(full["isotonic_test"]["pooled"]["n"], design["rows_test"] + 1)
         # reliability tables present
         self.assertGreater(len(full["logistic_reliability_test"]), 0)
+        # within-node reordering probe + root-balanced sensitivity present
+        self.assertIn("reorder_probe_test", full)
+        pr = full["reorder_probe_test"]
+        self.assertIn("pairs", pr)
+        self.assertIn("node_above_all_share", pr)
+        rb = res["root_balanced"]
+        self.assertGreater(rb["logistic_test"]["pooled"]["auc"], 0.70)
+        self.assertIn("coefficient_delta_vs_row", rb)
+        self.assertEqual(len(rb["coefficient_delta_vs_row"]),
+                         1 + len(res["features"]["full"]))
+        # uniform P3.2-style data: no IPW path triggered
+        self.assertFalse(res["weights"]["ipw_non_uniform"])
+
+    def test_grouped_calibration_ipw_non_uniform(self):
+        df = _synthetic_cal_df()
+        df["node_weight"] = np.where(
+            df["position_set"] == "development",
+            np.where(df["position_id"] == "dev1", 2.0, 0.5), 1.0)
+        res = p3._grouped_calibration(df)
+        self.assertTrue(res["weights"]["ipw_non_uniform"])
+        # root-balanced fit still well above chance under non-uniform data
+        self.assertGreater(
+            res["root_balanced"]["logistic_test"]["pooled"]["auc"], 0.70)
+        self.assertIn("reorder_probe_test", res["models"]["full"])
 
     def test_grouped_requires_each_set(self):
         df = _synthetic_cal_df()
@@ -318,6 +345,21 @@ def _synthetic_dataset_dir(tmp):
                     fh.write(_json.dumps(dec, sort_keys=True) + "\n")
 
 
+def _set_node_weights(tmp, wmap):
+    """Rewrite node_weight on attempt rows per root (IPW smoke test)."""
+    for p in sorted(Path(tmp).glob("rows/*/root-*.attempts.jsonl")):
+        rid = p.name.removeprefix("root-").removesuffix(".attempts.jsonl")
+        w = wmap.get(rid)
+        if w is None:
+            continue
+        lines = []
+        for line in p.read_text().splitlines():
+            rec = _json.loads(line)
+            rec["node_weight"] = float(w)
+            lines.append(_json.dumps(rec, sort_keys=True))
+        p.write_text("\n".join(lines) + "\n")
+
+
 class TestReportSmoke(unittest.TestCase):
     def test_report_runs_on_synthetic_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -339,6 +381,171 @@ class TestReportSmoke(unittest.TestCase):
             self.assertIn("calibration", js)
             self.assertIn("calibration_table", js)
             self.assertEqual(js["limitations"]["n_test_roots"], 1)
+            # report/3 additions
+            self.assertEqual(js["schema_version"], "research-baseline-report/3")
+            self.assertTrue(js["weights"]["uniform"])
+            self.assertIn("within_node_probe", js)
+            self.assertIn("root_balanced_sensitivity", js)
+            self.assertIn("coefficient_delta_vs_row", js)
+            self.assertIn("opportunity_accounting", js)
+            self.assertIn("reliability_worst_gap", js)
+            self.assertIn("reorder_probe_test", js["calibration"]["models"]["full"])
+            self.assertIn("Root-balanced sensitivity", mp.read_text())
+
+    def test_report_runs_with_nonuniform_node_weight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _synthetic_dataset_dir(tmp)
+            _set_node_weights(tmp, {"rdev": 1.0, "rval": 3.0, "rtest": 2.0})
+            buf = io.StringIO()
+            import argparse
+            with redirect_stdout(buf):
+                rc = p3.report(argparse.Namespace(dataset=tmp,
+                                                  only_depths=None))
+            self.assertEqual(rc, 0)
+            js = _json.loads((Path(tmp) / "baseline-report.json").read_text())
+            self.assertFalse(js["weights"]["uniform"])
+            self.assertTrue(js["calibration"]["weights"]["ipw_non_uniform"])
+            md = (Path(tmp) / "baseline-report.md").read_text()
+            self.assertIn("node_weight-weighted", md)
+            self.assertIn("Sampling weights", md)
+            self.assertIn("within_node_probe", js)
+
+
+class TestReorderProbe(unittest.TestCase):
+    def test_probe_counts_and_accuracy(self):
+        rows = [
+            # (root, rdepth, node, ordinal, outcome, cost, pred)
+            # root r1 node A: two fail-low predecessors, late cutoff above
+            # both -> model correct
+            ("r1", 1, 1, 1, 2, 5, 0.30),
+            ("r1", 1, 1, 2, 2, 3, 0.40),
+            ("r1", 1, 1, 3, 1, 1, 0.90),
+            # root r1 node B: cutoff at ordinal 1 -> not late
+            ("r1", 1, 2, 1, 1, 2, 0.50),
+            # root r1 node C: late cutoff but model prefers the predecessor
+            ("r1", 1, 3, 1, 2, 9, 0.80),
+            ("r1", 1, 3, 2, 1, 2, 0.20),
+            # root r2 node D: correct
+            ("r2", 1, 1, 1, 2, 4, 0.10),
+            ("r2", 1, 1, 2, 1, 1, 0.60),
+            # root r2 node E: two predecessors, late cutoff above both
+            ("r2", 1, 2, 1, 2, 2, 0.70),
+            ("r2", 1, 2, 2, 2, 1, 0.30),
+            ("r2", 1, 2, 3, 1, 4, 0.90),
+        ]
+        f = pd.DataFrame(rows, columns=["position_id", "root_depth",
+                                        "node_serial", "quiet_ordinal",
+                                        "outcome", "nodes_consumed",
+                                        "pred"])
+        res = p3._reorder_probe(f, f["pred"].to_numpy())
+        self.assertEqual(res["nodes_with_quiet_attempt"], 5)
+        self.assertEqual(res["nodes_quiet_cutoff"], 5)
+        self.assertEqual(res["nodes_late_cutoff"], 4)
+        self.assertEqual(res["pairs"], 6)
+        # A(2 ok), C(1 wrong), D(1 ok), E(2 ok) => 5/6
+        self.assertAlmostEqual(res["pair_acc"], 5.0 / 6.0)
+        self.assertAlmostEqual(res["pair_strict"], 5.0 / 6.0)
+        self.assertAlmostEqual(res["pair_ties"], 0.0)
+        # cost-weighted: (5+3+0+4+2+1)/(5+3+9+4+2+1)
+        self.assertAlmostEqual(res["cost_weighted_acc"], 15.0 / 24.0)
+        # above all predecessors: A yes, C no, D yes, E yes => 3/4
+        self.assertAlmostEqual(res["node_above_all_share"], 0.75)
+        # macro over the two roots: r1 2/3, r2 1
+        self.assertEqual(res["macro"]["pair_acc"]["n_roots"], 2)
+        self.assertAlmostEqual(
+            res["macro"]["pair_acc"]["macro_mean"], 5.0 / 6.0)
+
+    def test_probe_empty_when_no_late_cutoffs(self):
+        f = pd.DataFrame({
+            "position_id": ["r1"] * 3, "root_depth": [1] * 3,
+            "node_serial": [1] * 3, "quiet_ordinal": [1, 2, 3],
+            "outcome": [1, 2, 2], "nodes_consumed": [1, 1, 1],
+        })
+        res = p3._reorder_probe(f, np.array([0.1, 0.2, 0.3]))
+        self.assertEqual(res["nodes_late_cutoff"], 0)
+        self.assertEqual(res["pairs"], 0)
+        self.assertTrue(np.isnan(res["pair_acc"]))
+
+
+class TestWeights(unittest.TestCase):
+    def test_prep_weights_uniform_or_none(self):
+        self.assertIsNone(p3._prep_weights(None))
+        self.assertIsNone(p3._prep_weights(np.ones(10)))
+        self.assertIsNone(p3._prep_weights(np.full(5, 2.5)))
+        w = p3._prep_weights(np.array([1.0, 2.0, 1.0]))
+        np.testing.assert_allclose(w, [1.0, 2.0, 1.0])
+
+    def test_weighted_rate(self):
+        self.assertAlmostEqual(p3._weighted_rate(
+            np.array([1.0, 0.0, 1.0]), np.array([1.0, 1.0, 2.0])), 0.75)
+
+    def test_weighted_quantile_monotone_and_direction(self):
+        x = np.array([1.0, 2.0, 3.0, 100.0])
+        q = np.array([0.1, 0.5, 0.9])
+        a = p3._weighted_quantile(x, np.ones(4), q)
+        self.assertTrue(np.all(np.diff(a) >= 0))
+        # moving all mass to the largest value pushes interior quantiles up
+        c = p3._weighted_quantile(x, np.array([0.0, 0.0, 0.0, 1.0]), q)
+        self.assertGreater(c[1], a[1])
+        self.assertGreater(c[2], a[2])
+
+    def test_macro_rate_ipw_pooled_and_rootwise(self):
+        frame = pd.DataFrame({
+            "position_id": ["a"] * 3 + ["b"] * 3,
+            "ev": [1, 0, 0, 0, 1, 1],
+            "w": [1.0, 1.0, 1.0, 10.0, 10.0, 10.0],
+        })
+        t = p3._macro_rate_table(frame, pd.Series(["x"] * 6),
+                                 frame["ev"] == 1, w=frame["w"])
+        row = t.iloc[0]
+        # pooled IPW = (1 + 20) / (3 + 30)
+        self.assertAlmostEqual(row["event_rate"], 21.0 / 33.0, places=12)
+        # per-root rates remain unweighted means: 1/3 and 2/3
+        self.assertAlmostEqual(row["macro_mean"], 0.5, places=12)
+
+    def test_weighted_logistic_parity_unit(self):
+        rng = np.random.default_rng(3)
+        X = rng.normal(size=(400, 3))
+        p = 1.0 / (1.0 + np.exp(-(X[:, 0] - 0.5 * X[:, 1])))
+        y = (rng.random(400) < p).astype(float)
+        mu, sd = X.mean(0), X.std(0)
+        sd[sd == 0] = 1.0
+        Z = (X - mu) / sd
+        w1 = p3._logistic_irls_std(Z, y)
+        w2 = p3._logistic_irls_std(Z, y, row_w=np.ones(len(y)))
+        np.testing.assert_allclose(w1[0], w2[0], atol=1e-12)
+
+    def test_weighted_logistic_sign_flip_under_imbalance(self):
+        rng = np.random.default_rng(5)
+        z = rng.uniform(-1.0, 1.0, size=1000)
+        y0 = (z > 0).astype(float)
+        y = y0.copy()
+        y[:100] = 1.0 - y0[:100]  # first 100 rows: flipped relation
+        Z = z[:, None]
+        w = np.ones(1000)
+        w[:100] = 60.0
+        c_unw = p3._logistic_irls_std(Z, y)[0][1]
+        c_ipw = p3._logistic_irls_std(Z, y, row_w=w)[0][1]
+        self.assertGreater(c_unw, 0)
+        self.assertLess(c_ipw, 0)
+
+    def test_weighted_isotonic_parity_unit(self):
+        rng = np.random.default_rng(7)
+        p = np.sort(rng.random(500))
+        y = (rng.random(500) < p).astype(float)
+        e1, c1 = p3._fit_isotonic_map(p, y)
+        e2, c2 = p3._fit_isotonic_map(p, y, row_w=np.ones(500))
+        np.testing.assert_allclose(e1, e2)
+        np.testing.assert_allclose(c1, c2)
+
+    def test_root_equal_weights_under_volume_imbalance(self):
+        frame = pd.DataFrame({
+            "position_id": ["big"] * 300 + ["small"] * 30,
+            "node_weight": [2.0] * 330,
+        })
+        w = p3._root_equal_weights(frame)
+        self.assertAlmostEqual(float(w[:300].sum()), 1.0, places=9)
+        self.assertAlmostEqual(float(w[300:].sum()), 1.0, places=9)
 
 
 if __name__ == "__main__":

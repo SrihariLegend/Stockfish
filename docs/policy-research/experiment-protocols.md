@@ -171,7 +171,9 @@ change, `src/stockfish` stayed macro-off.
    `tools/policy_research/runs/
    policy-research-corpus-v1-d20-h16-rate0.5-dataset-20260904T014612/`
    (git-ignored; manifest records `collection_protocol` and `sample_rate`).
-4. Report (`research-baseline-report/2`) changes that address the review:
+4. Report (schema `research-baseline-report/2`; superseded in place by `/3`
+   below — the v3 run reproduced every pooled / macro number of the `/2`
+   artifact byte-identically) changes that address the review:
    - **Root-aware statistics**: every rate/cost table reports pooled numbers
      alongside between-root macro columns (`n_roots`, `macro_mean`,
      `macro_sd`, `macro_min`, `macro_max`); row-level SE/CI columns are gone.
@@ -208,3 +210,61 @@ change, `src/stockfish` stayed macro-off.
    root spread but cannot substitute for a larger root sample. A larger,
    game-diverse corpus (corpus/v2) is a prerequisite before strong
    generalization claims (tracked in plan.md §8.5/§12.6).
+
+**Follow-up review record — report schema `research-baseline-report/3`**
+(read-only expert review of the `/2` artifact; addressed with tool/report/
+/docs changes only — no engine change, macro-off engine untouched):
+
+1. **Within-node reordering probe** (global AUC is not move-ordering
+   quality). For every *late-quiet-cutoff* node on the test roots (quiet
+   loop cut off at ordinal > 1) the fitted model is compared with each
+   fail-low quiet predecessor the baseline actually searched: 16 061 late
+   nodes / 34 933 predecessor pairs / 432 238 local predecessor nodes. Full
+   model pair accuracy 0.0289 (ties 0), cost-weighted 0.0114,
+   node-above-all 0.0380 (macro pair accuracy 0.044 ± 0.049); ablations:
+   ordinal ~0, tt 0.443 (ties 0.780), context 0.500 (ties 0.9999 — all
+   node-level features). Root-balanced full model similar. The report
+   frames this as a necessary-condition probe, not a counterfactual savings
+   estimate (reordering changes search treatment; unsearched candidates are
+   absent), and states that the 0.936 test AUC coexists with ~0 within-node
+   accuracy when the model mirrors the baseline's own ordering.
+2. **Root-balanced sensitivity (fitting objective)**. Row-weighted fits are
+   dominated by one development root (c1-d-004 = 67.5% of development
+   attempts; the per-root volume table makes this visible); the report
+   therefore also fits with every corpus root at equal total full-rate mass
+   (row weight = node_weight / root node_weight sum; weighted
+   standardization, quantile-bin edges and PAV). Ranking is stable across
+   objectives (logistic AUC 0.93598 row-weighted vs 0.93614 balanced) but
+   the probability map is not: balanced logistic Brier 0.05903 / log-loss
+   0.19964 / ECE10 0.01048 improves on pooled test rows, while the
+   balanced isotonic fit (Brier 0.06128 / log-loss 0.20503 / ECE10 0.02612)
+   is worse than the row-weighted isotonic — the PAV map is sensitive to
+   the arbitrary balance of 3 validation roots, so no canonical
+   calibration map is claimed from this corpus. Coefficient deltas:
+   quiet_ordinal −2.92 → −3.40, margin_beta −1.15 → −1.87 (both stronger),
+   total_attempted −0.43 → −0.18 under equal root mass.
+3. **ECE hides local error**: reliability tables now carry a per-bin
+   `gap` column and the worst-bin |gap| headline (logistic +0.202 in
+   [0.3,0.4), 17 549 rows; isotonic +0.142 in [0.3,0.4), 19 577 rows),
+   beside the pooled ECE10 0.0176.
+4. **Sampling-weights (IPW) support**: pooled attempt-level rate tables
+   (ordinal + context buckets, flag rows) and both calibration objectives
+   honor per-row `node_weight` when a dataset is non-uniform (weighted
+   quantiles, IRLS observation weights, weighted PAV); sampled row counts
+   stay labeled as recorded. The uniform P3.2 dataset takes a fast path
+   that reproduces the `/2` numbers exactly. Unit tests cover parity,
+   weighted-quantile behaviour, a crafted sign flip under imbalance, and a
+   non-uniform report smoke run.
+5. **Observational opportunity accounting** (local nested costs, sampled
+   rows): late-cutoff nodes 116 295 = 7.72% of nodes with a quiet attempt
+   (20.9% of quiet-cutoff nodes); wasted-before-cut 3 552 841 local nodes =
+   12.3% of fail-low local cost; no-quiet-cut loop cost 25 426 146 =
+   87.7%; quiet TT-move fail-lows 9 169 463 = 31.6%; re-searched fail-lows
+   2 617 206 = 9.0%. Quiet reordering alone has sparse headroom under this
+   policy; the numbers are descriptive, not causal savings bounds.
+6. **Provenance**: manifest provenance now records the research binary's
+   embedded source commit parsed from its version banner (`c9878d11` — repo
+   HEAD at a dirty worktree is no longer presented as the binary's commit)
+   plus the report tool's git commit and worktree-dirty file count. Report
+   artifacts are regenerated after the tooling commit so the recorded tool
+   commit is clean and matches the committed reporter.

@@ -49,7 +49,8 @@ tests, exit gates, definition of done).
   duplicate prefixes, one excluded cell) was removed after its review
   findings were fixed; its numbers are preserved in the Protocol P3.1 record
   in `experiment-protocols.md`.
-- Report v2 (`research-baseline-report/2`) fixes, addressing the review:
+- Report v2 (`research-baseline-report/2`, superseded in place by `/3` below)
+  fixes, addressing the review:
   every rate/cost table reports pooled numbers **plus between-root macro
   columns** (roots are the sample unit — 12 of them — not the 5.6M rows);
   **grouped calibration** (logistic fit on development-set roots, isotonic
@@ -61,6 +62,26 @@ tests, exit gates, definition of done).
   decision nodes; node-count wording distinguishes local nested attempt
   costs from unique engine root-search totals (19 720 628 nodes across the
   runs).
+- Report v3 (`research-baseline-report/3`) addresses the read-only expert
+  review of v2 with tool/report/docs changes only (no engine change; the
+  v3 run reproduced every pooled/macro number of v2 byte-identically): a
+  **within-node reordering probe** (test roots, 16 061 late-quiet-cutoff
+  nodes / 34 933 predecessor pairs: full-model pair accuracy 0.029,
+  cost-weighted 0.011 — global AUC 0.936 is explicitly *not* move-ordering
+  quality); **root-balanced sensitivity** fits (equal full-rate mass per
+  root; ranking stable, probability map objective-sensitive with 3
+  validation roots, so no canonical calibration map is claimed); reliability
+  tables gain per-bin **`gap`** columns with a worst-bin headline (logistic
+  +0.202 in [0.3,0.4), isotonic +0.142); a **per-root volume table** makes
+  the c1-d-004 = 67.5%-of-development-attempts imbalance visible;
+  **node_weight (IPW) support** is wired into pooled rate tables and both
+  calibration objectives for future non-uniform datasets (uniform P3.2 rows
+  take a byte-identical fast path); an **observational opportunity-
+  accounting** block (wasted-before-cut = 12.3% of fail-low local cost;
+  no-quiet-cut loops = 87.7%; TT-fail-low = 31.6%; re-search = 9.0% —
+  sampled local costs, explicitly not causal bounds); and **provenance**
+  now records the research binary's banner-embedded commit (`c9878d11`)
+  plus the report tool's git commit/worktree state.
 - Baseline headline numbers (behavior-policy-conditioned — the engine's own
   policy at sampled nodes, **not** unbiased for unsearched moves): cutoff
   rate 9.92% of completed attempts; first-quiet-move cutoff 29.2% pooled
@@ -73,18 +94,23 @@ tests, exit gates, definition of done).
   yields a small honest gain over logistic — Brier 0.0605 → 0.0598,
   log-loss 0.2030 → 0.2015, ECE10 0.0195 → 0.0176 — not the in-sample
   0.0005 ECE of the v1 report. Ablations: ordinal 0.865 / tt-only 0.779 /
-  context-only 0.812 AUC. History/baseline-score calibration (§8.3/§8.4)
-  remains out of scope for `research-data/1` (requires candidate
-  enumeration; see experiment-protocols.md).
+  context-only 0.812 AUC. Ranking quality at *move-ordering granularity* is
+  far weaker: the within-node reordering probe measures 0.029 pair accuracy
+  on 34 933 late-cutoff predecessor pairs (Report v3 bullet).
+  History/baseline-score calibration (§8.3/§8.4) remains out of scope for
+  `research-data/1` (requires candidate enumeration;
+  see experiment-protocols.md).
 - Documented limitation: 12 corpus roots (3 test roots) is a small cluster
   count; macro columns quantify between-root spread but cannot substitute
   for a larger root sample. Growing corpus/v2 (many game-diverse positions,
   split by source game) is a prerequisite before strong generalization
   claims.
 - Tools/docs only: no engine change, macro-off production build untouched.
-- Unit suite: 73 tests (1 skipped), incl. grouped macro tables, node-frame
-  invariants, grouped root-held-out calibration, weighted PAV, report smoke
-  over a three-set synthetic dataset.
+- Unit suite: 85 tests (1 skipped), incl. grouped macro tables, node-frame
+  invariants, grouped root-held-out calibration (row-weighted +
+  root-balanced + non-uniform IPW), the within-node reordering probe,
+  weighted PAV/quantile/IRLS helpers, and report smoke over a three-set
+  synthetic dataset (uniform and non-uniform node_weight).
 - Phase 3 exit gate (§8.5): met for the `research-data/1`-derivable subset —
   `baseline-report.{md,json}` is reproducible from the manifest
   (per-executable determinism) and establishes quality/calibration of the

@@ -540,41 +540,80 @@ def _macro_fields(vals) -> dict:
             "macro_sd": sd, "macro_min": float(np.min(v)),
             "macro_max": float(np.max(v))}
 
+def _prep_weights(w) -> np.ndarray | None:
+    """Return ``w`` as a float array, or None when it is None or uniform.
 
-def _macro_rate_table(frame, bucket, event, group=None):
+    Uniform (constant) weights carry no information and drop out, so every
+    downstream number is identical to the unweighted computation (the P3.2
+    default: one node_weight per dataset)."""
+    if w is None:
+        return None
+    a = np.asarray(w, dtype=np.float64)
+    if a.size == 0 or bool(np.all(a == a[0])):
+        return None
+    return a
+
+
+def _weighted_rate(e: np.ndarray, w: np.ndarray) -> float:
+    """IPW mean of a 0/1 series (sum(e*w)/sum(w))."""
+    return float(np.dot(e, w) / w.sum())
+
+
+def _macro_rate_table(frame, bucket, event, group=None, w=None):
     """Pooled event rate plus between-root macro columns, per bucket.
 
     Bucket/event/group are index-aligned series over ``frame`` (group
-    defaults to the position_id column). Returns a DataFrame ordered by the
-    bucket categories (may skip empty buckets).
+    defaults to the position_id column). ``w`` holds optional per-row sample
+    weights aligned positionally with ``frame``; when non-uniform the pooled
+    rate and every per-root rate are inverse-probability weighted (unbiased
+    for the full-rate population under varying node sample rates). Uniform
+    weights (the P3.2 default) reproduce the unweighted numbers exactly.
     """
     b = pd.Series(pd.Categorical(bucket))
     ev = (event.astype(bool)).to_numpy()
     gr = np.asarray(frame["position_id"] if group is None else group)
+    wt = _prep_weights(w)
     out = []
     for label in b.cat.categories:
         m = (b == label).to_numpy(dtype=bool)
         n = int(m.sum())
         if n == 0:
             continue
-        e = ev[m].astype(np.int64)
+        e = ev[m]
         g = gr[m]
-        pooled = float(e.sum()) / n
-        per = pd.DataFrame({"g": g, "e": e}).groupby("g")["e"].agg(
-            ["sum", "count"])
-        rate = (per["sum"] / per["count"]).to_numpy(dtype=np.float64)
-        rec = {"bucket": str(label), "rows": n, "events": int(e.sum()),
-               "event_rate": pooled, **_macro_fields(rate)}
+        if wt is None:
+            e = e.astype(np.int64)
+            pooled = float(e.sum()) / n
+            per = pd.DataFrame({"g": g, "e": e}).groupby("g")["e"].agg(
+                ["sum", "count"])
+            rate = (per["sum"] / per["count"]).to_numpy(dtype=np.float64)
+        else:
+            e = e.astype(np.float64)
+            ww = wt[m]
+            pooled = _weighted_rate(e, ww)
+            agg = pd.DataFrame({"g": g, "ew": e * ww, "w": ww}
+                               ).groupby("g")[["ew", "w"]].sum()
+            rate = (agg["ew"] / agg["w"]).to_numpy(dtype=np.float64)
+        rec = {"bucket": str(label), "rows": n,
+               "events": int(e.sum()), "event_rate": pooled,
+               **_macro_fields(rate)}
         out.append(rec)
     return pd.DataFrame(out)
 
 
 def _macro_quant_table(frame, bucket, value, group=None,
-                       quantiles=(0.5, 0.9, 0.99)):
-    """Pooled quantiles/mean plus macro (between-root) mean, per bucket."""
+                       quantiles=(0.5, 0.9, 0.99), w=None):
+    """Pooled quantiles/mean plus macro (between-root) mean, per bucket.
+
+    ``w`` holds optional per-row sample weights aligned positionally with
+    ``frame``; when non-uniform the pooled mean/quantiles become IPW
+    estimates (per-root statistics are unaffected). Uniform weights
+    reproduce the unweighted numbers exactly.
+    """
     b = pd.Series(pd.Categorical(bucket))
     vals_all = np.asarray(value, dtype=np.float64)
     gr_all = np.asarray(frame["position_id"] if group is None else group)
+    wt = _prep_weights(w)
     out = []
     for label in b.cat.categories:
         m = (b == label).to_numpy(dtype=bool)
@@ -582,51 +621,97 @@ def _macro_quant_table(frame, bucket, value, group=None,
         if n == 0:
             continue
         v = vals_all[m]
-        q = np.quantile(v, quantiles)
-        per = pd.DataFrame({"g": gr_all[m], "v": v}).groupby("g")["v"].mean()
-        rec = {"bucket": str(label), "rows": n,
-               "mean": float(np.mean(v)), "median": float(np.quantile(v, 0.5)),
-               "p90": float(q[1]), "p99": float(q[2]),
+        if wt is None:
+            q = np.quantile(v, quantiles)
+            mean = float(np.mean(v))
+            per = pd.DataFrame({"g": gr_all[m], "v": v}).groupby("g")["v"].mean()
+        else:
+            ww = wt[m]
+            q = _weighted_quantile(v, ww, np.asarray(quantiles, dtype=np.float64))
+            mean = _weighted_rate(v, ww)
+            agg = pd.DataFrame({"g": gr_all[m], "vw": v * ww, "w": ww}
+                               ).groupby("g")[["vw", "w"]].sum()
+            per = (agg["vw"] / agg["w"]).rename("v")
+        rec = {"bucket": str(label), "rows": n, "mean": mean,
+               "median": float(q[0]), "p90": float(q[1]),
+               "p99": float(q[2]),
                **_macro_fields(per.to_numpy(dtype=np.float64))}
         out.append(rec)
     return pd.DataFrame(out)
 
-
 # --- calibration helpers (numpy only, no sklearn) -------------------------
-
 def _logistic_irls_std(Z: np.ndarray, y: np.ndarray, reg: float = 1e-3,
-                       max_iter: int = 80, tol: float = 1e-9):
+                       max_iter: int = 80, tol: float = 1e-9,
+                       row_w: np.ndarray | None = None):
     """Ridge-regularized IRLS logistic regression on *standardized* features
     (Z holds no intercept column). The intercept is added and is NOT ridge
-    penalized (regularization applies to feature coefficients only)."""
+    penalized (regularization applies to feature coefficients only).
+
+    ``row_w`` optionally weights each observation (weights enter the IRLS
+    Hessian and gradient and are normalized to sum to the row count so the
+    ridge scale is unchanged).  row_w = None / all-equal gives the
+    unweighted fit.
+    """
     Xb = np.column_stack([np.ones(len(Z)), Z])
     pen = np.zeros(Xb.shape[1])
     pen[1:] = reg
-    w = np.zeros(Xb.shape[1])
+    wt = np.ones(len(y), dtype=np.float64) if row_w is None \
+        else np.asarray(row_w, dtype=np.float64)
+    wsum = float(wt.sum())
+    if wsum > 0:
+        wt = wt * (len(y) / wsum)
+    beta = np.zeros(Xb.shape[1])
     iters = 0
     converged = False
     for it in range(1, max_iter + 1):
         iters = it
-        eta = Xb @ w
+        eta = Xb @ beta
         p = 1.0 / (1.0 + np.exp(-np.clip(eta, -30, 30)))
-        s = p * (1 - p)
-        H = (Xb * s[:, None]).T @ Xb + np.diag(pen)
-        g = Xb.T @ (y - p) - pen * w
+        H = (Xb * (wt * p * (1 - p))[:, None]).T @ Xb + np.diag(pen)
+        g = Xb.T @ (wt * (y - p)) - pen * beta
         try:
             step = np.linalg.solve(H, g)
         except np.linalg.LinAlgError:
             step = np.linalg.lstsq(H, g, rcond=None)[0]
-        w = w + step
+        beta = beta + step
         if np.max(np.abs(step)) < tol:
             converged = True
             break
-    return w, iters, converged
-
+    return beta, iters, converged
 
 def _predict_std(Z, mu, sd, w) -> np.ndarray:
     Zs = (Z - mu) / sd
     Xb = np.column_stack([np.ones(len(Zs)), Zs])
     return 1.0 / (1.0 + np.exp(-np.clip(Xb @ w, -30, 30)))
+
+def _weighted_std_stats(X: np.ndarray, row_w: np.ndarray
+                        ) -> tuple[np.ndarray, np.ndarray]:
+    """Weighted feature mean / population sd used for standardization."""
+    tot = float(row_w.sum())
+    mu = np.dot(row_w, X) / tot
+    sd = np.sqrt(np.dot(row_w, (X - mu) ** 2) / tot)
+    sd[sd == 0] = 1.0
+    return mu, sd
+
+
+def _weighted_quantile(x: np.ndarray, row_w: np.ndarray,
+                       q) -> np.ndarray:
+    """Weighted quantile (midpoint-CDF generalized inverse).
+
+    c_i = (weighted prefix up to i-1 + prefix up to i) / 2 normalized by the
+    total weight, linearly interpolated over the sorted sample.  Used only
+    when weights are non-uniform (uniform weights keep the np.quantile path
+    so canonical numbers are unchanged).  Deterministic.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    row_w = np.asarray(row_w, dtype=np.float64)
+    order = np.argsort(x, kind="mergesort")
+    xs = x[order]
+    ws = row_w[order]
+    c = np.cumsum(ws) - 0.5 * ws
+    c = c / c[-1]
+    return np.interp(q, c, xs)
+
 
 
 def _pav_monotone(y: np.ndarray, w: np.ndarray) -> np.ndarray:
@@ -668,39 +753,46 @@ def _pav_monotone(y: np.ndarray, w: np.ndarray) -> np.ndarray:
         out[starts[blk]: end] = m
     return out
 
-
 def _fit_isotonic_map(p_cal: np.ndarray, y_cal: np.ndarray,
-                      n_bin: int = 100):
+                      n_bin: int = 100,
+                      row_w: np.ndarray | None = None):
     """Quantile-bin PAV calibration fitted on calibration predictions.
 
     Returns (edges, cal_bins): ``cal_bins[b]`` is the calibrated probability
     for a prediction that falls in bin b of ``edges`` (len(edges)-1 bins).
     Empty interior bins (quantile ties) are filled by index-interpolation
-    over the fitted non-empty bins.
+    over the fitted non-empty bins.  ``row_w`` optionally weights the bin
+    boundaries and bin means; unit weights reduce to the unweighted
+    computation.
     """
-    edges = np.unique(np.quantile(p_cal, np.linspace(0, 1, n_bin + 1)))
+    wt = _prep_weights(row_w)
+    if wt is None:
+        edges = np.unique(np.quantile(p_cal, np.linspace(0, 1, n_bin + 1)))
+    else:
+        edges = np.unique(_weighted_quantile(
+            p_cal, wt, np.linspace(0, 1, n_bin + 1)))
     if len(edges) < 2:
         edges = np.array([0.0, 1.0])
     b = np.clip(np.digitize(p_cal, edges[1:-1]), 0, len(edges) - 2)
     n_b = len(edges) - 1
-    acc = np.full(n_b, np.nan)
-    cnt = np.zeros(n_b, dtype=np.int64)
-    for k in range(n_b):
-        m = b == k
-        cnt[k] = int(m.sum())
-        if cnt[k]:
-            acc[k] = float(y_cal[m].mean())
+    cnt = np.zeros(n_b)
+    sm = np.zeros(n_b)
+    if wt is None:
+        np.add.at(cnt, b, 1.0)
+        np.add.at(sm, b, np.asarray(y_cal, dtype=np.float64))
+    else:
+        np.add.at(cnt, b, wt)
+        np.add.at(sm, b, wt * np.asarray(y_cal, dtype=np.float64))
     nb = np.flatnonzero(cnt > 0)
     cal = np.empty(n_b)
     if len(nb) == 0:
-        cal[:] = float(y_cal.mean())
+        cal[:] = float(sm.sum() / cnt.sum())
     elif len(nb) == 1:
-        cal[:] = acc[nb[0]]
+        cal[:] = sm[nb[0]] / cnt[nb[0]]
     else:
-        fit = _pav_monotone(acc[nb] * cnt[nb], cnt[nb].astype(np.float64))
+        fit = _pav_monotone(sm[nb], cnt[nb])
         cal = np.interp(np.arange(n_b), nb.astype(np.float64), fit)
     return edges, cal
-
 
 def _apply_isotonic(p_eval: np.ndarray, edges: np.ndarray,
                     cal_bins: np.ndarray) -> np.ndarray:
@@ -753,7 +845,8 @@ def _ece_table(y: np.ndarray, p: np.ndarray, bins: int = 10
         conf = float(p[m].mean())
         ece += (n / len(y)) * abs(acc - conf)
         table.append({"bin": f"[{edges[b]:.1f},{edges[b + 1]:.1f})",
-                      "rows": n, "accuracy": acc, "confidence": conf})
+                      "rows": n, "accuracy": acc, "confidence": conf,
+                      "gap": acc - conf})
     return float(ece), table
 
 
@@ -864,6 +957,129 @@ _FEATURE_GROUPS = {
 }
 _FEATURE_ORDER = ["ordinal", "tt", "context"]
 
+def _root_equal_weights(frame: pd.DataFrame) -> np.ndarray:
+    """Per-row weights giving every corpus root equal full-rate total mass.
+
+    row weight = node_weight / (sum of node_weight over its root).  Under
+    uniform node sampling (constant node_weight) this is 1 / (rows in root):
+    every root contributes total weight 1 whatever its row volume.  Frames
+    without a node_weight column are treated as uniform (node_weight = 1).
+    """
+    if "node_weight" in frame.columns:
+        base = frame["node_weight"].to_numpy(dtype=np.float64)
+    else:
+        base = np.ones(len(frame), dtype=np.float64)
+    gid = frame["position_id"].to_numpy()
+    sums = pd.Series(base).groupby(gid, sort=False).transform("sum").to_numpy()
+    return base / np.where(sums > 0, sums, 1.0)
+
+
+def _reorder_probe(frame: pd.DataFrame, pred: np.ndarray) -> dict:
+    """Within-node reordering probe on completed attempts ``frame`` (one
+    corpus root set) using fitted probabilities ``pred`` (positional).
+
+    For every node whose quiet loop ended in a cutoff at quiet ordinal > 1
+    ('late cutoff'), the cutoff attempt is compared with each fail-low quiet
+    predecessor searched at the same node (schema invariants guarantee at
+    most one cutoff per node and no attempts after it, so every other
+    attempt at a cutoff node is a fail-low predecessor).
+
+    Metrics describe how often the fitted model would have preferred the move
+    the baseline policy eventually needed, *among the moves the baseline
+    actually searched*.  This is a necessary-condition probe for reordering
+    value, not a counterfactual savings estimate: reordering changes the
+    search treatment (LMR depth, history updates, TT state) and candidates
+    the baseline never searched are absent.
+    """
+    f = frame.assign(_p=np.asarray(pred, dtype=np.float64))
+    n_nodes = int(f.drop_duplicates(NODE_KEY).shape[0])
+    pos = f[f["outcome"] == 1]
+    n_cut = int(pos.drop_duplicates(NODE_KEY).shape[0])
+    late = pos[pos["quiet_ordinal"] > 1]
+    n_late = int(late.drop_duplicates(NODE_KEY).shape[0])
+    neg = f[f["outcome"] == 2]
+
+    def _empty(note: str) -> dict:
+        nanf = {"n_roots": 0, "macro_mean": float("nan"),
+                "macro_sd": float("nan"), "macro_min": float("nan"),
+                "macro_max": float("nan")}
+        return {
+            "nodes_with_quiet_attempt": n_nodes,
+            "nodes_quiet_cutoff": n_cut,
+            "nodes_late_cutoff": n_late,
+            "late_share_of_quiet_cutoff_nodes":
+                float(n_late / n_cut) if n_cut else float("nan"),
+            "late_share_of_nodes_with_quiet_attempt":
+                float(n_late / n_nodes) if n_nodes else float("nan"),
+            "pairs": 0, "predecessor_local_cost": 0.0,
+            "pair_acc": float("nan"), "pair_strict": float("nan"),
+            "pair_ties": float("nan"), "cost_weighted_acc": float("nan"),
+            "node_above_all_share": float("nan"),
+            "macro": {k: dict(nanf) for k in
+                      ("pair_acc", "cost_weighted_acc",
+                       "node_above_all_share", "predecessor_local_cost")},
+            "note": note,
+        }
+
+    if n_late == 0 or len(neg) == 0:
+        return _empty("no late-quiet-cutoff node / predecessor in this "
+                      "root set; within-node metrics undefined")
+    m = neg.merge(late[NODE_KEY + ["_p", "quiet_ordinal"]], on=NODE_KEY,
+                  how="inner", suffixes=("_neg", "_pos"))
+    if len(m) == 0:
+        return _empty("no late-quiet-cutoff node with a fail-low "
+                      "predecessor")
+    d = m["_p_pos"].to_numpy(dtype=np.float64) - \
+        m["_p_neg"].to_numpy(dtype=np.float64)
+    cost = m["nodes_consumed"].to_numpy(dtype=np.float64)
+    score = (d > 0) + 0.5 * (d == 0)
+    md_ = m.assign(_d=d)
+    node_min = md_.groupby(NODE_KEY, sort=False)["_d"].min()
+    node_root = md_.groupby(NODE_KEY, sort=False)["position_id"].first()
+    above_all = float((node_min.to_numpy() > 0).mean())
+    per_above = pd.DataFrame({"g": node_root.to_numpy(),
+                              "a": (node_min.to_numpy() > 0).astype(np.float64)}
+                             ).groupby("g")["a"].mean()
+    per_acc = pd.DataFrame({"g": m["position_id"].to_numpy(), "s": score}
+                           ).groupby("g")["s"].mean()
+    cwagg = pd.DataFrame({"g": m["position_id"].to_numpy(),
+                          "sc": score * cost,
+                          "c": cost}).groupby("g")[["sc", "c"]].sum()
+    per_cw = (cwagg["sc"] / cwagg["c"]).to_numpy(dtype=np.float64)
+    per_cost = pd.DataFrame({"g": m["position_id"].to_numpy(), "c": cost}
+                            ).groupby("g")["c"].sum()
+    return {
+        "nodes_with_quiet_attempt": n_nodes,
+        "nodes_quiet_cutoff": n_cut,
+        "nodes_late_cutoff": n_late,
+        "late_share_of_quiet_cutoff_nodes":
+            float(n_late / n_cut) if n_cut else float("nan"),
+        "late_share_of_nodes_with_quiet_attempt":
+            float(n_late / n_nodes) if n_nodes else float("nan"),
+        "pairs": int(len(m)),
+        "predecessor_local_cost": float(cost.sum()),
+        "pair_acc": float(score.mean()),
+        "pair_strict": float((d > 0).mean()),
+        "pair_ties": float((d == 0).mean()),
+        "cost_weighted_acc":
+            float(np.average(score, weights=cost)) if cost.sum() > 0
+            else float("nan"),
+        "node_above_all_share": above_all,
+        "macro": {
+            "pair_acc": _macro_fields(per_acc.to_numpy(dtype=np.float64)),
+            "cost_weighted_acc": _macro_fields(per_cw),
+            "node_above_all_share": _macro_fields(
+                per_above.to_numpy(dtype=np.float64)),
+            "predecessor_local_cost": _macro_fields(
+                per_cost.to_numpy(dtype=np.float64)),
+        },
+        "note": ("pairs = fail-low quiet predecessors of the late-cutoff "
+                 "move at late-cutoff nodes (test-root set only); pair_acc "
+                 "treats ties as 0.5; predecessor costs are local nested "
+                 "attempt costs. Necessary-condition probe, not a "
+                 "counterfactual savings estimate."),
+    }
+
 
 def _grouped_calibration(df: pd.DataFrame) -> dict:
     """Cutoff calibration with root-position-held-out evaluation.
@@ -873,26 +1089,54 @@ def _grouped_calibration(df: pd.DataFrame) -> dict:
     reported metrics are computed only on the test-set roots.  Roots are the
     sample unit; per-test-root macro columns are reported alongside pooled
     numbers.
+
+    Two fitting objectives are reported because roots - not rows - are the
+    sample unit and root volumes are very uneven:
+
+    * row-weighted (default): every *sampled attempt row* counts equally.
+      When the dataset carries non-uniform node_weight (varying sample
+      rates) these become IPW weights, so the fit targets the full-rate
+      tree population.
+    * root-balanced: every corpus root contributes equal total full-rate
+      mass (row weight = node_weight / root node_weight sum).
+
+    Isotonic calibration is fitted on the validation-root predictions of
+    each objective's model.  All metrics are evaluated only on the test-set
+    roots.
     """
-    comp = df[df["outcome"] != 3]
+    comp_cond = (df["outcome"] != 3).to_numpy()
+    comp = df.iloc[np.flatnonzero(comp_cond)]
     y_all = (comp["outcome"] == 1).to_numpy(dtype=np.float64)
     root_all = comp["position_id"].to_numpy(dtype=object)
     set_all = comp["position_set"].to_numpy(dtype=object)
 
     def _split(name: str):
-        m = set_all == name
-        return comp.iloc[np.flatnonzero(m)], y_all[m], root_all[m]
+        idx = np.flatnonzero(set_all == name)
+        return comp.iloc[idx], idx
 
-    dev, y_dev, _ = _split("development")
-    val, y_val, _ = _split("validation")
-    test, y_test, root_test = _split("test")
-    for nm, (fr, yy, _) in (("development", (dev, y_dev, None)),
-                            ("validation", (val, y_val, None)),
-                            ("test", (test, y_test, None))):
+    dev, dev_idx = _split("development")
+    val, val_idx = _split("validation")
+    test, _ = _split("test")
+    y_dev = (dev["outcome"] == 1).to_numpy(dtype=np.float64)
+    y_val = (val["outcome"] == 1).to_numpy(dtype=np.float64)
+    y_test = (test["outcome"] == 1).to_numpy(dtype=np.float64)
+    root_test = test["position_id"].to_numpy(dtype=object)
+    for nm, fr in (("development", dev), ("validation", val),
+                   ("test", test)):
         if len(fr) == 0:
             raise RuntimeError(
                 f"grouped calibration requires non-empty '{nm}' root set "
                 "(corpus position_set rows missing)")
+
+    if "node_weight" in comp.columns:
+        nw = comp["node_weight"].to_numpy(dtype=np.float64)
+        ipw_uniform = bool(nw.size and bool(np.all(nw == nw[0])))
+    else:
+        nw = np.ones(len(comp), dtype=np.float64)
+        ipw_uniform = True
+    ipw_all = None if ipw_uniform else nw
+    ipw_dev = None if ipw_all is None else ipw_all[dev_idx]
+    ipw_val = None if ipw_all is None else ipw_all[val_idx]
 
     all_feats = [f for g in _FEATURE_ORDER for f in _FEATURE_GROUPS[g]]
     models: dict[str, dict] = {}
@@ -903,25 +1147,24 @@ def _grouped_calibration(df: pd.DataFrame) -> dict:
         mu = X_dev.mean(axis=0)
         sd = X_dev.std(axis=0)
         sd[sd == 0] = 1.0
-        w, iters, conv = _logistic_irls_std((X_dev - mu) / sd, y_dev)
+        w, iters, conv = _logistic_irls_std((X_dev - mu) / sd, y_dev,
+                                            row_w=ipw_dev)
         p_val = _predict_std(val[feats].to_numpy(dtype=np.float64), mu, sd, w)
         p_test = _predict_std(test[feats].to_numpy(dtype=np.float64), mu, sd, w)
         models[name] = {
             "features": feats,
             "test": _metrics_block(y_test, p_test, root_test),
             "converged": bool(conv), "iterations": int(iters),
+            "reorder_probe_test": _reorder_probe(test, p_test),
         }
         if name == "full":
             full_w, full_meta = w, (mu, sd, feats)
 
-    # Isotonic calibration: fit on validation-root logistic predictions only,
-    # evaluate on test-root rows.
+    # Row-weighted (IPW when non-uniform) isotonic on validation roots.
     mu, sd, feats = full_meta
-    X_val = val[feats].to_numpy(dtype=np.float64)
-    X_test = test[feats].to_numpy(dtype=np.float64)
-    p_val = _predict_std(X_val, mu, sd, full_w)
-    p_test = _predict_std(X_test, mu, sd, full_w)
-    edges, cal_bins = _fit_isotonic_map(p_val, y_val)
+    p_val = _predict_std(val[feats].to_numpy(dtype=np.float64), mu, sd, full_w)
+    p_test = _predict_std(test[feats].to_numpy(dtype=np.float64), mu, sd, full_w)
+    edges, cal_bins = _fit_isotonic_map(p_val, y_val, row_w=ipw_val)
     p_cal_test = _apply_isotonic(p_test, edges, cal_bins)
     models["full"]["isotonic_test"] = _metrics_block(
         y_test, p_cal_test, root_test)
@@ -930,10 +1173,47 @@ def _grouped_calibration(df: pd.DataFrame) -> dict:
         "n_bins": int(len(edges) - 1),
         "n_calibration_rows": int(len(p_val)),
     }
-    models["full"]["logistic_reliability_test"] = _ece_table(
-        y_test, p_test)[1]
+    models["full"]["logistic_reliability_test"] = _ece_table(y_test, p_test)[1]
     models["full"]["isotonic_reliability_test"] = _ece_table(
         y_test, p_cal_test)[1]
+
+    # Root-balanced sensitivity: equal full-rate mass per corpus root.
+    X_dev = dev[all_feats].to_numpy(dtype=np.float64)
+    bal_dev = _root_equal_weights(dev)
+    mu_b, sd_b = _weighted_std_stats(X_dev, bal_dev)
+    w_b, it_b, conv_b = _logistic_irls_std((X_dev - mu_b) / sd_b, y_dev,
+                                           row_w=bal_dev)
+    X_val = val[all_feats].to_numpy(dtype=np.float64)
+    X_test = test[all_feats].to_numpy(dtype=np.float64)
+    p_val_b = _predict_std(X_val, mu_b, sd_b, w_b)
+    p_test_b = _predict_std(X_test, mu_b, sd_b, w_b)
+    bal_val = _root_equal_weights(val)
+    edges_b, cal_bins_b = _fit_isotonic_map(p_val_b, y_val, row_w=bal_val)
+    p_cal_b = _apply_isotonic(p_test_b, edges_b, cal_bins_b)
+    balanced = {
+        "objective": ("equal full-rate mass per corpus root (row weight = "
+                      "node_weight / root node_weight sum); metrics pooled "
+                      "unweighted over test rows"),
+        "converged": bool(conv_b), "iterations": int(it_b),
+        "logistic_test": _metrics_block(y_test, p_test_b, root_test),
+        "isotonic_test": _metrics_block(y_test, p_cal_b, root_test),
+        "isotonic_fit": {
+            "method": "quantile-bin PAV (validation roots, root-weighted)",
+            "n_bins": int(len(edges_b) - 1),
+            "n_calibration_rows": int(len(p_val_b)),
+        },
+        "reorder_probe_test": _reorder_probe(test, p_test_b),
+        "coefficients_full": [
+            {"feature": ("intercept" if i == 0 else all_feats[i - 1]),
+             "coefficient": float(c)}
+            for i, c in enumerate(w_b)],
+    }
+    balanced["coefficient_delta_vs_row"] = [
+        {"feature": ("intercept" if i == 0 else all_feats[i - 1]),
+         "row_weighted": float(c),
+         "root_balanced": float(w_b[i]),
+         "balanced_minus_row": float(w_b[i] - c)}
+        for i, c in enumerate(full_w)]
 
     return {
         "design": {
@@ -952,39 +1232,96 @@ def _grouped_calibration(df: pd.DataFrame) -> dict:
                      "margin_note": ("margin_alpha == 1 - margin_beta exactly "
                                      "at null-window nodes; only margin_beta "
                                      "is used")},
+        "weights": {
+            "row_weighted": ("IPW by node_weight when the dataset is "
+                             "non-uniform; uniform P3.2 datasets are "
+                             "unweighted"),
+            "ipw_non_uniform": bool(not ipw_uniform),
+            "root_balanced": ("equal full-rate mass per corpus root (root = "
+                              "the sample unit)"),
+        },
         "models": models,
+        "root_balanced": balanced,
         "coefficients_full": [
             {"feature": ("intercept" if i == 0 else feats[i - 1]),
              "coefficient": float(c)}
             for i, c in enumerate(full_w)],
     }
-
-
-def _ordinal_table(df: pd.DataFrame, max_k: int = 12) -> pd.DataFrame:
+def _ordinal_table(df: pd.DataFrame, max_k: int = 12,
+                   w=None) -> pd.DataFrame:
     """P(cutoff | the attempt sits at quiet ordinal k) among searched quiet
     attempts, with pooled and between-root macro rates.
 
     This is a conditional hazard on the engine's own quiet loop, not a
     full cutoff-rank distribution over nodes (nodes that cut off on captures
     or never search a quiet move are not in the attempt table; see the
-    node-level section).
+    node-level section).  ``w`` holds optional per-row sample weights aligned
+    positionally with ``df`` (IPW pooled rates when non-uniform; identical
+    numbers when uniform).
     """
-    sub = df[(df["outcome"] != 3) & (df["quiet_ordinal"] <= max_k)]
+    oc = df["outcome"].to_numpy(dtype=np.int64)
+    o = df["quiet_ordinal"].to_numpy(dtype=np.int64)
+    sel = (oc != 3) & (o <= max_k)
+    gids = df["position_id"].to_numpy(dtype=object)
+    wt_all = _prep_weights(w)
     out = []
     for k in range(1, max_k + 1):
-        g = sub[sub["quiet_ordinal"] == k]
-        n = len(g)
+        idx = np.flatnonzero(sel & (o == k))
+        n = int(idx.size)
         if n == 0:
             continue
-        ev = (g["outcome"] == 1)
-        per = pd.DataFrame({"g": g["position_id"], "e": ev.astype(int)}
-                           ).groupby("g")["e"].agg(["sum", "count"])
-        rate = (per["sum"] / per["count"]).to_numpy(dtype=np.float64)
+        ev = (oc[idx] == 1).astype(np.int64)
+        g = gids[idx]
+        if wt_all is None:
+            per = pd.DataFrame({"g": g, "e": ev}).groupby("g")["e"].agg(
+                ["sum", "count"])
+            rate = (per["sum"] / per["count"]).to_numpy(dtype=np.float64)
+            pooled = float(ev.mean())
+        else:
+            ww = wt_all[idx]
+            pooled = float(np.dot(ev.astype(np.float64), ww) / ww.sum())
+            agg = pd.DataFrame({"g": g,
+                                "ew": ev.astype(np.float64) * ww,
+                                "w": ww}).groupby("g")[["ew", "w"]].sum()
+            rate = (agg["ew"] / agg["w"]).to_numpy(dtype=np.float64)
         out.append({"quiet_ordinal": int(k), "rows": int(n),
-                    "events": int(ev.sum()), "event_rate": float(ev.mean()),
+                    "events": int(ev.sum()), "event_rate": pooled,
                     **_macro_fields(rate)})
     return pd.DataFrame(out)
 
+
+def _git_head_short(cwd: Path) -> str:
+    """Short HEAD commit of the repository containing ``cwd`` ('' if none)."""
+    try:
+        import subprocess
+        r = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--short",
+                            "HEAD"], capture_output=True, text=True,
+                           timeout=20)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _git_worktree_dirty(cwd: Path) -> int:
+    """Number of files with uncommitted changes (-1 when git unavailable)."""
+    try:
+        import subprocess
+        r = subprocess.run(["git", "-C", str(cwd), "status", "--porcelain"],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            return -1
+        return len([ln for ln in r.stdout.splitlines() if ln.strip()])
+    except Exception:
+        return -1
+
+
+def _engine_embedded_commit(banner: str | None) -> str | None:
+    """Parse the embedded source commit from a Stockfish version banner
+    ('Stockfish dev-YYYYMMDD-<hash> ...').  This pins the research binary
+    more precisely than repository HEAD at collection time."""
+    import re
+    m = re.search(r"dev-\d{8}-([0-9a-f]{6,12})", banner or "")
+    return m.group(1) if m else None
 
 def report(args) -> int:
     dataset_dir = Path(args.dataset).expanduser().resolve()
@@ -1008,9 +1345,39 @@ def report(args) -> int:
     total_attempt_cost = int(df["nodes_consumed"].sum())
     engine_nodes = sum(e.get("nodes") or 0 for e in manifest.get("files", []))
     sample_rate = float(manifest.get("sample_rate", 1.0))
+    rows_fre = int(round(n / sample_rate)) if sample_rate > 0 else n
+
+    # Sampling (inverse-probability) weights: node_weight = 1 / sample_rate.
+    # P3.2 datasets are uniform (one node_weight for every row), where every
+    # pooled number below is identical to the unweighted computation.  For
+    # future non-uniform datasets the pooled attempt-level rates, ordinal
+    # hazards and the calibration fits become node_weight (IPW) weighted,
+    # while sampled row counts stay as recorded and are labeled as such.
+    if "node_weight" in df.columns:
+        _nw = df["node_weight"].to_numpy(dtype=np.float64)
+        weights_uniform = bool(_nw.size and bool(np.all(_nw == _nw[0])))
+    else:
+        _nw = np.ones(len(df), dtype=np.float64)
+        weights_uniform = True
+    sample_w = None if weights_uniform else _nw
+    if weights_uniform:
+        weights_note = (
+            f"All {n:,} attempt rows share one node_weight = "
+            f"{float(_nw[0]):g} (= 1 / sample rate {sample_rate:g}); pooled "
+            f"rates and the calibration below are unbiased sampled-row "
+            f"aggregates (full-rate row equivalent: {rows_fre:,}).")
+    else:
+        weights_note = (
+            "Rows carry per-node node_weight (IPW inclusion weights, "
+            f"{float(_nw.min()):g}..{float(_nw.max()):g}); pooled attempt-"
+            "level rates, ordinal hazards and the calibration fits below "
+            "are node_weight-weighted (unbiased for the full-rate tree), "
+            "while sampled row counts are reported as recorded.")
+    tool_commit = _git_head_short(rc.repo_root())
+    tool_dirty = _git_worktree_dirty(rc.repo_root())
 
     out: dict = {
-        "schema_version": "research-baseline-report/2",
+        "schema_version": "research-baseline-report/3",
         "dataset_dir": str(dataset_dir),
         "note": ("behavior-policy-conditioned: describes the engine's own "
                  "observational policy at sampled nodes; not unbiased for "
@@ -1018,8 +1385,11 @@ def report(args) -> int:
         "rows": n,
         "decision_nodes": int(len(dec)),
         "sample_rate": sample_rate,
-        "rows_full_rate_equivalent": int(round(n / sample_rate))
-        if sample_rate > 0 else n,
+        "rows_full_rate_equivalent": rows_fre,
+        "weights": {"uniform": bool(weights_uniform),
+                    "node_weight_values": sorted(
+                        {float(v) for v in np.unique(_nw)}),
+                    "note": weights_note},
         "attempt_cost_sum_nested": total_attempt_cost,
         "engine_root_search_nodes_total": engine_nodes,
     }
@@ -1066,6 +1436,13 @@ def report(args) -> int:
             f"Excluded cells: {manifest.get('excluded_cells', [])}  \n"
             f"Problems: {manifest.get('problems')}  \n"
             f"Collection protocol: {manifest.get('collection_protocol', '?')}")
+        if tool_commit:
+            design_lines.append(
+                f"Report tool: `tools/policy_research/p3_dataset.py` "
+                f"(git `{tool_commit}`"
+                + (f", worktree dirty: {tool_dirty} file(s)"
+                   if tool_dirty and tool_dirty > 0 else "")
+                + ")")
     md.append("\n## Design and provenance\n\n" + "\n".join(design_lines) + "\n")
     if manifest:
         out["provenance"] = {
@@ -1079,7 +1456,54 @@ def report(args) -> int:
             "excluded_cells": manifest.get("excluded_cells"),
             "problems": manifest.get("problems"),
             "timestamp_utc": manifest.get("timestamp_utc"),
+            "engine_embedded_commit": _engine_embedded_commit(
+                manifest.get("engine_banner")),
+            "report_tool_commit": tool_commit or None,
+            "report_tool_worktree_dirty_files": (tool_dirty
+                                                 if tool_commit else None),
         }
+
+        # corpus roots and volume (one run per root; root = sample unit)
+        files = manifest.get("files") or []
+        if files:
+            per_set_total: dict[str, int] = {}
+            for e in files:
+                per_set_total[e["set"]] = (per_set_total.get(e["set"], 0)
+                                           + int(e.get("attempts", 0)))
+            root_rows = []
+            for e in sorted(files, key=lambda z: (z["set"], z["id"])):
+                tot = per_set_total.get(e["set"], 0)
+                root_rows.append({
+                    "id": e["id"], "set": e["set"], "depth": e.get("depth"),
+                    "decision_nodes": int(e.get("decisions", 0)),
+                    "attempt_rows": int(e.get("attempts", 0)),
+                    "set_attempt_share": (float(e.get("attempts", 0)) / tot
+                                          if tot else float("nan")),
+                    "engine_nodes": e.get("nodes"),
+                    "wall_ms": e.get("wall_ms")})
+            md.append("\n## Corpus roots and volume\n\n"
+                      "Roots are the sample unit (n = "
+                      f"{dec['position_id'].nunique()}); volumes are very "
+                      "uneven, so row-weighted fits are dominated by the "
+                      "largest root and the calibration section also "
+                      "reports root-balanced fits (equal total full-rate "
+                      "mass per root).\n\n"
+                      + _md_table(pd.DataFrame(root_rows)) + "\n")
+            out["roots"] = root_rows
+
+    # -- sampling weights
+    if weights_uniform:
+        md.append("\n## Sampling weights\n\n" + weights_note + "\n")
+    else:
+        md.append("\n## Sampling weights\n\n"
+                  + weights_note
+                  + "  \nSampled *row counts* in the tables below stay as "
+                    "recorded; pooled attempt-level rates, ordinal hazards "
+                    "and the calibration fits are node_weight (IPW) "
+                    "weighted. Bespoke pooled numbers (flag / TT / "
+                    "re-search / node-level rates) are sampled-row pools "
+                    "for non-uniform datasets; use the between-root "
+                    "`macro_*` columns for root-level inference.\n")
 
     # -- node-cost wording
     md.append("\n### Note on node counts\n\n"
@@ -1101,7 +1525,8 @@ def report(args) -> int:
     out["censored_aborted"] = censored
 
     # -- cutoff rate by quiet ordinal (pooled + macro)
-    ord_tab = _ordinal_table(df)
+    ord_tab = _ordinal_table(df, w=df["node_weight"]
+                               if "node_weight" in df.columns else None)
     md.append("\n## Cutoff rate by quiet ordinal (searched quiet attempts)\n\n"
               "Conditional hazard: P(cutoff | the engine searched this move "
               "as its k-th quiet attempt). Row counts are not independent; "
@@ -1118,7 +1543,10 @@ def report(args) -> int:
     ]
     for key, col, edges in cut_cols:
         t = _macro_rate_table(completed, _bucket(completed[col], edges),
-                              completed["outcome"] == 1)
+                              completed["outcome"] == 1,
+                              w=(completed["node_weight"]
+                                 if "node_weight" in completed.columns
+                                 else None))
         md.append(f"\n## Cutoff rate by {col}\n\n" + _md_table(t) + "\n")
         out[key] = _records(t)
 
@@ -1131,7 +1559,9 @@ def report(args) -> int:
     ]
     for key, col, edges in cost_cols:
         t = _macro_quant_table(fl, _bucket(fl[col], edges),
-                               fl["nodes_consumed"])
+                               fl["nodes_consumed"],
+                               w=(fl["node_weight"]
+                                  if "node_weight" in fl.columns else None))
         md.append("\n## Nodes consumed by a failed quiet attempt (outcome 2) "
                   f"by {col}\n\n"
                   "Costs are heavy-tailed; median/p90/p99 are reported. "
@@ -1148,13 +1578,26 @@ def report(args) -> int:
             g = completed[completed[f] == v]
             if len(g) == 0:
                 continue
-            per = pd.DataFrame({"g": g["position_id"],
-                                "e": (g["outcome"] == 1).astype(int)}
-                               ).groupby("g")["e"].agg(["sum", "count"])
-            rate = (per["sum"] / per["count"]).to_numpy(dtype=np.float64)
+            e_int = (g["outcome"] == 1).astype(int)
+            wg = (g["node_weight"].to_numpy(dtype=np.float64)
+                  if "node_weight" in g.columns else None)
+            if wg is not None and not bool(np.all(wg == wg[0])):
+                agg = pd.DataFrame({"g": g["position_id"].to_numpy(),
+                                    "ew": e_int.to_numpy(dtype=np.float64)
+                                    * wg,
+                                    "w": wg}).groupby("g")[["ew", "w"]].sum()
+                rate = (agg["ew"] / agg["w"]).to_numpy(dtype=np.float64)
+                cutoff_rate = _weighted_rate(
+                    e_int.to_numpy(dtype=np.float64), wg)
+            else:
+                per = pd.DataFrame({"g": g["position_id"],
+                                    "e": e_int}).groupby("g")["e"].agg(
+                    ["sum", "count"])
+                rate = (per["sum"] / per["count"]).to_numpy(dtype=np.float64)
+                cutoff_rate = float(e_int.mean())
             flg = g[g["outcome"] == 2]
             rec = {"flag": label, "rows": int(len(g)),
-                   "cutoff_rate": float((g["outcome"] == 1).mean()),
+                   "cutoff_rate": cutoff_rate,
                    **_macro_fields(rate),
                    "fl_mean_nodes": float(flg["nodes_consumed"].mean())
                    if len(flg) else float("nan"),
@@ -1305,6 +1748,58 @@ def report(args) -> int:
         md.append(f"\n### {title} by {col}\n({lab})\n\n" + _md_table(t) + "\n")
         out[key] = _records(t)
 
+    # -- observational opportunity accounting (local nested costs)
+    late_cut = cut_nodes[cut_nodes["fh_ord"] > 1]
+    n_late = int(len(late_cut))
+    waste_local = float(cut_nodes["wasted_before_cut"].sum())
+    nocut_local = float(no_cut["no_cut_quiet_cost"].sum())
+    fl_local = float(df[df["outcome"] == 2]["nodes_consumed"].sum())
+    rs_fl_local = float(df[(df["child_search_count"] == 2)
+                           & (df["outcome"] == 2)]["nodes_consumed"].sum())
+    tt_fl_local = float(df[df["is_tt_move"]
+                           & (df["outcome"] == 2)]["nodes_consumed"].sum())
+    opp = {
+        "late_quiet_cutoff_nodes": int(n_late),
+        "late_share_of_quiet_cutoff_nodes":
+            float(n_late / len(cut_nodes)) if len(cut_nodes)
+            else float("nan"),
+        "late_share_of_nodes_with_quiet_attempt":
+            float(n_late / len(with_q)) if len(with_q) else float("nan"),
+        "wasted_before_quiet_cutoff_local": waste_local,
+        "waste_share_of_fail_low_local":
+            float(waste_local / fl_local) if fl_local else float("nan"),
+        "no_quiet_cutoff_loop_local": nocut_local,
+        "no_quiet_cutoff_share_of_fail_low_local":
+            float(nocut_local / fl_local) if fl_local else float("nan"),
+        "fail_low_local_total": fl_local,
+        "all_attempt_local_total": float(df["nodes_consumed"].sum()),
+        "researched_fail_low_local": rs_fl_local,
+        "researched_fail_low_share_of_fail_low_local":
+            float(rs_fl_local / fl_local) if fl_local else float("nan"),
+        "tt_fail_low_local": tt_fl_local,
+        "tt_fail_low_share_of_fail_low_local":
+            float(tt_fl_local / fl_local) if fl_local else float("nan"),
+        "note": ("local nested attempt costs of the *sampled* attempt rows "
+                 "(overlapping; engine root-search nodes are reported "
+                 "separately). Reordering a move changes its search "
+                 "treatment, so these quantities are descriptive, not "
+                 "causal bounds on savings."),
+    }
+    md.append("\n## Observational opportunity accounting\n\n"
+              "Local nested attempt costs only. Most quiet-loop cost sits "
+              "in nodes where no quiet move ever cut off "
+              f"({opp['no_quiet_cutoff_loop_local']:,.0f} local nodes = "
+              f"{opp['no_quiet_cutoff_share_of_fail_low_local'] * 100:.1f}% "
+              "of fail-low cost); the wasted predecessor cost before a "
+              "later quiet cutoff is a small share "
+              f"({opp['waste_share_of_fail_low_local'] * 100:.1f}% at "
+              f"{opp['late_quiet_cutoff_nodes']:,} late-cutoff nodes). "
+              "Quiet reordering alone therefore has sparse headroom under "
+              "this policy; TT-failure and re-search costs are larger "
+              "targets (see tables above).\n\n```\n"
+              + json.dumps(opp, indent=2) + "\n```\n")
+    out["opportunity_accounting"] = opp
+
     # -- grouped calibration
     feature_groups = _FEATURE_GROUPS
     feature_order = _FEATURE_ORDER
@@ -1318,7 +1813,17 @@ def report(args) -> int:
               "spread across the test roots (roots are the sample unit; rows "
               "inside one root are correlated).\n\n"
               "Features: `" + ", ".join(feature_order) + "` groups =\n\n"
-              + "```\n" + json.dumps(feature_groups, indent=2) + "\n```\n")
+              + "```\n" + json.dumps(feature_groups, indent=2) + "\n```\n"
+              "Two fitting objectives are reported: row-weighted (every "
+              "sampled attempt row equal; IPW by node_weight on non-uniform "
+              "datasets) and root-balanced (equal total full-rate mass per "
+              "corpus root). Ranking (AUC) is stable across objectives; the "
+              "probability map is not (3 validation roots only), so no "
+              "canonical calibration map is claimed. After the model "
+              "tables, a within-node reordering probe quantifies whether "
+              "each model would prefer the observed cutoff move over the "
+              "fail-low predecessors the baseline searched at the same "
+              "node.\n")
     cal = _grouped_calibration(df)
     out["calibration"] = cal
 
@@ -1366,14 +1871,126 @@ def report(args) -> int:
     md.append(_md_table(pd.DataFrame(per_rows)) + "\n")
     out["calibration_per_test_root"] = per_rows
 
+    # -- within-node reordering probe (test roots)
+    probe_rows = []
+    for nm, m in cal["models"].items():
+        pr = m.get("reorder_probe_test") or {}
+        mac = pr.get("macro") or {}
+        probe_rows.append({
+            "model": nm,
+            "nodes_late_cutoff": pr.get("nodes_late_cutoff"),
+            "pairs": pr.get("pairs"),
+            "pair_acc": pr.get("pair_acc"),
+            "pair_strict": pr.get("pair_strict"),
+            "pair_ties": pr.get("pair_ties"),
+            "cost_weighted_acc": pr.get("cost_weighted_acc"),
+            "node_above_all": pr.get("node_above_all_share"),
+            "pair_acc_macro": (mac.get("pair_acc") or {}).get("macro_mean"),
+            "pair_acc_macro_sd": (mac.get("pair_acc") or {}).get("macro_sd"),
+        })
+    pfull_probe = full.get("reorder_probe_test") or {}
+    md.append("\n### Within-node reordering probe (test roots)\n\n"
+              "For each *late-quiet-cutoff* node on the test roots (the "
+              "quiet loop cut off at quiet ordinal > 1; "
+              f"{pfull_probe.get('nodes_late_cutoff', 0):,} nodes, "
+              f"{pfull_probe.get('pairs', 0):,} fail-low predecessor "
+              "pairs, "
+              f"{pfull_probe.get('predecessor_local_cost', 0):,.0f} local "
+              "nodes) the fitted model is compared against the moves the "
+              "baseline actually searched first: would it have preferred "
+              "the cutoff move over each of its fail-low predecessors? "
+              "This is a *necessary-condition* probe for reordering value, "
+              "NOT a counterfactual savings estimate - reordering changes "
+              "the search treatment (LMR depth, history updates, TT "
+              "state), the predecessor set excludes candidates the "
+              "baseline never searched, and a move that cuts off late "
+              "would not necessarily cut off if searched earlier. The full "
+              "model's global test AUC "
+              f"(\u2248{full['test']['pooled']['auc']:.3f}) coexists with "
+              "near-zero within-node pair accuracy when it only mirrors "
+              "the baseline ordering (low quiet ordinal + TT moves + "
+              "easy-node context); pair_acc treats ties as 0.5.\n\n"
+              + _md_table(pd.DataFrame(probe_rows)) + "\n")
+    out["within_node_probe"] = probe_rows
+
+    # -- root-balanced sensitivity (equal full-rate mass per root)
+    rb = cal["root_balanced"]
+
+    def _bal_row(label: str, block: dict) -> dict:
+        P = block["pooled"]
+        M = block["macro"]
+        return {
+            "objective": label,
+            "auc": P["auc"], "auc_macro": M["auc"]["macro_mean"],
+            "brier": P["brier"], "brier_macro": M["brier"]["macro_mean"],
+            "logloss": P["logloss"],
+            "logloss_macro": M["logloss"]["macro_mean"],
+            "ece10": P["ece10"], "ece10_macro": M["ece10"]["macro_mean"],
+            "rows_test": P["n"],
+        }
+
+    bal_rows = [
+        _bal_row("logistic, row-weighted", full["test"]),
+        _bal_row("+ isotonic, row-weighted", full["isotonic_test"]),
+        _bal_row("logistic, root-balanced", rb["logistic_test"]),
+        _bal_row("+ isotonic, root-balanced", rb["isotonic_test"]),
+    ]
+    md.append("\n### Root-balanced sensitivity (fitting objective)\n\n"
+              "The primary fits give every *sampled attempt row* equal "
+              "weight, so the largest development root dominates the fit "
+              "(roots, not rows, are the sample unit). The table repeats "
+              "the fit with every corpus root contributing equal total "
+              "full-rate mass (row weight = node_weight / root "
+              "node_weight sum). Ranking (AUC) is stable across "
+              "objectives; the probability map is not - with only 3 "
+              "validation roots the isotonic calibration is sensitive to "
+              "the objective - so no single canonical probability map is "
+              "claimed from this corpus. Metrics are pooled over the "
+              "test-set roots (unweighted).\n\n"
+              + _md_table(pd.DataFrame(bal_rows)) + "\n")
+    out["root_balanced_sensitivity"] = bal_rows
+    rb_probe = rb.get("reorder_probe_test") or {}
+    md.append("Root-balanced full model: converged "
+              f"{rb.get('converged')}, within-node probe pairs "
+              f"{rb_probe.get('pairs', 0):,}, pair_acc "
+              + (f"{rb_probe['pair_acc']:.4f}"
+                 if rb_probe.get("pair_acc") is not None else "n/a")
+              + ", node_above_all "
+              + (f"{rb_probe['node_above_all_share']:.4f}"
+                 if rb_probe.get("node_above_all_share") is not None
+                 else "n/a") + ".\n")
+
+    # -- coefficients: row-weighted and root-balanced
     md.append("\n### Full-model standardized coefficients\n\n"
+              "Features standardized to mean 0 / sd 1 under each objective "
+              "(row-weighted fit); intercept unpenalized.\n\n"
               + _md_table(pd.DataFrame(cal["coefficients_full"])) + "\n")
+    md.append("### Coefficients: row-weighted vs root-balanced\n\n"
+              + _md_table(pd.DataFrame(rb["coefficient_delta_vs_row"]))
+              + "\n")
+    out["coefficient_delta_vs_row"] = rb["coefficient_delta_vs_row"]
+
+    # -- reliability tables (pooled, test roots) with worst-bin gaps
+    def _worst_gap(tab):
+        w = max(tab, key=lambda r: abs(r.get("gap") or 0.0))
+        return w["bin"], w["gap"]
+
+    lg_bin, lg_gap = _worst_gap(full["logistic_reliability_test"])
+    iso_bin, iso_gap = _worst_gap(full["isotonic_reliability_test"])
     md.append("\n### Reliability tables (test roots, pooled)\n\n"
-              "Logistic:\n\n"
+              "`gap` = accuracy - confidence per bin; pooled ECE can hide "
+              "large local gaps, so the worst-bin |gap| is listed after "
+              "each table.\n\nLogistic "
+              f"(worst bin {lg_bin}: gap {lg_gap:+.3f}):\n\n"
               + _md_table(pd.DataFrame(full["logistic_reliability_test"]))
-              + "\n\nIsotonic:\n\n"
+              + "\n\nIsotonic "
+              f"(worst bin {iso_bin}: gap {iso_gap:+.3f}):\n\n"
               + _md_table(pd.DataFrame(full["isotonic_reliability_test"]))
               + "\n")
+    out["reliability_worst_gap"] = {
+        "logistic_bin": lg_bin, "logistic_gap": lg_gap,
+        "isotonic_bin": iso_bin, "isotonic_gap": iso_gap,
+    }
 
     out["censoring_note"] = ("ABORTED_STOP rows carry no value semantics; they "
                              "are excluded from cutoff-rate and calibration "
@@ -1388,6 +2005,20 @@ def report(args) -> int:
                  "the recorded ordering/reduction schedule); they are not "
                  "candidate-quality labels, and reordering gains need "
                  "counterfactual phases 4/5."),
+        "reordering_probe": (
+            "Within-node probe on the late-quiet-cutoff test roots: the "
+            "full model does not rank the observed cutoff move above its "
+            "fail-low predecessors "
+            + ("(pair accuracy ≈ "
+               f"{pfull_probe.get('pair_acc') or float('nan'):.3f}, "
+               "cost-weighted "
+               f"{pfull_probe.get('cost_weighted_acc') or float('nan'):.3f})"
+               if pfull_probe.get("pairs") else "(no pairs)")),
+        "calibration_objectives": (
+            "Row-weighted and root-balanced fits are both reported; the "
+            "probability map is objective-sensitive with only 3 validation "
+            "roots, so no canonical calibration map is claimed from this "
+            "corpus"),
     }
     with open(dataset_dir / "baseline-report.json", "w", encoding="utf-8") as fh:
         json.dump(out, fh, indent=2, sort_keys=True)

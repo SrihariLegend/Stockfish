@@ -846,10 +846,23 @@ PAV-isotonic fit on validation-set roots, all metrics evaluated on test-set
 roots only (n = 3, 847 222 completed attempts): full-model AUC 0.936 (macro
 0.932 ± 0.011); isotonic gives a small honest out-of-sample gain (Brier 0.0605
 → 0.0598, ECE10 0.0195 → 0.0176). All numbers are explicitly
-behavior-policy-conditioned. §8.3 history calibration and baseline-score
-calibration require MovePicker baseline features and candidate enumeration
-(counterfactual schema). A larger root sample (corpus/v2) is the prerequisite
-before strong generalization claims.
+behavior-policy-conditioned. A follow-up review of the v2 report was
+addressed in report schema `research-baseline-report/3` (tool/docs only,
+no engine change): a within-node reordering probe shows the 0.936 test AUC
+does not imply move-ordering quality (pair accuracy 0.029 over 34 933
+late-cutoff predecessor pairs on the test roots), root-balanced fits are
+reported alongside the row-weighted fits because one development root
+supplies 67.5% of the fitting rows (no canonical probability map is claimed
+with 3 validation roots), reliability tables expose the worst-bin |gap| that
+pooled ECE10 0.0176 hides, pooled rate tables and both calibration
+objectives honor per-row node_weight (IPW) when datasets are non-uniform,
+an observational opportunity-accounting block sizes the (modest) reordering
+headroom (wasted-before-cut 12.3% vs no-quiet-cut loop cost 87.7% of
+fail-low local cost), and provenance records the research binary's
+banner-embedded commit plus the report tool commit. §8.3 history
+calibration and baseline-score calibration require MovePicker baseline
+features and candidate enumeration (counterfactual schema). A larger root
+sample (corpus/v2) is the prerequisite before strong generalization claims.
 
 ## 8.4 Cheap baselines
 
