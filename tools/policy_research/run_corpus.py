@@ -50,6 +50,10 @@ import time
 import uuid
 from pathlib import Path
 
+# Decoder/validator for the Phase 2 binary logs lives next to this runner.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import decode_research_log as dlog  # noqa: E402
+
 SCHEMA_CORPUS = "corpus/v1"
 SCHEMA_RUN = "research-run/1"
 SCHEMA_RESULT = "research-result/1"
@@ -81,6 +85,18 @@ DEFAULT_OPTIONS_TO_RECORD = [
     "UCI_Chess960",
     "SyzygyPath",
     "EvalFile",
+]
+
+# Research options for the verify-research passes (defaults are recorded only
+# when the engine actually declares the option, i.e. POLICY_RESEARCH builds).
+RESEARCH_OPTIONS_TO_RECORD = [
+    "PolicyResearch",
+    "PolicyResearchMode",
+    "PolicyResearchLogPath",
+    "PolicyResearchSeed",
+    "PolicyResearchSampleRate",
+    "PolicyResearchMaxRecords",
+    "PolicyResearchPolicyVersion",
 ]
 
 
@@ -436,8 +452,13 @@ def run_root(
     hash_mb: int,
     eval_file: str,
     timeout: float,
+    extra_options: list[tuple[str, str]] | None = None,
 ) -> dict:
-    """Run one root in a fresh engine process. Returns per-root result dict."""
+    """Run one root in a fresh engine process. Returns per-root result dict.
+
+    extra_options are applied (in order) after the pinned profile; used by the
+    research passes to set PolicyResearch* options per root.
+    """
     session = EngineSession(engine, cwd)
     wall_ms = 0
     try:
@@ -449,6 +470,8 @@ def run_root(
         session.send(f"setoption name Hash value {hash_mb}")
         if eval_file:
             session.send(f"setoption name EvalFile value {eval_file}")
+        for name, value in (extra_options or []):
+            session.send(f"setoption name {name} value {value}")
         session.send("isready")
         session.read_until(lambda line: line.strip() == "readyok", timeout, "readyok")
         session.send("ucinewgame")
@@ -509,6 +532,7 @@ def make_manifest(
     depth: int,
     hash_mb: int,
     build_command: str | None = None,
+    extra_uci_options: list[tuple[str, str]] | None = None,
 ) -> dict:
     compile_info = engine_compile_info(engine, cwd)
     uci_defaults = engine_uci_defaults(engine, cwd)
@@ -517,6 +541,9 @@ def make_manifest(
     applied = {name: value for name, value in PINNED_UCI_OPTIONS}
     applied["Hash"] = str(hash_mb)
     applied["EvalFile"] = eval_file if eval_file else uci_defaults.get("EvalFile", "<engine default>")
+    for name, value in (extra_uci_options or []):
+        # Applied after the pinned profile (per-root policy options; see notes).
+        applied[name] = value
 
     manifest = {
         "schema_version": SCHEMA_RUN,
@@ -543,7 +570,10 @@ def make_manifest(
         "policy_network": None,
         "corpus": {"path": str(Path(corpus_path).resolve()), "sha256": corpus_sha},
         "uci_options_applied": applied,
-        "uci_engine_defaults": {k: uci_defaults.get(k) for k in DEFAULT_OPTIONS_TO_RECORD},
+        "uci_engine_defaults": {
+            **{k: uci_defaults.get(k) for k in DEFAULT_OPTIONS_TO_RECORD},
+            **{k: uci_defaults.get(k) for k in RESEARCH_OPTIONS_TO_RECORD},
+        },
         "random_seed": None,
         "notes": (
             "Deterministic research profile: 1 thread, fixed depth, MultiPV 1, "
@@ -655,6 +685,216 @@ def compare_results(run_a: dict, run_b: dict) -> tuple[bool, list[dict]]:
 
 
 # ---------------------------------------------------------------------------
+# Phase 2: research logging gate (verify-research)
+# ---------------------------------------------------------------------------
+
+
+def _research_static_options(args) -> list[tuple[str, str]]:
+    """Research options shared by every root of an `on` pass (log path is
+    per root and appended by the caller)."""
+    return [
+        ("PolicyResearch", "on"),
+        ("PolicyResearchMode", "observational"),
+        ("PolicyResearchSeed", str(args.research_seed)),
+        ("PolicyResearchSampleRate", str(args.research_sample_rate)),
+        ("PolicyResearchMaxRecords", str(args.research_max_records)),
+        ("PolicyResearchPolicyVersion", args.research_policy_version),
+    ]
+
+
+def execute_research_pass(
+    engine: Path,
+    cwd: Path,
+    corpus: dict,
+    corpus_sha: str,
+    args,
+    pass_label: str,
+    log_root: Path,
+    enabled: bool,
+) -> dict:
+    """One corpus pass with optional observational logging (per-root log files
+    under log_root). Returns the run dict (same shape as execute_run)."""
+    static = _research_static_options(args) if enabled else []
+    manifest = make_manifest(
+        engine=engine,
+        cwd=cwd,
+        corpus_path=Path(args.corpus),
+        corpus_sha=corpus_sha,
+        corpus_id=corpus["corpus_id"],
+        eval_file=args.eval_file,
+        depth=args.depth,
+        hash_mb=args.hash,
+        build_command=getattr(args, "build_command", None),
+        extra_uci_options=(static if enabled else None),
+    )
+    if enabled:
+        manifest["research_log_root"] = str(log_root)
+        manifest["research_pass"] = pass_label
+        manifest["uci_options_applied"]["PolicyResearchLogPath"] = (
+            "<per root>" + " " + str(log_root / "root-<POSITION_ID>.bin")
+        )
+
+    positions = []
+    for pos in corpus["positions"]:
+        if args.only and pos["id"] not in args.only:
+            continue
+        extra = None
+        log_path = None
+        if enabled:
+            log_root.mkdir(parents=True, exist_ok=True)
+            log_path = log_root / f"root-{pos['id']}.bin"
+            extra = static + [("PolicyResearchLogPath", str(log_path))]
+        result = run_root(
+            engine, cwd, pos["fen"], args.depth, args.hash, args.eval_file, args.timeout, extra
+        )
+        positions.append(
+            {
+                "id": pos["id"],
+                "set": pos["set"],
+                "fen": pos["fen"],
+                "bestmove": result["bestmove"],
+                "rows": result["rows"],
+                "summary": result["summary"],
+                "wall_ms": result["wall_ms"],
+                "log_path": str(log_path) if log_path else None,
+            }
+        )
+        nodes = result["summary"].get("nodes")
+        nodes_str = str(nodes) if nodes is not None else "-"
+        print(
+            f"  {pos['id']:<12} {pos['set']:<12} nodes={nodes_str:>10} "
+            f"best={result['bestmove']:<24} {result['wall_ms'] / 1000.0:6.1f}s"
+        )
+    return {"schema_version": SCHEMA_RESULT, "manifest": manifest, "positions": positions}
+
+
+def _decode_and_validate_log(log_path: Path, expected_fen: str):
+    """Decode + validate one research log; cross-check the root FEN against the
+    corpus root. Returns the decode stats dict."""
+    header, records = dlog.decode_file(log_path)
+    stats = dlog.validate(records, log_path)
+    roots = stats["roots"]
+    if len(roots) != 1:
+        raise RuntimeError(f"{log_path}: expected exactly one root in the log")
+    (rk, root_stats), = roots.items()
+    if root_stats["fen"] != expected_fen:
+        raise RuntimeError(
+            f"{log_path}: logged root FEN does not match corpus root\n"
+            f"  log:    {root_stats['fen']}\n  corpus: {expected_fen}"
+        )
+    return {"root_key": rk, "decisions": root_stats["decisions"],
+            "attempts": stats["run_attempts"], "outcomes": stats["outcomes"],
+            "overflow": stats["overflow"]}
+
+
+def run_research_gate(args) -> int:
+    """Protocol P2.1 (docs/policy-research/experiment-protocols.md):
+
+    1. off pass (logging disabled),
+    2. on passes 1 and 2 (identical research options, per-root logs),
+    3. enforce: off == on1 == on2 search results (bestmove/rows), on1 logs ==
+       on2 logs (payload-identical), every log decodes cleanly, every logged
+       root FEN matches the corpus root FEN.
+    """
+    cwd = repo_root()
+    engine = Path(args.engine)
+    corpus_path = Path(args.corpus)
+    corpus, canonical = load_corpus(corpus_path)
+    corpus_sha = corpus_sha256(canonical)
+
+    out_root = Path(args.outdir or (cwd / "tools" / "policy_research" / "runs")).expanduser().resolve()
+    stamp = _dt.datetime.now().strftime("%Y%m%dT%H%M%S")
+    label_dir = out_root / f"{corpus['corpus_id']}-d{args.depth}-h{args.hash}-research-{stamp}"
+
+    print("== research pass: off (logging disabled) ==")
+    off_run = execute_research_pass(engine, cwd, corpus, corpus_sha, args,
+                                    "off", label_dir / "logs-off", False)
+    print("== research pass: on #1 ==")
+    on1_run = execute_research_pass(engine, cwd, corpus, corpus_sha, args,
+                                    "on-1", label_dir / "logs-on-1", True)
+    print("== research pass: on #2 ==")
+    on2_run = execute_research_pass(engine, cwd, corpus, corpus_sha, args,
+                                    "on-2", label_dir / "logs-on-2", True)
+
+    dir_off = write_run(label_dir / "run-off", off_run)
+    dir_on1 = write_run(label_dir / "run-on-1", on1_run)
+    dir_on2 = write_run(label_dir / "run-on-2", on2_run)
+
+    problems: list[dict] = []
+
+    def record(ok: bool, what: str, detail: str = ""):
+        problems.append({"ok": ok, "check": what, "detail": detail})
+
+    # 1. search-result equality across all three passes.
+    for pair, name_a, name_b in (
+        ((off_run, on1_run), "off", "on-1"),
+        ((off_run, on2_run), "off", "on-2"),
+        ((on1_run, on2_run), "on-1", "on-2"),
+    ):
+        ok, issues = compare_results(pair[0], pair[1])
+        detail = ""
+        if not ok:
+            detail = "; ".join(
+                f"{e['id']}: {e['differences'][0]}" for e in issues if not e["ok"]
+            )
+        record(ok, f"search results identical ({name_a} vs {name_b})", detail)
+
+    # 2. decode + validate every log; check root FEN matches the corpus root.
+    logs_on1 = {p["id"]: Path(p["log_path"]) for p in on1_run["positions"]}
+    logs_on2 = {p["id"]: Path(p["log_path"]) for p in on2_run["positions"]}
+    stats_on1: dict = {}
+    stats_on2: dict = {}
+    for pos in corpus["positions"]:
+        if args.only and pos["id"] not in args.only:
+            continue
+        try:
+            s1 = _decode_and_validate_log(logs_on1[pos["id"]], pos["fen"])
+            s2 = _decode_and_validate_log(logs_on2[pos["id"]], pos["fen"])
+            stats_on1[pos["id"]] = s1
+            stats_on2[pos["id"]] = s2
+        except RuntimeError as exc:
+            record(False, f"log decode/validate {pos['id']}", str(exc))
+            continue
+
+    # 3. decoded record-stream equality between on passes (deterministic sampling).
+    all_logs_equal = True
+    for pid in stats_on1:
+        res = dlog.compare(logs_on1[pid], logs_on2[pid])
+        if not res["equal"]:
+            all_logs_equal = False
+            record(False, f"decoded records identical ({pid})",
+                   f"records_on1={res['count_a']} records_on2={res['count_b']}")
+    record(all_logs_equal, "decoded record streams identical (on-1 vs on-2)")
+
+    log_rows = [
+        {"id": pid, **s} for pid, s in stats_on1.items()
+    ]
+    ok_total = all(p["ok"] for p in problems)
+    summary = {
+        "schema_version": "research-gate/1",
+        "overall_ok": ok_total,
+        "checks": problems,
+        "logs": {"on-1": stats_on1, "on-2": stats_on2},
+        "run_dirs": {"off": dir_off.name, "on-1": dir_on1.name, "on-2": dir_on2.name},
+    }
+    _ = log_rows
+    with open(label_dir / "research_summary.json", "w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+
+    print("\n== research logging gate result ==")
+    for p in problems:
+        print(f"  {'PASS' if p['ok'] else 'FAIL'}  {p['check']}"
+              + (f"  [{p['detail']}]" if p["detail"] else ""))
+    for pid, s in stats_on1.items():
+        print(f"  log {pid:<12} decisions={s['decisions']:<7} attempts={s['attempts']:<7} "
+              f"outcomes={s['outcomes']}")
+    print(f"overall: {'PASS' if ok_total else 'FAIL'}")
+    print(f"artifacts under {label_dir}")
+    return 0 if ok_total else 1
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -715,6 +955,20 @@ def main(argv: list[str] | None = None) -> int:
     common_parser(run_p)
     ver_p = sub.add_parser("verify", help="run the corpus twice and enforce the determinism gate")
     common_parser(ver_p)
+    res_p = sub.add_parser(
+        "verify-research",
+        help="run the corpus three times (off / on / on) and enforce the Phase 2 "
+        "research logging gate (protocol P2.1)",
+    )
+    common_parser(res_p)
+    res_p.add_argument("--research-sample-rate", type=float, default=0.05,
+                       help="PolicyResearchSampleRate for the `on` passes")
+    res_p.add_argument("--research-seed", type=int, default=101,
+                       help="PolicyResearchSeed for the `on` passes")
+    res_p.add_argument("--research-max-records", type=int, default=250000,
+                       help="PolicyResearchMaxRecords for the `on` passes")
+    res_p.add_argument("--research-policy-version", default="baseline-observational-v1",
+                       help="PolicyResearchPolicyVersion for the `on` passes")
     args = parser.parse_args(argv)
 
     cwd = repo_root()
@@ -750,6 +1004,17 @@ def main(argv: list[str] | None = None) -> int:
     out_root = Path(args.outdir or (cwd / "tools" / "policy_research" / "runs")).expanduser().resolve()
     stamp = _dt.datetime.now().strftime("%Y%m%dT%H%M%S")
     label_dir = out_root / f"{corpus['corpus_id']}-d{args.depth}-h{args.hash}-{stamp}"
+
+    if args.command == "verify-research":
+        if not (0.0 < args.research_sample_rate <= 1.0):
+            raise SystemExit("--research-sample-rate must be in (0, 1]")
+        if args.research_max_records <= 0:
+            raise SystemExit("--research-max-records must be positive")
+        print(f"corpus: {corpus['corpus_id']} ({len(selected)} roots) "
+              f"sha256={corpus_sha[:16]}...")
+        print(f"engine: {engine}  depth={args.depth} hash={args.hash}MB "
+              f"eval={eval_file or '<engine default>'}")
+        return run_research_gate(args)
 
     if args.command == "run":
         print("== run A (single pass) ==")

@@ -79,6 +79,43 @@ fixed-depth search (final `info` depth reaches the requested depth, or a mate wa
 announced; positive nodes; score and non-empty PV present), so two identically
 aborted searches can never satisfy the gate.
 
+## Research logging gate (Phase 2, protocol P2.1)
+
+Requires a `POLICY_RESEARCH` executable (`make -C src research-build`; do not use a
+production binary). Runs the corpus three times and enforces the Phase 2 exit gate:
+
+```bash
+python3 tools/policy_research/run_corpus.py verify-research \
+    --engine /path/to/research/stockfish --depth 11 --hash 16 \
+    --build-command 'make -C src research-build ARCH=x86-64-avx2' \
+    --research-sample-rate 0.05 --research-seed 101 \
+    --research-max-records 250000 --research-policy-version baseline-observational-v1
+```
+
+Passes: `off` (research options at defaults, no logs) and `on` #1 / #2 (identical
+`PolicyResearch*` settings, one fresh engine process per root, one log file per
+root). Checks that must all hold (see
+`docs/policy-research/experiment-protocols.md`):
+
+1. best move / normalized info rows identical across **all three** passes (logging
+   has zero search effect),
+2. every log decodes without validation errors and its `ROOT_START` FEN equals the
+   corpus root FEN,
+3. decoded record streams (payloads only) are identical between the `on` passes
+   (deterministic sample selection),
+4. no `MOVE_ATTEMPT` labels an unsearched move; a collection-cap hit is recorded,
+   never silent.
+
+Artifacts land under `runs/<corpus>-d<d>-h<h>-research-<stamp>/` (run-off,
+run-on-1, run-on-2, per-root logs, `research_summary.json`). Decode/validate any
+log file independently:
+
+```bash
+python3 tools/policy_research/decode_research_log.py path/to/root-x.bin
+python3 tools/policy_research/decode_research_log.py --compare a.bin b.bin
+python3 tools/policy_research/decode_research_log.py --jsonl out.jsonl log.bin
+```
+
 ## Artifacts per run
 
 Written under `tools/policy_research/runs/<corpus>-d<depth>-h<hash>-<stamp>/`:
@@ -109,6 +146,9 @@ Integration (double-run determinism on `c1-d-001` at depth 6) requires the engin
 STOCKFISH_ENGINE=$PWD/src/stockfish \
   python3 -m unittest tools.policy_research.tests.test_run_corpus.TestIntegration -v
 ```
+
+The decoder tests are engine-free (synthetic logs); the full `verify-research`
+gate doubles as the end-to-end engine test for Phase 2.
 
 ## Extending the corpus
 

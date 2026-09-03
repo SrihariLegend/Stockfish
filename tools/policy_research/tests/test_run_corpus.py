@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import run_corpus as rc
+import decode_research_log as dlog
 
 
 MINIMAL_POSITION = {
@@ -239,6 +240,196 @@ class TestIntegration(unittest.TestCase):
             )
             self.assertGreater(pos["summary"]["nodes"], 0)
             self.assertIsNotNone(pos["summary"]["score"])
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: research log decoder/validator
+# ---------------------------------------------------------------------------
+
+MAGIC = b"PXRLOG\x01\x00"
+FEN0 = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+ROOT_KEY = 0x1122334455667788
+
+
+def _s(b: bytes, x: str) -> bytes:
+    raw = x.encode()
+    return b + len(raw).to_bytes(2, "little") + raw
+
+
+def _b_run_start() -> bytes:
+    p = b""
+    p += bytes([1])  # mode observational
+    p += (7).to_bytes(8, "little")  # seed
+    p += (250000).to_bytes(4, "little")  # threshold
+    p += (100).to_bytes(4, "little")  # cap
+    p = _s(p, "policy-v1")
+    p = _s(p, "Stockfish test")
+    return p
+
+
+def _b_root_start(fen: str = FEN0) -> bytes:
+    p = ROOT_KEY.to_bytes(8, "little")
+    p += (6).to_bytes(4, "little")
+    return _s(p, fen)
+
+
+def _b_decision(serial: int, fen: str = FEN0, key: int = 0xABCD) -> bytes:
+    p = ROOT_KEY.to_bytes(8, "little")
+    p += serial.to_bytes(8, "little")
+    p += key.to_bytes(8, "little")
+    for v in (0, 6, 6, -50, 50, 10):  # ply, depth, rootIter, alpha, beta, staticEval
+        p += (v & 0xFFFFFFFF).to_bytes(4, "little")
+    p += bytes([0b001])  # flags: improving
+    p += (2).to_bytes(2, "little")  # rule50
+    p += bytes([0])  # stm white
+    return _s(p, fen)
+
+
+def _b_attempt(serial: int, qord: int = 1, outcome: int = 2, nodes: int = 3) -> bytes:
+    p = ROOT_KEY.to_bytes(8, "little")
+    p += serial.to_bytes(8, "little")
+    p += (1).to_bytes(8, "little")  # attempt serial
+    p += (12 << 6 | 28).to_bytes(2, "little")  # e2e4: NORMAL from e2(12) to e4(28)
+    p += qord.to_bytes(2, "little")
+    p += (5).to_bytes(2, "little")  # totalAttempted
+    p += bytes([0, 0, 1])  # givesCheck, isTT, childCount
+    for v in (4, -1, -50, 50, 12):  # fd, rsd, alpha, beta, value
+        p += (v & 0xFFFFFFFF).to_bytes(4, "little")
+    p += nodes.to_bytes(8, "little")
+    p += bytes([outcome])
+    return p
+
+
+def _b_root_end(dec: int, att: int) -> bytes:
+    return (ROOT_KEY.to_bytes(8, "little") + dec.to_bytes(8, "little")
+            + att.to_bytes(8, "little"))
+
+
+def _b_run_end(dec: int, att: int) -> bytes:
+    return (dec.to_bytes(8, "little") + att.to_bytes(8, "little")
+            + bytes([0, 0]))
+
+
+def _frame(rtype: int, payload: bytes) -> bytes:
+    return (rtype.to_bytes(2, "little") + (1).to_bytes(2, "little")
+            + len(payload).to_bytes(4, "little") + payload)
+
+
+def _log_bytes() -> bytes:
+    out = MAGIC + (0x01020304).to_bytes(4, "little") + (1).to_bytes(2, "little")
+    out += (0).to_bytes(4, "little")  # uuid len 0
+    out += _frame(dlog.RUN_START, _b_run_start())
+    out += _frame(dlog.ROOT_START, _b_root_start())
+    out += _frame(dlog.DECISION_POINT, _b_decision(1))
+    out += _frame(dlog.MOVE_ATTEMPT, _b_attempt(1))
+    out += _frame(dlog.ROOT_END, _b_root_end(1, 1))
+    out += _frame(dlog.RUN_END, _b_run_end(1, 1))
+    return out
+
+
+class TestDecodeResearchLog(unittest.TestCase):
+    def _decode(self, data: bytes):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(data)
+            header, records = dlog.decode_file(path)
+            stats = dlog.validate(records, path)
+            return header, records, stats
+
+    def test_valid_log_decodes_and_validates(self):
+        header, records, stats = self._decode(_log_bytes())
+        self.assertEqual(header["format_version"], 1)
+        self.assertEqual(len(records), 6)
+        self.assertEqual(records[0]["_type"], dlog.RUN_START)
+        self.assertEqual(stats["run_decisions"], 1)
+        self.assertEqual(stats["run_attempts"], 1)
+        self.assertEqual(stats["outcomes"], {"fail_low": 1})
+        self.assertEqual(records[3]["move_uci"], "e2e4")
+
+    def test_payload_equality_across_runs_and_difference_detection(self):
+        a = _log_bytes()
+        with tempfile.TemporaryDirectory() as d:
+            pa = Path(d) / "a.bin"
+            pb = Path(d) / "b.bin"
+            pa.write_bytes(a)
+            pb.write_bytes(a)
+            res = dlog.compare(pa, pb)
+            self.assertTrue(res["equal"])
+            b2 = a.replace(_b_attempt(1, outcome=2), _b_attempt(1, outcome=1))
+            self.assertNotEqual(a, b2)
+            p2 = Path(d) / "c.bin"
+            p2.write_bytes(b2)
+            res2 = dlog.compare(pa, p2)
+            self.assertFalse(res2["equal"])
+
+    def test_bad_magic_rejected(self):
+        data = bytearray(_log_bytes())
+        data[0] = 0
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(bytes(data))
+            with self.assertRaises(dlog.ValidationError):
+                dlog.decode_file(path)
+
+    def test_unknown_record_type_rejected(self):
+        data = _log_bytes().replace(
+            _frame(dlog.RUN_START, _b_run_start()),
+            _frame(99, b""),
+        )
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(data)
+            with self.assertRaises(dlog.ValidationError):
+                dlog.decode_file(path)
+
+    def test_unterminated_root_rejected(self):
+        data = _log_bytes().replace(_frame(dlog.ROOT_END, _b_root_end(1, 1)), b"")
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(data)
+            with self.assertRaises(dlog.ValidationError):
+                _, records = dlog.decode_file(path)
+                dlog.validate(records, path)
+
+    def test_attempt_without_decision_rejected(self):
+        # root with an attempt that has no matching DECISION_POINT
+        body = (_frame(dlog.RUN_START, _b_run_start())
+                + _frame(dlog.ROOT_START, _b_root_start())
+                + _frame(dlog.MOVE_ATTEMPT, _b_attempt(1))
+                + _frame(dlog.ROOT_END, _b_root_end(0, 1))
+                + _frame(dlog.RUN_END, _b_run_end(0, 1)))
+        data = (MAGIC + (0x01020304).to_bytes(4, "little")
+                + (1).to_bytes(2, "little") + (0).to_bytes(4, "little") + body)
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(data)
+            with self.assertRaises(dlog.ValidationError):
+                _, records = dlog.decode_file(path)
+                dlog.validate(records, path)
+
+    def test_reserved_counterfactual_type_rejected(self):
+        body = (_frame(dlog.RUN_START, _b_run_start())
+                + _frame(dlog.ROOT_START, _b_root_start())
+                + _frame(dlog.COUNTERFACTUAL_RESULT, b"")
+                + _frame(dlog.ROOT_END, _b_root_end(0, 0))
+                + _frame(dlog.RUN_END, _b_run_end(0, 0)))
+        data = (MAGIC + (0x01020304).to_bytes(4, "little")
+                + (1).to_bytes(2, "little") + (0).to_bytes(4, "little") + body)
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(data)
+            with self.assertRaises(dlog.ValidationError):
+                dlog.decode_file(path)
+
+    def test_run_end_totals_mismatch_rejected(self):
+        data = _log_bytes().replace(_frame(dlog.RUN_END, _b_run_end(1, 1)),
+                                    _frame(dlog.RUN_END, _b_run_end(9, 9)))
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(data)
+            with self.assertRaises(dlog.ValidationError):
+                _, records = dlog.decode_file(path)
+                dlog.validate(records, path)
 
 
 if __name__ == "__main__":
