@@ -48,19 +48,21 @@ MOVE_TYPE_NAMES = {0: "NORMAL", 1: "PROMOTION", 2: "EN_PASSANT", 3: "CASTLING"}
 # Move raw layout (Move::raw()): to 0-5, from 6-11, promotion 12-13, type 14-15.
 FILES = "abcdefgh"
 RANKS = "12345678"
+# Promotion bits 12-13 hold (PieceType - KNIGHT), KNIGHT=2..QUEEN=5.
+_PROMO_CHAR = {2: "n", 3: "b", 4: "r", 5: "q"}
 
 
 def _move_raw_to_uci(raw: int) -> str:
     to = raw & 0x3F
     frm = (raw >> 6) & 0x3F
-    promo = ((raw >> 12) & 3) + 2  # KNIGHT..QUEEN encoded as 0..3 at bits 12-13
+    promo_pt = ((raw >> 12) & 3) + 2  # PieceType KNIGHT..QUEEN (2..5)
     mtype = (raw >> 14) & 3
     if frm > 63 or to > 63:
         return f"<invalid:{raw}>"
     sq = lambda i: FILES[i & 7] + RANKS[i >> 3]
     s = sq(frm) + sq(to)
     if mtype == 1:  # PROMOTION
-        s += "nbrq"[promo]
+        s += _PROMO_CHAR.get(promo_pt, "?")
     return s
 
 
@@ -71,6 +73,12 @@ def _read_str(buf: bytes, off: int):
 
 class ValidationError(Exception):
     pass
+
+
+def _need(path: Path, kind: str, b: bytes, n: int) -> None:
+    if len(b) < n:
+        raise ValidationError(f"{path}: {kind} payload too short: "
+                              f"got {len(b)} bytes, need at least {n}")
 
 
 def decode_file(path: Path):
@@ -109,6 +117,7 @@ def decode_file(path: Path):
 
 def _decode_payload(t: int, b: bytes, path: Path) -> dict:
     if t == RUN_START:
+        _need(path, "RUN_START", b, 17)
         mode, seed, thr, cap = struct.unpack_from("<BQII", b, 0)
         o = 17
         pol, o = _read_str(b, o)
@@ -118,12 +127,14 @@ def _decode_payload(t: int, b: bytes, path: Path) -> dict:
         return {"mode": mode, "seed": seed, "sample_threshold": thr,
                 "max_records": cap, "policy_version": pol, "engine_info": eng}
     if t == ROOT_START:
+        _need(path, "ROOT_START", b, 12)
         key, d, = struct.unpack_from("<QI", b, 0)
         fen, o = _read_str(b, 12)
         if o != len(b):
             raise ValidationError(f"{path}: ROOT_START trailing bytes")
         return {"root_key": key, "target_depth": d, "fen": fen}
     if t == DECISION_POINT:
+        _need(path, "DECISION_POINT", b, 52)
         (rk, ser, key, ply, depth, root_iter, alpha, beta, st_eval) = \
             struct.unpack_from("<QQQiiiiii", b, 0)
         (flags,) = struct.unpack_from("<B", b, 48)
@@ -139,6 +150,7 @@ def _decode_payload(t: int, b: bytes, path: Path) -> dict:
                 "tt_move_present": bool(flags & 4), "rule50": rule50,
                 "side_to_move": stm, "fen": fen}
     if t == MOVE_ATTEMPT:
+        _need(path, "MOVE_ATTEMPT", b, 62)
         (rk, ser, aser, raw, qord, tot, gc, tt, cc, fd, rsd, ab, bb, vr) = \
             struct.unpack_from("<QQQHHHBBBiiiii", b, 0)
         (consumed,) = struct.unpack_from("<Q", b, 53)
@@ -156,17 +168,20 @@ def _decode_payload(t: int, b: bytes, path: Path) -> dict:
     if t == COUNTERFACTUAL_RESULT:
         raise ValidationError(f"{path}: unexpected COUNTERFACTUAL_RESULT (reserved)")
     if t == ROOT_END:
+        _need(path, "ROOT_END", b, 24)
         key, dc, ac = struct.unpack_from("<QQQ", b, 0)
         if len(b) != 24:
             raise ValidationError(f"{path}: ROOT_END bad length")
         return {"root_key": key, "decision_count": dc, "attempt_count": ac}
     if t == RUN_END:
+        _need(path, "RUN_END", b, 18)
         dd, aa, ovf, err = struct.unpack_from("<QQBB", b, 0)
         if len(b) != 18:
             raise ValidationError(f"{path}: RUN_END bad length")
         return {"run_decisions": dd, "run_attempts": aa, "overflow": bool(ovf),
                 "error_code": err}
     if t == ERROR_RECORD:
+        _need(path, "ERROR_RECORD", b, 2)
         (code,) = struct.unpack_from("<H", b, 0)
         msg, o = _read_str(b, 2)
         if o != len(b):
@@ -178,25 +193,35 @@ def _decode_payload(t: int, b: bytes, path: Path) -> dict:
 def validate(records: list[dict], path: Path, fen_check: str | None = None) -> dict:
     """Structural + semantic validation. Raises ValidationError on problems.
 
-    Returns a small stats dict (per-root counts, outcome counts, totals)."""
+    Returns a small stats dict (per-root counts, outcome counts, totals).
+    """
     if not records:
         raise ValidationError(f"{path}: no records")
-    if records[0]["_type"] != RUN_START or records[-1]["_type"] != RUN_END:
-        raise ValidationError(f"{path}: stream must start RUN_START and end RUN_END")
+    if records[0]["_type"] != RUN_START:
+        raise ValidationError(f"{path}: stream must start RUN_START")
+    if records[-1]["_type"] != RUN_END:
+        raise ValidationError(f"{path}: stream must end RUN_END")
+    if records[0]["mode"] not in MODE_NAMES:
+        raise ValidationError(f"{path}: unknown RUN_START mode {records[0]['mode']}")
 
     roots = {}        # root_key -> {"fen", decisions: dict serial->decision}
     in_root = False
     cur_root = None
+    cur_key = None
+    cur_attempts = 0
     run_dec = run_att = 0
-    overflow_seen = False
+    cap_error_seen = False
     for i, rec in enumerate(records):
         t = rec["_type"]
+        if i == 0:
+            continue  # RUN_START, already checked
+        if i == len(records) - 1:
+            continue  # RUN_END, cross-checked after the loop
         if t == RUN_START:
-            if in_root:
-                raise ValidationError(f"{path}: RUN_START inside root at {i}")
-            if rec["mode"] not in MODE_NAMES:
-                raise ValidationError(f"{path}: RUN_START bad mode {rec['mode']}")
-        elif t == ROOT_START:
+            raise ValidationError(f"{path}: duplicate RUN_START at {i}")
+        if t == RUN_END:
+            raise ValidationError(f"{path}: RUN_END before end of stream at {i}")
+        if t == ROOT_START:
             if in_root:
                 raise ValidationError(f"{path}: nested ROOT_START at {i}")
             rk = rec["root_key"]
@@ -207,12 +232,14 @@ def validate(records: list[dict], path: Path, fen_check: str | None = None) -> d
                 raise ValidationError(f"{path}: root fen mismatch at {i}")
             in_root = True
             cur_root = roots[rk]
+            cur_key = rk
+            cur_attempts = 0
         elif t == DECISION_POINT:
             if not in_root:
                 raise ValidationError(f"{path}: DECISION_POINT outside root at {i}")
-            rk = rec["root_key"]
-            if rk not in roots:
-                raise ValidationError(f"{path}: decision references unknown root at {i}")
+            if cur_key is None or rec["root_key"] != cur_key:
+                raise ValidationError(
+                    f"{path}: decision references wrong/closed root {rec['root_key']:#x} at {i}")
             ns = rec["node_serial"]
             if ns in cur_root["decisions"]:
                 raise ValidationError(f"{path}: duplicate decision node_serial {ns} at {i}")
@@ -222,6 +249,13 @@ def validate(records: list[dict], path: Path, fen_check: str | None = None) -> d
         elif t == MOVE_ATTEMPT:
             if not in_root:
                 raise ValidationError(f"{path}: MOVE_ATTEMPT outside root at {i}")
+            if cur_key is None or rec["root_key"] != cur_key:
+                raise ValidationError(
+                    f"{path}: attempt references wrong/closed root {rec['root_key']:#x} at {i}")
+            if rec["child_search_count"] < 1:
+                raise ValidationError(
+                    f"{path}: attempt at {i} has child_search_count 0 "
+                    "(only actually searched moves may carry an outcome)")
             ns = rec["node_serial"]
             d = cur_root["decisions"].get(ns)
             if d is None:
@@ -235,6 +269,18 @@ def validate(records: list[dict], path: Path, fen_check: str | None = None) -> d
                 raise ValidationError(f"{path}: undecodable move raw {rec['move_raw']} at {i}")
             if rec["outcome"] not in OUTCOME_NAMES:
                 raise ValidationError(f"{path}: bad outcome {rec['outcome']} at {i}")
+            # Outcome is defined by the engine as stopped/3 else
+            # value >= beta -> fail-high cutoff else fail-low, so a completed
+            # attempt's value and outcome must agree.
+            if rec["outcome"] == 1 and rec["value_returned"] < rec["beta_before"]:
+                raise ValidationError(
+                    f"{path}: fail-high cutoff at {i} with value {rec['value_returned']} "
+                    f"< beta {rec['beta_before']}")
+            if rec["outcome"] == 2 and rec["value_returned"] >= rec["beta_before"]:
+                raise ValidationError(
+                    f"{path}: fail-low at {i} with value {rec['value_returned']} "
+                    f">= beta {rec['beta_before']}")
+            cur_attempts += 1
         elif t == COUNTERFACTUAL_RESULT:
             raise ValidationError(f"{path}: reserved type emitted at {i}")
         elif t == ROOT_END:
@@ -247,24 +293,37 @@ def validate(records: list[dict], path: Path, fen_check: str | None = None) -> d
                 raise ValidationError(
                     f"{path}: ROOT_END decision count {rec['decision_count']} != "
                     f"{len(cur_root['decisions'])} at {i}")
+            if rec["attempt_count"] != cur_attempts:
+                raise ValidationError(
+                    f"{path}: ROOT_END attempt count {rec['attempt_count']} != "
+                    f"{cur_attempts} (counted MOVE_ATTEMPT records) at {i}")
             run_dec += rec["decision_count"]
             run_att += rec["attempt_count"]
             in_root = False
             cur_root = None
+            cur_key = None
         elif t == ERROR_RECORD:
-            overflow_seen = True
-        elif t == RUN_END:
-            if in_root:
-                raise ValidationError(f"{path}: RUN_END inside open root at {i}")
-            if rec["run_decisions"] != run_dec or rec["run_attempts"] != run_att:
-                raise ValidationError(
-                    f"{path}: RUN_END totals mismatch "
-                    f"(recorded {rec['run_decisions']}/{rec['run_attempts']}, "
-                    f"counted {run_dec}/{run_att})")
-        if t == DECISION_POINT:
-            pass
+            if rec["code"] == 1:
+                cap_error_seen = True
     if in_root:
         raise ValidationError(f"{path}: unterminated root (no ROOT_END)")
+
+    # Run-level totals and cap-overflow bookkeeping must agree with the stream.
+    run_end = records[-1]
+    if run_end["run_decisions"] != run_dec or run_end["run_attempts"] != run_att:
+        raise ValidationError(
+            f"{path}: RUN_END totals mismatch "
+            f"(recorded {run_end['run_decisions']}/{run_end['run_attempts']}, "
+            f"counted {run_dec}/{run_att})")
+    if run_end["overflow"] != (run_end["error_code"] == 1):
+        raise ValidationError(
+            f"{path}: RUN_END overflow={int(run_end['overflow'])} inconsistent with "
+            f"error_code={run_end['error_code']} (overflow <=> error_code == 1)")
+    if bool(run_end["overflow"]) != cap_error_seen:
+        raise ValidationError(
+            f"{path}: RUN_END overflow={int(run_end['overflow'])} but "
+            f"{'no' if not cap_error_seen else 'a'} cap ERROR_RECORD "
+            f"{'was' if cap_error_seen else 'was not'} present")
 
     # quiet-ordinal monotonicity per (root, node), plus outcome aggregates.
     outcomes = {}
@@ -292,7 +351,7 @@ def validate(records: list[dict], path: Path, fen_check: str | None = None) -> d
         "run_decisions": run_dec,
         "run_attempts": run_att,
         "outcomes": outcomes,
-        "overflow": overflow_seen,
+        "overflow": bool(run_end["overflow"]),
     }
     return stats
 

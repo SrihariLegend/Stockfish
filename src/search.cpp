@@ -1150,9 +1150,8 @@ moves_loop:  // When in check, search starts here
     if (!rootNode && !PvNode && !ss->inCheck && excludedMove == Move::none()
         && Research::recorder().active())
         researchCtx = Research::recorder().begin_moves_loop(
-          pos.key(), ss->ply, depth, rootDepth, alpha, beta, ss->staticEval, improving,
-          ss->ttHit, ttData.move != Move::none(), pos.rule50_count(), static_cast<int>(us),
-          pos.fen());
+          pos, ss->ply, depth, rootDepth, alpha, beta, ss->staticEval, improving,
+          ss->ttHit, ttData.move != Move::none());
 #endif
 
     // Step 13. A small ProbCut idea
@@ -1288,6 +1287,16 @@ moves_loop:  // When in check, search starts here
             }
         }
 
+#ifdef POLICY_RESEARCH
+        // Research: per-attempt accumulator (only searched quiet moves emit; see
+        // the hook after Step 21 below). The start-node snapshot is taken before
+        // the Step 16 singular-extension probe, so the excluded-search subtree
+        // spent verifying this (TT) move is attributed to this attempt's cost
+        // (data-schema.md: nodes consumed = nodes spent by the attempt).
+        Research::AttemptAccum researchAcc;
+        researchAcc.startNodes = u64(nodes);
+#endif
+
         // Step 16. Singular Extensions
         //
         // We check for "only moves": if one move fails high on (alpha, beta) but all
@@ -1361,12 +1370,6 @@ moves_loop:  // When in check, search starts here
 
         u64 nodeCount = rootNode ? u64(nodes) : 0;
 
-#ifdef POLICY_RESEARCH
-        // Research: per-attempt accumulator (only searched quiet moves emit;
-        // see the hook after Step 21 below).
-        Research::AttemptAccum researchAcc;
-#endif
-
         // Step 17. Make the move
         do_move(pos, move, st, givesCheck, capture, ss);
 
@@ -1422,9 +1425,6 @@ moves_loop:  // When in check, search starts here
             r += r * 276 / (256 * depth + 268);
 
         // Apply the computed LMR
-#ifdef POLICY_RESEARCH
-        researchAcc.startNodes = u64(nodes);
-#endif
         if (depth >= 2 && moveCount > 1)
         {
             // In general we want to cap the LMR depth search at newDepth, but when

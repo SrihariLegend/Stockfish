@@ -757,6 +757,19 @@ INVALID_OR_SKIPPED
 
 Do not collapse these prematurely.
 
+Schema note (fixes the Phase 2 review P1): with the committed
+`research-data/1` records, Phase 3 collection can build behavior-conditioned
+rows only for **actually attempted quiet moves** (per sampled node: the node's
+DECISION_POINT plus its MOVE_ATTEMPTs). Derivable now: `OBSERVED_FAIL_HIGH`,
+`OBSERVED_FAIL_LOW` (exact negative event; NonPV null-window nodes cannot raise
+alpha without a cutoff), and `SEARCH_ABORTED`/`BUDGET_CENSORED`. Candidate-set
+statuses (`UNOBSERVED_AFTER_CUTOFF`, `INVALID_OR_SKIPPED`) and full-window
+observations (`OBSERVED_ALPHA_RAISE`, `OBSERVED_EXACT`) need a schema extension
+with candidate enumeration and MovePicker baseline features; that is deferred
+to the counterfactual phases (see experiment-protocols.md P3.x). Until then,
+history/baseline-score calibration (§8.3) cannot be grounded in `research-data/1`
+alone.
+
 ## 8.2 Initial observational analyses
 
 Produce reports for:

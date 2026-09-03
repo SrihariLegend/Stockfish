@@ -280,6 +280,29 @@ def engine_compile_info(engine: Path, cwd: Path, timeout: float = 60.0) -> dict:
     return info
 
 
+def engine_research_options_meta(engine: Path, cwd: Path, timeout: float = 60.0) -> tuple[set, dict]:
+    """(declared option names, spin min/max) parsed from the engine's own `uci`
+    reply.
+
+    An out-of-range spin value is silently rejected by the engine (ucioption.cpp
+    bounds check), so the runner validates CLI research values against the same
+    declared ranges instead of discovering the rejection from silent logs.
+    """
+    stdout, _, _ = _run_process(engine, "uci\nquit\n", timeout, cwd)
+    names: set = set()
+    bounds: dict = {}
+    for line in stdout.splitlines():
+        m = re.match(r"option name (.+?) type (\S+)", line)
+        if not m:
+            continue
+        names.add(m.group(1))
+        if m.group(2) == "spin":
+            b = re.search(r"min (-?\d+) max (-?\d+)", line)
+            if b:
+                bounds[m.group(1)] = (int(b.group(1)), int(b.group(2)))
+    return names, bounds
+
+
 def engine_banner(engine: Path, cwd: Path, timeout: float = 60.0) -> str | None:
     """Return the engine's identity line from `uci` (e.g. the embedded commit).
 
@@ -730,6 +753,9 @@ def execute_research_pass(
     if enabled:
         manifest["research_log_root"] = str(log_root)
         manifest["research_pass"] = pass_label
+        manifest["random_seed"] = args.research_seed
+        manifest["research_data_schema"] = "research-data/1"
+        manifest["research_log_container"] = "research-log/1"
         manifest["uci_options_applied"]["PolicyResearchLogPath"] = (
             "<per root>" + " " + str(log_root / "root-<POSITION_ID>.bin")
         )
@@ -768,9 +794,13 @@ def execute_research_pass(
     return {"schema_version": SCHEMA_RESULT, "manifest": manifest, "positions": positions}
 
 
-def _decode_and_validate_log(log_path: Path, expected_fen: str):
+def _decode_and_validate_log(log_path: Path, expected_fen: str,
+                             expected_run_start: dict | None = None,
+                             engine_version: str | None = None):
     """Decode + validate one research log; cross-check the root FEN against the
-    corpus root. Returns the decode stats dict."""
+    corpus root, and (for `on` passes) cross-check RUN_START's recorded research
+    settings (mode/seed/threshold/cap/policy) and engine identity against what
+    the runner requested. Returns the decode stats dict."""
     header, records = dlog.decode_file(log_path)
     stats = dlog.validate(records, log_path)
     roots = stats["roots"]
@@ -782,6 +812,21 @@ def _decode_and_validate_log(log_path: Path, expected_fen: str):
             f"{log_path}: logged root FEN does not match corpus root\n"
             f"  log:    {root_stats['fen']}\n  corpus: {expected_fen}"
         )
+    run_start = records[0]
+    if expected_run_start is not None:
+        got = {k: run_start[k] for k in expected_run_start}
+        if got != expected_run_start:
+            raise RuntimeError(
+                f"{log_path}: RUN_START research settings do not match the run request\n"
+                f"  requested: {expected_run_start}\n  logged:    {got}"
+            )
+    if engine_version is not None:
+        logged_version = run_start["engine_info"].splitlines()[0] if run_start["engine_info"] else ""
+        if logged_version != engine_version:
+            raise RuntimeError(
+                f"{log_path}: RUN_START engine identity does not match the run executable\n"
+                f"  log:    {logged_version}\n  expect: {engine_version}"
+            )
     return {"root_key": rk, "decisions": root_stats["decisions"],
             "attempts": stats["run_attempts"], "outcomes": stats["outcomes"],
             "overflow": stats["overflow"]}
@@ -839,27 +884,47 @@ def run_research_gate(args) -> int:
             )
         record(ok, f"search results identical ({name_a} vs {name_b})", detail)
 
-    # 2. decode + validate every log; check root FEN matches the corpus root.
+    # 2. decode + validate every log; check root FEN matches the corpus root and
+    #    that RUN_START records the research settings and engine the runner
+    #    actually requested (so a silently unapplied option fails the gate).
     logs_on1 = {p["id"]: Path(p["log_path"]) for p in on1_run["positions"]}
     logs_on2 = {p["id"]: Path(p["log_path"]) for p in on2_run["positions"]}
+    banner = (on1_run["manifest"].get("engine_banner") or "").strip()
+    if banner.startswith("id name "):
+        banner = banner[len("id name "):]
+    engine_version = banner.removesuffix(" by the Stockfish developers (see AUTHORS file)")
+    expected_run_start = {
+        "mode": 1,  # Research::Mode::Observational
+        "seed": args.research_seed,
+        "sample_threshold": int(args.research_sample_rate * 1_000_000 + 0.5),
+        "max_records": min(args.research_max_records, 1 << 22),
+        "policy_version": args.research_policy_version,
+    }
     stats_on1: dict = {}
     stats_on2: dict = {}
     for pos in corpus["positions"]:
         if args.only and pos["id"] not in args.only:
             continue
         try:
-            s1 = _decode_and_validate_log(logs_on1[pos["id"]], pos["fen"])
-            s2 = _decode_and_validate_log(logs_on2[pos["id"]], pos["fen"])
+            s1 = _decode_and_validate_log(logs_on1[pos["id"]], pos["fen"],
+                                          expected_run_start, engine_version)
+            s2 = _decode_and_validate_log(logs_on2[pos["id"]], pos["fen"],
+                                          expected_run_start, engine_version)
             stats_on1[pos["id"]] = s1
             stats_on2[pos["id"]] = s2
-        except RuntimeError as exc:
+        except (RuntimeError, dlog.ValidationError, OSError) as exc:
             record(False, f"log decode/validate {pos['id']}", str(exc))
             continue
 
     # 3. decoded record-stream equality between on passes (deterministic sampling).
     all_logs_equal = True
     for pid in stats_on1:
-        res = dlog.compare(logs_on1[pid], logs_on2[pid])
+        try:
+            res = dlog.compare(logs_on1[pid], logs_on2[pid])
+        except (dlog.ValidationError, OSError) as exc:
+            all_logs_equal = False
+            record(False, f"decoded records identical ({pid})", str(exc))
+            continue
         if not res["equal"]:
             all_logs_equal = False
             record(False, f"decoded records identical ({pid})",
@@ -1010,6 +1075,32 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("--research-sample-rate must be in (0, 1]")
         if args.research_max_records <= 0:
             raise SystemExit("--research-max-records must be positive")
+        # Fail fast when the engine is not a POLICY_RESEARCH build or when a
+        # research spin value falls outside the engine's own declared range (the
+        # engine silently ignores out-of-range spin values, which would otherwise
+        # surface as an unapplied-option gate failure deep into the run).
+        names, spin_bounds = engine_research_options_meta(engine, cwd)
+        required = ["PolicyResearch", "PolicyResearchMode", "PolicyResearchSeed",
+                    "PolicyResearchSampleRate", "PolicyResearchMaxRecords",
+                    "PolicyResearchPolicyVersion"]
+        missing = [n for n in required if n not in names]
+        if missing:
+            raise SystemExit(
+                "engine does not declare required research options "
+                f"({', '.join(missing)}); build with 'make -C src research-build' "
+                "or pass a research executable via --engine"
+            )
+        for flag, opt, value in (
+            ("research_seed", "PolicyResearchSeed", args.research_seed),
+            ("research_max_records", "PolicyResearchMaxRecords",
+             args.research_max_records),
+        ):
+            lo, hi = spin_bounds.get(opt, (0, (1 << 31) - 1))
+            if not (lo <= value <= hi):
+                raise SystemExit(
+                    f"--{flag.replace('_', '-')}: value {value} is outside the engine's "
+                    f"declared range [{lo}, {hi}] for option '{opt}'"
+                )
         print(f"corpus: {corpus['corpus_id']} ({len(selected)} roots) "
               f"sha256={corpus_sha[:16]}...")
         print(f"engine: {engine}  depth={args.depth} hash={args.hash}MB "

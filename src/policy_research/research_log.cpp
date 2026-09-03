@@ -13,7 +13,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <iostream>
 
+#include "../misc.h"
+#include "../position.h"
 #include "research_options.h"
 
 namespace Stockfish::Research {
@@ -72,6 +75,8 @@ void Recorder::append_str(std::vector<u8>& out, const std::string& s) {
 }
 
 void Recorder::write_frame(RecordType type, const std::vector<u8>& payload) {
+    if (ioFailed_)
+        return;  // artifact already lost; stop buffering
     put_u16(buf_, static_cast<u16>(type));
     put_u16(buf_, DATA_SCHEMA_VERSION);
     put_u32(buf_, static_cast<u32>(payload.size()));
@@ -79,10 +84,17 @@ void Recorder::write_frame(RecordType type, const std::vector<u8>& payload) {
 }
 
 void Recorder::flush() {
-    if (out_ == nullptr || buf_.empty())
+    if (out_ == nullptr || buf_.empty() || ioFailed_)
         return;
-    std::fwrite(buf_.data(), 1, buf_.size(), out_);
-    std::fflush(out_);
+    const std::size_t written = std::fwrite(buf_.data(), 1, buf_.size(), out_);
+    if (written != buf_.size() || std::fflush(out_) != 0)
+    {
+        // The on-disk artifact can no longer be trusted; tell the user instead
+        // of silently truncating the dataset.
+        ioFailed_ = true;
+        sync_cout << "info string policy research: log write failed; "
+                     "logging disabled for the rest of this run" << sync_endl;
+    }
     buf_.clear();
 }
 
@@ -104,12 +116,15 @@ void Recorder::open_run() {
     out_ = std::fopen(logPath_.c_str(), "wb");
     if (out_ == nullptr)
     {
-        // Cannot open the log; run proceeds without logging (documented in
-        // protocol P2.1). requested_ is cleared so nothing records.
+        // Logging cannot start; the search itself still proceeds. Surface the
+        // failure instead of failing silently.
+        sync_cout << "info string policy research: cannot open log file '" << logPath_
+                  << "'; logging disabled for this search" << sync_endl;
         requested_ = false;
         active_ = false;
         return;
     }
+    ioFailed_ = false;
 
     std::vector<u8> header;
     // magic "PXRLOG" + version byte + pad
@@ -130,7 +145,17 @@ void Recorder::open_run() {
     for (u32 i = 0; i < uuidLen; ++i)
         put_u8(header, static_cast<u8>(r >> (8 * i)));
 
-    std::fwrite(header.data(), 1, header.size(), out_);
+    if (std::fwrite(header.data(), 1, header.size(), out_) != header.size())
+    {
+        ioFailed_ = true;
+        sync_cout << "info string policy research: failed writing log header; "
+                     "logging disabled for this search" << sync_endl;
+        std::fclose(out_);
+        out_ = nullptr;
+        requested_ = false;
+        active_ = false;
+        return;
+    }
 
     std::vector<u8> p;
     put_u8(p, static_cast<u8>(config().mode));
@@ -144,7 +169,67 @@ void Recorder::open_run() {
     flush();
 }
 
+void Recorder::finish_run() {
+    if (out_ == nullptr && !requested_ && !active_)
+        return;
+    // Close any open root so the stream always terminates cleanly.
+    if (active_ && rootOpen_)
+        on_root_search_end(rootKey_);
+
+    std::vector<u8> p;
+    put_u64(p, runDecisionTotal_);
+    put_u64(p, runAttemptTotal_);
+    put_u8(p, runOverflow_ ? 1 : 0);
+    // error code 1 means "cap overflow" (RUN_END layout); it must agree with
+    // the overflow flag so decoders can cross-check the stream.
+    put_u8(p, runOverflow_ ? 1 : 0);
+    write_frame(REC_RUN_END, p);
+    flush();
+
+    if (out_ != nullptr)
+    {
+        if (std::fclose(out_) != 0)
+        {
+            ioFailed_ = true;
+            sync_cout << "info string policy research: error closing log file" << sync_endl;
+        }
+        out_ = nullptr;
+    }
+    requested_ = false;
+    active_ = false;
+    ioFailed_ = false;
+    runDataRecords_ = 0;
+    runDecisionTotal_ = 0;
+    runAttemptTotal_ = 0;
+    runOverflow_ = false;
+}
+
 void Recorder::on_go(const std::string& fen, int targetDepth, const std::string& engineInfo) {
+    // If the previous root search is still in flight we cannot finalize or
+    // re-arm safely. The engine serializes searches (start_thinking waits for
+    // the running search), so hold this request and re-evaluate it when the
+    // current root closes -- option/path/switch changes then apply to the next
+    // search. Protocol P2.1 uses a fresh engine process per root, so a process
+    // normally sees one `go` and this path is only reached interactively.
+    if (active_)
+    {
+        defer_ = true;
+        deferFen_ = fen;
+        deferDepth_ = targetDepth > 0 ? targetDepth : 0;
+        deferEngineInfo_ = engineInfo;
+        return;
+    }
+    // A previous `go` may have left its run file open (interactive sessions can
+    // issue several `go` commands, change options, or disable research between
+    // searches). Finalize it so every `go` produces a self-contained, decodable
+    // run and option/path/seed changes take effect immediately.
+    if (out_ != nullptr)
+        finish_run();
+    arm_run(fen, targetDepth, engineInfo);
+}
+
+void Recorder::arm_run(const std::string& fen, int targetDepth,
+                       const std::string& engineInfo) {
     requested_ = false;
     active_ = false;
     if (!Research::enabled() || config().mode != Research::Mode::Observational
@@ -200,9 +285,23 @@ void Recorder::on_root_search_end(u64 rootKey) {
     flush();
     reset_root();
     active_ = false;  // next root re-arms via on_go
+
+    // A `go` arrived while this root was still searching; the engine has now
+    // finished this search and will start the deferred one. Finalize this run
+    // and arm for the deferred request under the *current* options.
+    if (defer_)
+    {
+        defer_ = false;
+        if (out_ != nullptr)
+            finish_run();
+        arm_run(deferFen_, deferDepth_, deferEngineInfo_);
+        deferFen_.clear();
+        deferDepth_ = 0;
+        deferEngineInfo_.clear();
+    }
 }
 
-MovesLoopCtx Recorder::begin_moves_loop(u64  key,
+MovesLoopCtx Recorder::begin_moves_loop(const Position& pos,
                                         int  ply,
                                         int  depth,
                                         int  rootIterationDepth,
@@ -211,13 +310,11 @@ MovesLoopCtx Recorder::begin_moves_loop(u64  key,
                                         int  staticEval,
                                         bool improving,
                                         bool ttHit,
-                                        bool ttMovePresent,
-                                        int  rule50,
-                                        int  sideToMove,
-                                        const std::string& fen) {
+                                        bool ttMovePresent) {
     if (!active_ || !rootOpen_)
         return MovesLoopCtx{};
 
+    const u64 key = pos.key();
     const u64 serial = ++nodeSerial_;
 
     // Deterministic sample identity (data-schema.md): ordered mix of search
@@ -251,9 +348,9 @@ MovesLoopCtx Recorder::begin_moves_loop(u64  key,
     put_i32(p, staticEval);
     u8 flags = static_cast<u8>((improving ? 1 : 0) | (ttHit ? 2 : 0) | (ttMovePresent ? 4 : 0));
     put_u8(p, flags);
-    put_u16(p, static_cast<u16>(rule50));
-    put_u8(p, static_cast<u8>(sideToMove));
-    append_str(p, fen);
+    put_u16(p, static_cast<u16>(pos.rule50_count()));
+    put_u8(p, static_cast<u8>(pos.side_to_move()));
+    append_str(p, pos.fen());  // lazy: only sampled nodes pay FEN formatting
     write_frame(REC_DECISION_POINT, p);
     ++rootDecisionCount_;
     ++rootDataRecords_;
@@ -325,8 +422,9 @@ void Recorder::log_move_attempt(const MovesLoopCtx& ctx,
     put_u64(p, nodesConsumed);
     // Outcome: 1 fail-high cutoff, 2 fail-low, 3 aborted. A quiet attempt at a
     // non-root NonPV null-window node either proves (value >= beta, loop ends)
-    // or was fully searched without raising alpha. Unsearched moves never get
-    // an outcome here because they never reach this hook.
+    // or was searched without reaching beta (exact negative event at the
+    // recorded child depths; data-schema.md). Unsearched moves never get an
+    // outcome here because they never reach this hook.
     const u8 outcome = stopped ? 3 : valueReturned >= betaBefore ? 1 : 2;
     put_u8(p, outcome);
     write_frame(REC_MOVE_ATTEMPT, p);
@@ -335,29 +433,7 @@ void Recorder::log_move_attempt(const MovesLoopCtx& ctx,
 }
 
 void Recorder::on_run_end() {
-    if (!requested_ && !active_)
-        return;
-    // Close any open root so the stream always terminates cleanly.
-    if (active_ && rootOpen_)
-        on_root_search_end(rootKey_);
-
-    std::vector<u8> p;
-    put_u64(p, runDecisionTotal_);
-    put_u64(p, runAttemptTotal_);
-    put_u8(p, runOverflow_ ? 1 : 0);
-    put_u8(p, 0);
-    write_frame(REC_RUN_END, p);
-    flush();
-
-    if (out_ != nullptr)
-        std::fclose(out_);
-    out_ = nullptr;
-    requested_ = false;
-    active_ = false;
-    runDataRecords_ = 0;
-    runDecisionTotal_ = 0;
-    runAttemptTotal_ = 0;
-    runOverflow_ = false;
+    finish_run();
 }
 
 }  // namespace Stockfish::Research

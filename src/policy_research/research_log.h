@@ -30,6 +30,10 @@
 
 #include "../types.h"
 
+namespace Stockfish {
+class Position;  // used by Recorder::begin_moves_loop (fen only when sampled)
+}
+
 namespace Stockfish::Research {
 
 // Record types (research-data/1). Stable ids; see data-schema.md.
@@ -84,7 +88,9 @@ class Recorder {
     bool active() const { return active_; }
 
     // Called from the UCI `go` handler (main thread) before the search starts,
-    // only when logging was actually requested for this root.
+    // only when logging was actually requested for this root. Finalizes any
+    // still-open run from an earlier `go` first, so every `go` produces its own
+    // self-contained run file (protocol P2.1 uses one fresh process per root).
     void on_go(const std::string& fen, int targetDepth, const std::string& engineInfo);
 
     // Root lifecycle on the searching thread (1-thread protocol; the recording
@@ -94,8 +100,10 @@ class Recorder {
 
     // Decision hook at the moves_loop entry of an eligible node. Returns the
     // per-node sampling context (also assigns the node serial and, when
-    // sampled, writes the DECISION_POINT record).
-    MovesLoopCtx begin_moves_loop(u64  key,
+    // sampled, writes the DECISION_POINT record). The position is only read for
+    // key/rule50/stm (cheap); the FEN string is formatted lazily, exclusively
+    // for sampled nodes, so un-sampled nodes never pay string building.
+    MovesLoopCtx begin_moves_loop(const Position& pos,
                                   int  ply,
                                   int  depth,
                                   int  rootIterationDepth,
@@ -104,10 +112,7 @@ class Recorder {
                                   int  staticEval,
                                   bool improving,
                                   bool ttHit,
-                                  bool ttMovePresent,
-                                  int  rule50,
-                                  int  sideToMove,
-                                  const std::string& fen);
+                                  bool ttMovePresent);
 
     // Attempt hook after a searched quiet move returns (before the stop check).
     void log_move_attempt(const MovesLoopCtx& ctx,
@@ -130,6 +135,8 @@ class Recorder {
 
    private:
     void open_run();
+    void finish_run();
+    void arm_run(const std::string& fen, int targetDepth, const std::string& engineInfo);
     void flush();
     void write_frame(RecordType type, const std::vector<u8>& payload);
     void append_str(std::vector<u8>& out, const std::string& s);
@@ -138,6 +145,16 @@ class Recorder {
     bool        requested_ = false;   // this run requested logging
     bool        active_    = false;   // armed and recording
     bool        overflow_  = false;   // collection cap reached
+    bool        ioFailed_  = false;   // a write failed; the artifact is dead
+
+    // Deferred re-arm: a `go` that arrived while the previous root search was
+    // still active. The engine serializes searches (start_thinking waits for the
+    // running search to finish), so the deferred request is applied when the
+    // current root closes.
+    bool        defer_             = false;
+    std::string deferFen_;
+    int         deferDepth_        = 0;
+    std::string deferEngineInfo_;
     std::string logPath_;
     std::string pendingFen_;
     u64         pendingDepth_ = 0;

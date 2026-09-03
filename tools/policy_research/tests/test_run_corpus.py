@@ -256,10 +256,10 @@ def _s(b: bytes, x: str) -> bytes:
     return b + len(raw).to_bytes(2, "little") + raw
 
 
-def _b_run_start() -> bytes:
+def _b_run_start(seed: int = 7) -> bytes:
     p = b""
     p += bytes([1])  # mode observational
-    p += (7).to_bytes(8, "little")  # seed
+    p += (seed).to_bytes(8, "little")
     p += (250000).to_bytes(4, "little")  # threshold
     p += (100).to_bytes(4, "little")  # cap
     p = _s(p, "policy-v1")
@@ -267,8 +267,8 @@ def _b_run_start() -> bytes:
     return p
 
 
-def _b_root_start(fen: str = FEN0) -> bytes:
-    p = ROOT_KEY.to_bytes(8, "little")
+def _b_root_start(fen: str = FEN0, key: int = ROOT_KEY) -> bytes:
+    p = key.to_bytes(8, "little")
     p += (6).to_bytes(4, "little")
     return _s(p, fen)
 
@@ -285,14 +285,16 @@ def _b_decision(serial: int, fen: str = FEN0, key: int = 0xABCD) -> bytes:
     return _s(p, fen)
 
 
-def _b_attempt(serial: int, qord: int = 1, outcome: int = 2, nodes: int = 3) -> bytes:
+def _b_attempt(serial: int, qord: int = 1, outcome: int = 2, nodes: int = 3,
+               child_count: int = 1, move_raw: int | None = None) -> bytes:
     p = ROOT_KEY.to_bytes(8, "little")
     p += serial.to_bytes(8, "little")
     p += (1).to_bytes(8, "little")  # attempt serial
-    p += (12 << 6 | 28).to_bytes(2, "little")  # e2e4: NORMAL from e2(12) to e4(28)
+    raw = move_raw if move_raw is not None else (12 << 6 | 28)  # e2e4 NORMAL
+    p += raw.to_bytes(2, "little")
     p += qord.to_bytes(2, "little")
     p += (5).to_bytes(2, "little")  # totalAttempted
-    p += bytes([0, 0, 1])  # givesCheck, isTT, childCount
+    p += bytes([0, 0, child_count])  # givesCheck, isTT, childCount
     for v in (4, -1, -50, 50, 12):  # fd, rsd, alpha, beta, value
         p += (v & 0xFFFFFFFF).to_bytes(4, "little")
     p += nodes.to_bytes(8, "little")
@@ -300,14 +302,23 @@ def _b_attempt(serial: int, qord: int = 1, outcome: int = 2, nodes: int = 3) -> 
     return p
 
 
-def _b_root_end(dec: int, att: int) -> bytes:
-    return (ROOT_KEY.to_bytes(8, "little") + dec.to_bytes(8, "little")
+# Promotion raw for e7e8<piece> (to=e8 60, from=e7 52, promo bits PieceType-2).
+def _b_promotion_raw(piece_pt: int) -> int:
+    return ((piece_pt - 2) << 12) | (1 << 14) | (52 << 6) | 60
+
+
+def _b_root_end(dec: int, att: int, key: int = ROOT_KEY) -> bytes:
+    return (key.to_bytes(8, "little") + dec.to_bytes(8, "little")
             + att.to_bytes(8, "little"))
 
 
-def _b_run_end(dec: int, att: int) -> bytes:
+def _b_run_end(dec: int, att: int, overflow: int = 0, error: int = 0) -> bytes:
     return (dec.to_bytes(8, "little") + att.to_bytes(8, "little")
-            + bytes([0, 0]))
+            + bytes([overflow, error]))
+
+
+def _b_error_record(code: int = 1, msg: str = "cap reached") -> bytes:
+    return code.to_bytes(2, "little") + _s(b"", msg)
 
 
 def _frame(rtype: int, payload: bytes) -> bytes:
@@ -355,7 +366,7 @@ class TestDecodeResearchLog(unittest.TestCase):
             pb.write_bytes(a)
             res = dlog.compare(pa, pb)
             self.assertTrue(res["equal"])
-            b2 = a.replace(_b_attempt(1, outcome=2), _b_attempt(1, outcome=1))
+            b2 = a.replace(_b_attempt(1, nodes=3), _b_attempt(1, nodes=99))
             self.assertNotEqual(a, b2)
             p2 = Path(d) / "c.bin"
             p2.write_bytes(b2)
@@ -430,6 +441,185 @@ class TestDecodeResearchLog(unittest.TestCase):
             with self.assertRaises(dlog.ValidationError):
                 _, records = dlog.decode_file(path)
                 dlog.validate(records, path)
+
+    def test_promotion_moves_decode_with_correct_suffix(self):
+        # Regression: promo piece-type bits 12-13 hold PieceType-KNIGHT (2..5)
+        # mapped to n/b/r/q, not an index into "nbrq".
+        for pt, suffix in ((2, "n"), (3, "b"), (4, "r"), (5, "q")):
+            raw = _b_promotion_raw(pt)
+            self.assertEqual(dlog._move_raw_to_uci(raw), "e7e8" + suffix)
+
+    def _decode_and_validate(self, data: bytes):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(data)
+            _, records = dlog.decode_file(path)
+            return dlog.validate(records, path)
+
+    def test_root_end_attempt_count_mismatch_rejected(self):
+        data = _log_bytes().replace(_frame(dlog.ROOT_END, _b_root_end(1, 1)),
+                                    _frame(dlog.ROOT_END, _b_root_end(1, 2)))
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(data)
+
+    def test_root_end_decision_count_mismatch_rejected(self):
+        data = _log_bytes().replace(_frame(dlog.ROOT_END, _b_root_end(1, 1)),
+                                    _frame(dlog.ROOT_END, _b_root_end(2, 1)))
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(data)
+
+    def test_attempt_with_zero_child_searches_rejected(self):
+        data = _log_bytes().replace(_b_attempt(1, child_count=1),
+                                    _b_attempt(1, child_count=0))
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(data)
+
+    def test_attempt_referencing_closed_root_decision_rejected(self):
+        # Second root's attempt points at the first root's decision serial.
+        body = (_frame(dlog.RUN_START, _b_run_start())
+                + _frame(dlog.ROOT_START, _b_root_start())
+                + _frame(dlog.DECISION_POINT, _b_decision(1))
+                + _frame(dlog.MOVE_ATTEMPT, _b_attempt(1))
+                + _frame(dlog.ROOT_END, _b_root_end(1, 1))
+                + _frame(dlog.ROOT_START, _b_root_start(key=0x99))
+                + _frame(dlog.MOVE_ATTEMPT, _b_attempt(1))
+                + _frame(dlog.ROOT_END, _b_root_end(0, 0, key=0x99))
+                + _frame(dlog.RUN_END, _b_run_end(1, 1)))
+        data = (MAGIC + (0x01020304).to_bytes(4, "little")
+                + (1).to_bytes(2, "little") + (0).to_bytes(4, "little") + body)
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(data)
+
+    def test_duplicate_root_keys_rejected(self):
+        body = (_frame(dlog.RUN_START, _b_run_start())
+                + _frame(dlog.ROOT_START, _b_root_start())
+                + _frame(dlog.ROOT_END, _b_root_end(0, 0))
+                + _frame(dlog.ROOT_START, _b_root_start())
+                + _frame(dlog.ROOT_END, _b_root_end(0, 0))
+                + _frame(dlog.RUN_END, _b_run_end(0, 0)))
+        data = (MAGIC + (0x01020304).to_bytes(4, "little")
+                + (1).to_bytes(2, "little") + (0).to_bytes(4, "little") + body)
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(data)
+
+    def test_run_start_mid_stream_rejected(self):
+        data = _log_bytes() + _frame(dlog.RUN_START, _b_run_start())
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(data)
+
+    def test_run_end_error_code_must_agree_with_overflow(self):
+        # overflow=1 with error_code=0 contradicts the RUN_END layout rule.
+        data = _log_bytes().replace(_frame(dlog.RUN_END, _b_run_end(1, 1)),
+                                    _frame(dlog.RUN_END, _b_run_end(1, 1, 1, 0)))
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(data)
+
+    def test_overflow_without_error_record_rejected(self):
+        data = _log_bytes().replace(_frame(dlog.RUN_END, _b_run_end(1, 1)),
+                                    _frame(dlog.RUN_END, _b_run_end(1, 1, 1, 1)))
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(data)
+
+    def test_overflow_with_error_record_validates(self):
+        body = (_frame(dlog.RUN_START, _b_run_start())
+                + _frame(dlog.ROOT_START, _b_root_start())
+                + _frame(dlog.DECISION_POINT, _b_decision(1))
+                + _frame(dlog.MOVE_ATTEMPT, _b_attempt(1))
+                + _frame(dlog.ERROR_RECORD, _b_error_record())
+                + _frame(dlog.ROOT_END, _b_root_end(1, 1))
+                + _frame(dlog.RUN_END, _b_run_end(1, 1, 1, 1)))
+        data = (MAGIC + (0x01020304).to_bytes(4, "little")
+                + (1).to_bytes(2, "little") + (0).to_bytes(4, "little") + body)
+        stats = self._decode_and_validate(data)
+        self.assertTrue(stats["overflow"])
+
+    def test_fail_high_outcome_must_imply_value_at_least_beta(self):
+        # outcome 1 (fail-high cutoff) with value < beta contradicts the engine
+        # outcome rule.
+        data = _log_bytes().replace(_b_attempt(1, outcome=2),
+                                    _b_attempt(1, outcome=1))
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(data)
+
+    def test_fail_low_outcome_must_imply_value_below_beta(self):
+        # outcome 2 (fail-low) with value >= beta contradicts the engine outcome
+        # rule. Patch the attempt's value field to equal beta.
+        value_off = 8 * 3 + 2 * 3 + 3 + 4 * 4  # 49: value field after fd/rsd/ab/bb
+        p = bytearray(_b_attempt(1, outcome=2))
+        p[value_off:value_off + 4] = (50).to_bytes(4, "little")  # value == beta
+        bad = _log_bytes().replace(_b_attempt(1, outcome=2), bytes(p))
+        with self.assertRaises(dlog.ValidationError):
+            self._decode_and_validate(bad)
+
+    def test_value_field_offset_is_stable(self):
+        # Guard the raw offset used above against silent schema drift.
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(_log_bytes())
+            _, records = dlog.decode_file(path)
+        att = records[3]
+        self.assertEqual(att["_type"], dlog.MOVE_ATTEMPT)
+        self.assertEqual(att["value_returned"], 12)
+        self.assertEqual(att["beta_before"], 50)
+
+
+class TestRunStartCrossCheck(unittest.TestCase):
+    """Runner-side provenance checks: RUN_START must match what the runner
+    requested (mode/seed/threshold/cap/policy/engine), not merely decode."""
+
+    def _via_runner(self, data: bytes, expected_run_start=None, engine_version=None,
+                    fen: str = FEN0):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(data)
+            return rc._decode_and_validate_log(path, fen, expected_run_start, engine_version)
+
+    def test_matching_settings_pass(self):
+        exp = {"mode": 1, "seed": 7, "sample_threshold": 250000,
+               "max_records": 100, "policy_version": "policy-v1"}
+        stats = self._via_runner(_log_bytes(), exp, "Stockfish test")
+        self.assertEqual(stats["attempts"], 1)
+        self.assertEqual(stats["decisions"], 1)
+
+    def test_seed_mismatch_fails(self):
+        exp = {"mode": 1, "seed": 8, "sample_threshold": 250000,
+               "max_records": 100, "policy_version": "policy-v1"}
+        with self.assertRaises(RuntimeError) as ctx:
+            self._via_runner(_log_bytes(), exp)
+        self.assertIn("RUN_START research settings", str(ctx.exception))
+
+    def test_threshold_mismatch_fails(self):
+        exp = {"mode": 1, "seed": 7, "sample_threshold": 100,
+               "max_records": 100, "policy_version": "policy-v1"}
+        with self.assertRaises(RuntimeError):
+            self._via_runner(_log_bytes(), exp)
+
+    def test_max_records_mismatch_fails(self):
+        exp = {"mode": 1, "seed": 7, "sample_threshold": 250000,
+               "max_records": 50, "policy_version": "policy-v1"}
+        with self.assertRaises(RuntimeError):
+            self._via_runner(_log_bytes(), exp)
+
+    def test_policy_version_mismatch_fails(self):
+        exp = {"mode": 1, "seed": 7, "sample_threshold": 250000,
+               "max_records": 100, "policy_version": "other-v1"}
+        with self.assertRaises(RuntimeError):
+            self._via_runner(_log_bytes(), exp)
+
+    def test_engine_identity_mismatch_fails(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._via_runner(_log_bytes(), engine_version="Some other engine")
+        self.assertIn("engine identity", str(ctx.exception))
+
+    def test_fen_mismatch_fails(self):
+        with self.assertRaises(RuntimeError):
+            self._via_runner(_log_bytes(), fen=FEN0.replace(" w ", " b "))
+
+    def test_missing_log_file_fails_not_crashes(self):
+        with tempfile.TemporaryDirectory() as d:
+            missing = Path(d) / "nope.bin"
+            with self.assertRaises(OSError):
+                rc._decode_and_validate_log(missing, FEN0)
 
 
 if __name__ == "__main__":
