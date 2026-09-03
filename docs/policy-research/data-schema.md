@@ -127,11 +127,14 @@ recorded child depths and did not reach beta. Because these nodes are
 null-window (`beta == alpha + 1`), a NonPV attempt can never "raise alpha"
 without cutting off, so a completed fail-low (outcome 2) is an exact negative
 event — the move was tried under the engine's reduction schedule and failed to
-prove the bound — not a censored observation. Only budget aborts (outcome 3,
-`threads.stop` mid-attempt) are right-censored, and only they carry no value
-semantics. The decoder cross-checks outcome 1 ⇒ `value >= beta` and outcome
-2 ⇒ `value < beta`. No outcome is ever assigned to a move that was not
-searched.
+prove the bound — not a censored observation. Only aborted attempts (outcome 3:
+the search stopped mid-attempt with `threads.stop` set) are right-censored, and
+only they carry no value semantics. Outcome 3 records no stop *reason* (the
+schema has no such field), so downstream analyses cannot separate
+`SEARCH_ABORTED` from `BUDGET_CENSORED`: both map to one generic aborted /
+right-censored class until a stop-reason field is added. The decoder
+cross-checks outcome 1 ⇒ `value >= beta` and outcome 2 ⇒ `value < beta`. No
+outcome is ever assigned to a move that was not searched.
 
 Each MOVE_ATTEMPT implies the recorded quiet move was actually searched, so
 `child search count ≥ 1`. `nodes consumed` may still be 0: the child search can
@@ -159,12 +162,17 @@ overflow                u8    (1 if the collection cap was hit)
 error code              u8    (0 none; 1 cap overflow — see ERROR_RECORD)
 ```
 
-`overflow == 1` iff `error_code == 1`, and a cap overflow additionally emits an
-`ERROR_RECORD` with code 1; decoders require all three to agree.
+`overflow` is a schema boolean: only the wire values 0 and 1 are legal, and
+`overflow == 1` iff `error_code == 1` (error code 0 none / 1 cap overflow). A
+cap overflow additionally emits an `ERROR_RECORD` with code 1; decoders require
+all three to agree and reject any other wire value.
 
 One run per `go`: each logged `go` opens a fresh run file, and RUN_END closes it
 (when the next `go` arrives, research is disabled, or the engine quits). The
-corpus protocol keeps one process per root, so a file normally holds one run.
+file is opened with truncation, so `PolicyResearchLogPath` must be rotated
+between `go`s (or per process) — reusing one path for two logged `go`s leaves
+only the second run on disk. The corpus protocol keeps one process per root
+with a distinct path, so a file normally holds one run.
 
 ### ERROR_RECORD (8)
 ```
@@ -202,8 +210,10 @@ For fixed-depth, single-thread runs of one executable:
 
 ## Decoding/validation rules
 
-- Record lengths and schema versions checked on read; every payload length is
-  bounded before any fixed-width field is unpacked.
+- Record lengths and schema versions checked on read. The file header, every
+  fixed-width payload, and every u16 string length prefix (plus its declared
+  span) are bounds-checked before any unpack/slice; malformed input raises a
+  decoder `ValidationError`, never a native struct error.
 - Move raw values must decode to existing squares and a valid move type.
   Promotion bits hold `PieceType - KNIGHT` (2..5) and decode to the UCI
   suffixes `n/b/r/q`.
@@ -224,6 +234,8 @@ For fixed-depth, single-thread runs of one executable:
   run; DECISION_POINT and MOVE_ATTEMPT only inside a root.
 - ROOT_END decision/attempt counts must equal the counted records; RUN_END
   totals must equal the per-root sums.
+- RUN_END `overflow` and `error_code` carry only their schema wire values
+  (0/1); any other byte value is rejected, not coerced.
 - RUN_END `overflow` must agree with `error_code` and with the presence of a
   code-1 ERROR_RECORD.
 - policy version present (may be empty only when explicitly unset).

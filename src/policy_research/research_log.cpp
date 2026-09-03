@@ -170,6 +170,7 @@ void Recorder::open_run() {
 }
 
 void Recorder::finish_run() {
+    // Caller holds m_.
     if (out_ == nullptr && !requested_ && !active_)
         return;
     // Close any open root so the stream always terminates cleanly.
@@ -205,12 +206,17 @@ void Recorder::finish_run() {
 }
 
 void Recorder::on_go(const std::string& fen, int targetDepth, const std::string& engineInfo) {
-    // If the previous root search is still in flight we cannot finalize or
-    // re-arm safely. The engine serializes searches (start_thinking waits for
-    // the running search), so hold this request and re-evaluate it when the
-    // current root closes -- option/path/switch changes then apply to the next
-    // search. Protocol P2.1 uses a fresh engine process per root, so a process
-    // normally sees one `go` and this path is only reached interactively.
+    // A `go` may arrive (UCI thread) while the previous root search is still in
+    // flight. The engine serializes the searches themselves (start_thinking waits
+    // for the running search), but this handler can still run concurrently with
+    // the searching thread's on_root_search_end(), so the defer hand-off below is
+    // serialized by m_: the root close either observes this deferred request and
+    // applies it, or runs first and this path finalizes/arms directly. No
+    // torn/lost request either way, and option/path/switch changes made after
+    // this `go` apply to the next search. Protocol P2.1 uses a fresh engine
+    // process per root, so a process normally sees one `go` and this path is
+    // only reached interactively.
+    std::lock_guard<std::recursive_mutex> lk(m_);
     if (active_)
     {
         defer_ = true;
@@ -228,6 +234,7 @@ void Recorder::on_go(const std::string& fen, int targetDepth, const std::string&
     arm_run(fen, targetDepth, engineInfo);
 }
 
+// Caller holds m_ (on_go or on_root_search_end).
 void Recorder::arm_run(const std::string& fen, int targetDepth,
                        const std::string& engineInfo) {
     requested_ = false;
@@ -253,6 +260,10 @@ void Recorder::arm_run(const std::string& fen, int targetDepth,
 }
 
 void Recorder::on_root_search_start(u64 rootKey) {
+    // Takes m_ so arming can never interleave with a concurrent on_go()/
+    // on_run_end() on the UCI thread (e.g. the next `go` arriving while the
+    // previous root is closing).
+    std::lock_guard<std::recursive_mutex> lk(m_);
     if (!requested_ || pendingFen_.empty())
         return;
     reset_root();
@@ -270,6 +281,12 @@ void Recorder::on_root_search_start(u64 rootKey) {
 }
 
 void Recorder::on_root_search_end(u64 rootKey) {
+    // Takes m_: a concurrent on_go() may be deferring the next request while this
+    // root closes; the lock orders the two so the defer is either consumed here
+    // (finalize + re-arm under the current options) or handled by on_go() after
+    // the close. finish_run() may re-enter on_root_search_end() (shutdown path),
+    // hence the recursive mutex.
+    std::lock_guard<std::recursive_mutex> lk(m_);
     if (!active_ || !rootOpen_ || rootKey != rootKey_)
         return;
     std::vector<u8> p;
@@ -311,7 +328,7 @@ MovesLoopCtx Recorder::begin_moves_loop(const Position& pos,
                                         bool improving,
                                         bool ttHit,
                                         bool ttMovePresent) {
-    if (!active_ || !rootOpen_)
+    if (!active_.load(std::memory_order_relaxed) || !rootOpen_)
         return MovesLoopCtx{};
 
     const u64 key = pos.key();
@@ -384,7 +401,8 @@ void Recorder::log_move_attempt(const MovesLoopCtx& ctx,
                                 int  valueReturned,
                                 u64  nodesConsumed,
                                 bool stopped) {
-    if (!active_ || !rootOpen_ || !ctx.sampled || ctx.rootKey != rootKey_)
+    if (!active_.load(std::memory_order_relaxed) || !rootOpen_ || !ctx.sampled
+        || ctx.rootKey != rootKey_)
         return;
 
     if (overflow_ || rootDataRecords_ >= cap_ || buf_.size() >= HARD_MAX_BYTES)
@@ -433,6 +451,7 @@ void Recorder::log_move_attempt(const MovesLoopCtx& ctx,
 }
 
 void Recorder::on_run_end() {
+    std::lock_guard<std::recursive_mutex> lk(m_);
     finish_run();
 }
 

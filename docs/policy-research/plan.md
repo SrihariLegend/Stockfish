@@ -762,7 +762,9 @@ Schema note (fixes the Phase 2 review P1): with the committed
 rows only for **actually attempted quiet moves** (per sampled node: the node's
 DECISION_POINT plus its MOVE_ATTEMPTs). Derivable now: `OBSERVED_FAIL_HIGH`,
 `OBSERVED_FAIL_LOW` (exact negative event; NonPV null-window nodes cannot raise
-alpha without a cutoff), and `SEARCH_ABORTED`/`BUDGET_CENSORED`. Candidate-set
+alpha without a cutoff), and a single `ABORTED_STOP` status for outcome 3 —
+outcome 3 records no stop reason, so `SEARCH_ABORTED` and `BUDGET_CENSORED`
+cannot be separated with `research-data/1`. Candidate-set
 statuses (`UNOBSERVED_AFTER_CUTOFF`, `INVALID_OR_SKIPPED`) and full-window
 observations (`OBSERVED_ALPHA_RAISE`, `OBSERVED_EXACT`) need a schema extension
 with candidate enumeration and MovePicker baseline features; that is deferred

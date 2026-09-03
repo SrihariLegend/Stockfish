@@ -66,8 +66,21 @@ def _move_raw_to_uci(raw: int) -> str:
     return s
 
 
-def _read_str(buf: bytes, off: int):
+def _read_str(buf: bytes, off: int, path: Path | None = None):
+    """Read a u16 length + bytes string.
+
+    Both the length prefix and the declared span are bounds-checked before any
+    unpack/slice so malformed payloads raise ValidationError (never struct.error).
+    """
+    if off + 2 > len(buf):
+        raise ValidationError(
+            f"{path}: truncated string length prefix at offset {off} "
+            f"(payload has {len(buf)} bytes)")
     (n,) = struct.unpack_from("<H", buf, off)
+    if off + 2 + n > len(buf):
+        raise ValidationError(
+            f"{path}: string length {n} at offset {off} runs past the end of "
+            f"the payload ({len(buf)} bytes)")
     return buf[off + 2: off + 2 + n].decode("utf-8", "replace"), off + 2 + n
 
 
@@ -86,12 +99,20 @@ def decode_file(path: Path):
     data = Path(path).read_bytes()
     if not data.startswith(MAGIC):
         raise ValidationError(f"{path}: bad magic")
+    # Fixed-width header: magic(8) + endian marker(4) + format(2) + uuid len(4).
+    if len(data) < 18:
+        raise ValidationError(
+            f"{path}: truncated header (got {len(data)} bytes, need at least 18)")
     if struct.unpack_from("<I", data, 8)[0] != ENDIAN_MARKER:
         raise ValidationError(f"{path}: endian marker mismatch")
     (fmt,) = struct.unpack_from("<H", data, 12)
     if fmt != LOG_FORMAT_VERSION:
         raise ValidationError(f"{path}: unsupported log format {fmt}")
     (ulen,) = struct.unpack_from("<I", data, 14)
+    if 18 + ulen > len(data):
+        raise ValidationError(
+            f"{path}: uuid length {ulen} runs past the end of the file "
+            f"({len(data)} bytes)")
     uuid = data[18: 18 + ulen]
     header = {"uuid": uuid.hex(), "format_version": fmt}
 
@@ -120,8 +141,8 @@ def _decode_payload(t: int, b: bytes, path: Path) -> dict:
         _need(path, "RUN_START", b, 17)
         mode, seed, thr, cap = struct.unpack_from("<BQII", b, 0)
         o = 17
-        pol, o = _read_str(b, o)
-        eng, o = _read_str(b, o)
+        pol, o = _read_str(b, o, path)
+        eng, o = _read_str(b, o, path)
         if o != len(b):
             raise ValidationError(f"{path}: RUN_START trailing bytes")
         return {"mode": mode, "seed": seed, "sample_threshold": thr,
@@ -129,7 +150,7 @@ def _decode_payload(t: int, b: bytes, path: Path) -> dict:
     if t == ROOT_START:
         _need(path, "ROOT_START", b, 12)
         key, d, = struct.unpack_from("<QI", b, 0)
-        fen, o = _read_str(b, 12)
+        fen, o = _read_str(b, 12, path)
         if o != len(b):
             raise ValidationError(f"{path}: ROOT_START trailing bytes")
         return {"root_key": key, "target_depth": d, "fen": fen}
@@ -140,7 +161,7 @@ def _decode_payload(t: int, b: bytes, path: Path) -> dict:
         (flags,) = struct.unpack_from("<B", b, 48)
         (rule50,) = struct.unpack_from("<H", b, 49)
         (stm,) = struct.unpack_from("<B", b, 51)
-        fen, o = _read_str(b, 52)
+        fen, o = _read_str(b, 52, path)
         if o != len(b):
             raise ValidationError(f"{path}: DECISION_POINT trailing bytes")
         return {"root_key": rk, "node_serial": ser, "key": key, "ply": ply,
@@ -178,12 +199,18 @@ def _decode_payload(t: int, b: bytes, path: Path) -> dict:
         dd, aa, ovf, err = struct.unpack_from("<QQBB", b, 0)
         if len(b) != 18:
             raise ValidationError(f"{path}: RUN_END bad length")
+        # Wire values are booleans in the schema: reject anything else instead of
+        # coercing (overflow=2 would otherwise pass as True after bool()).
+        if ovf not in (0, 1) or err not in (0, 1):
+            raise ValidationError(
+                f"{path}: RUN_END invalid wire value overflow={ovf} "
+                f"error_code={err} (allowed: overflow 0/1, error code 0/1)")
         return {"run_decisions": dd, "run_attempts": aa, "overflow": bool(ovf),
                 "error_code": err}
     if t == ERROR_RECORD:
         _need(path, "ERROR_RECORD", b, 2)
         (code,) = struct.unpack_from("<H", b, 0)
-        msg, o = _read_str(b, 2)
+        msg, o = _read_str(b, 2, path)
         if o != len(b):
             raise ValidationError(f"{path}: ERROR_RECORD trailing bytes")
         return {"code": code, "message": msg}

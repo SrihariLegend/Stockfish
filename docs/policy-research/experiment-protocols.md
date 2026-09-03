@@ -53,8 +53,11 @@ Phase 3 scope with the committed `research-data/1` schema: one analysis row per
 MOVE_ATTEMPT records that reference it), behavior-conditioned on the node and
 attempt context recorded at decision time. Derivable statuses:
 `OBSERVED_FAIL_HIGH` (cutoff, survival), `OBSERVED_FAIL_LOW` (exact negative
-event at the recorded child depths), and `SEARCH_ABORTED`/`BUDGET_CENSORED`
-(only right-censored event class).
+event at the recorded child depths), and `ABORTED_STOP` (the single
+right-censored event class). Outcome 3 records only the generic `threads.stop`
+condition — the schema carries no stop reason — so `SEARCH_ABORTED` vs
+`BUDGET_CENSORED` cannot be told apart; both collapse to that generic status
+until a stop-reason field is added.
 
 Not derivable from `research-data/1`, and therefore deferred to the
 counterfactual phases (which need a new schema with full candidate enumeration

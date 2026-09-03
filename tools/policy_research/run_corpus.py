@@ -1082,7 +1082,7 @@ def main(argv: list[str] | None = None) -> int:
         names, spin_bounds = engine_research_options_meta(engine, cwd)
         required = ["PolicyResearch", "PolicyResearchMode", "PolicyResearchSeed",
                     "PolicyResearchSampleRate", "PolicyResearchMaxRecords",
-                    "PolicyResearchPolicyVersion"]
+                    "PolicyResearchPolicyVersion", "PolicyResearchLogPath"]
         missing = [n for n in required if n not in names]
         if missing:
             raise SystemExit(

@@ -562,6 +562,64 @@ class TestDecodeResearchLog(unittest.TestCase):
         self.assertEqual(att["value_returned"], 12)
         self.assertEqual(att["beta_before"], 50)
 
+    def _decode_raises_validation(self, data: bytes):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.bin"
+            path.write_bytes(data)
+            with self.assertRaises(dlog.ValidationError):
+                dlog.decode_file(path)
+
+    def _header(self) -> bytes:
+        return MAGIC + (0x01020304).to_bytes(4, "little") \
+            + (1).to_bytes(2, "little") + (0).to_bytes(4, "little")
+
+    def test_magic_only_rejected_not_crash(self):
+        # Regression: decode must raise ValidationError, not struct.error, on a
+        # file that ends inside the fixed-width header.
+        self._decode_raises_validation(MAGIC)
+        self._decode_raises_validation(MAGIC + bytes(5))
+
+    def test_truncated_run_start_rejected_not_crash(self):
+        # RUN_START payload shorter than the two trailing string prefixes must be
+        # rejected by the decoder, not crash in struct.unpack_from.
+        data = self._header() + _frame(dlog.RUN_START, bytes(17))
+        self._decode_raises_validation(data)
+
+    def test_string_length_overflow_rejected_not_crash(self):
+        # First RUN_START string declares 300 bytes but the payload ends after a
+        # few: the length prefix is valid u16 but the span is not.
+        p = bytes([1]) + (7).to_bytes(8, "little") \
+            + (250000).to_bytes(4, "little") + (100).to_bytes(4, "little")
+        p += (300).to_bytes(2, "little") + b"abcde"
+        data = self._header() + _frame(dlog.RUN_START, p)
+        self._decode_raises_validation(data)
+
+    def test_truncated_uuid_rejected_not_crash(self):
+        # Header declares an 8-byte uuid but the file ends right after the u32
+        # length field.
+        data = MAGIC + (0x01020304).to_bytes(4, "little") \
+            + (1).to_bytes(2, "little") + (8).to_bytes(4, "little") + b"ab"
+        self._decode_raises_validation(data)
+
+    def test_run_end_invalid_overflow_byte_rejected(self):
+        # overflow=2 is not a schema value; previously bool(2) let it validate.
+        body = (_frame(dlog.RUN_START, _b_run_start())
+                + _frame(dlog.ROOT_START, _b_root_start())
+                + _frame(dlog.DECISION_POINT, _b_decision(1))
+                + _frame(dlog.MOVE_ATTEMPT, _b_attempt(1))
+                + _frame(dlog.ERROR_RECORD, _b_error_record())
+                + _frame(dlog.ROOT_END, _b_root_end(1, 1))
+                + _frame(dlog.RUN_END, _b_run_end(1, 1, overflow=2, error=1)))
+        data = self._header() + body
+        self._decode_raises_validation(data)
+
+    def test_run_end_unknown_error_code_rejected(self):
+        # error_code=2 is outside the schema; previously it validated cleanly.
+        data = _log_bytes().replace(
+            _frame(dlog.RUN_END, _b_run_end(1, 1)),
+            _frame(dlog.RUN_END, _b_run_end(1, 1, overflow=0, error=2)))
+        self._decode_raises_validation(data)
+
 
 class TestRunStartCrossCheck(unittest.TestCase):
     """Runner-side provenance checks: RUN_START must match what the runner

@@ -24,7 +24,9 @@
 
 #ifdef POLICY_RESEARCH
 
+#include <atomic>
 #include <cstdio>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -85,7 +87,7 @@ struct AttemptAccum {
 
 class Recorder {
    public:
-    bool active() const { return active_; }
+    bool active() const { return active_.load(std::memory_order_relaxed); }
 
     // Called from the UCI `go` handler (main thread) before the search starts,
     // only when logging was actually requested for this root. Finalizes any
@@ -93,8 +95,9 @@ class Recorder {
     // self-contained run file (protocol P2.1 uses one fresh process per root).
     void on_go(const std::string& fen, int targetDepth, const std::string& engineInfo);
 
-    // Root lifecycle on the searching thread (1-thread protocol; the recording
-    // thread never overlaps the UCI thread: `quit` only arrives after bestmove).
+    // Root lifecycle on the main searching thread. The UCI thread (on_go /
+    // on_run_end) can run concurrently while a root is in flight, so state
+    // transitions shared with on_go (active_, defer_*) are serialized by m_.
     void on_root_search_start(u64 rootKey);
     void on_root_search_end(u64 rootKey);
 
@@ -142,8 +145,19 @@ class Recorder {
     void append_str(std::vector<u8>& out, const std::string& s);
     void reset_root();
 
+    // Thread safety: on_go()/on_run_end() run on the UCI thread; the root
+    // lifecycle and per-node hooks run on the main searching thread. A `go` can
+    // arrive (UCI thread) while the searching thread is closing the previous
+    // root, so every transition touching the shared run/defer state below takes
+    // m_. std::recursive_mutex because finish_run() may close a still-open root
+    // by calling on_root_search_end() on the shutdown path. active_ is
+    // additionally atomic because the per-node hooks read it without taking the
+    // lock on the hot path -- safe, since no other thread writes active_ while a
+    // root is searching (on_go only defers then, it never re-arms).
+    std::recursive_mutex m_;
+
     bool        requested_ = false;   // this run requested logging
-    bool        active_    = false;   // armed and recording
+    std::atomic<bool> active_ = false;  // armed and recording (lock-free hot reads)
     bool        overflow_  = false;   // collection cap reached
     bool        ioFailed_  = false;   // a write failed; the artifact is dead
 
