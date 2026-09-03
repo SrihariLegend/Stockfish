@@ -10,7 +10,7 @@ tests, exit gates, definition of done).
 |---|---|---|
 | 0 | Architecture inventory and mutation audit | **Complete** — reviewed at commit `d2e8a7dc`; decisions in `architecture-inventory.md` §10 |
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
-| 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T002434/`) |
+| 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
 | 3 | Observational dataset and calibration baseline | Not started |
 | 4 | Root-level counterfactual experiments | Not started |
 | 5 | Internal counterfactual search sandbox | Not started |
@@ -61,15 +61,41 @@ tests, exit gates, definition of done).
   off vs on#1 vs on#2 passes, search-result equality across all three, decoded
   record-stream equality between on passes, per-root FEN cross-check).
   Recordings land under `tools/policy_research/runs/*research-*/` (git-ignored).
-- Gate evidence (research build of the committed tree `3850e64e`, clean banner):
+- Gate evidence (research build of the committed tree `c9878d11`, clean banner):
   full corpus, depth 11, hash 16, 5% sample — search results
   (bestmove/normalized rows/nodes) identical across off/on/on for all 12 roots;
   decoded records identical between the on passes; all logs decode clean, match
   corpus root FENs, and cross-check RUN_START mode/seed/threshold/cap/policy and
   engine identity against the pass manifest. Artifacts
   `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-
-  research-20260904T002434/` (git-ignored). Production macro-off build of the
+  research-20260904T004843/` (git-ignored). Production macro-off build of the
   same commit is node-identical (`bench 16 1 10 default` = 453 169 nodes).
+
+## Phase 2 review fix round 2 (`c9878d11`)
+
+Fixes for the second read-only review round (engine edits `#ifdef POLICY_RESEARCH`
+only):
+
+- **Decoder never crashes on malformed logs**: the fixed-width header, every u16
+  string length prefix, and each declared string span are bounds-checked before
+  any unpack/slice, so truncated/oversized payloads raise the decoder's
+  `ValidationError` instead of a native `struct.error` traceback in the gate.
+- **Recorder is thread-safe**: the deferred-`go` hand-off is serialized by a
+  `std::recursive_mutex` around `on_go`/`on_root_search_start`/`on_root_search_end`/
+  `on_run_end`, so a `go` arriving on the UCI thread while the searching thread
+  closes the previous root can no longer tear or lose the deferred request;
+  `active_` is now `std::atomic` for the lock-free hot-path reads. Verified with a
+  ThreadSanitizer build under repeated overlapping-`go` stress: 0 race reports.
+- **Runner preflight covers the log path**: `verify-research` now requires
+  `PolicyResearchLogPath` in the engine's declared options (a binary without it
+  used to run all three passes before failing on missing logs).
+- **Schema docs**: RUN_END `overflow`/`error_code` carry only 0/1 wire values
+  (anything else is rejected, not coerced); outcome 3 is a single generic
+  `ABORTED_STOP`/right-censored class (the schema records no stop reason, so
+  `SEARCH_ABORTED` vs `BUDGET_CENSORED` are not separable); one-run-per-`go`
+  requires rotating `PolicyResearchLogPath` (the file is opened with truncation).
+- Regression tests added for all of the above (55 unit tests; gate/TSAN evidence
+  as listed above).
 
 ## Phase 2 review repair pass (`3850e64e`)
 
@@ -89,7 +115,7 @@ side (tools/docs outside the macro):
   cross-checked against the manifest (RUN_START mode/seed/threshold/cap/policy
   version + engine banner identity); decode/validate now also enforces root
   containment, totals, overflow/error-code/ERROR_RECORD consistency, and
-  outcome/value agreement (49 unit tests).
+  outcome/value agreement (55 unit tests).
 - **IO failures surface**: fopen/fwrite/fflush failures print an
   `info string` diagnostic and disable logging for that run (never silent loss).
 - **No hot-path FEN cost**: the DECISION_POINT FEN is formatted lazily, only for

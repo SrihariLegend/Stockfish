@@ -103,17 +103,22 @@ root). Checks that must all hold (see
 2. every log decodes without validation errors; its `ROOT_START` FEN equals the
    corpus root FEN, and its `RUN_START` (mode/seed/threshold/cap/policy version)
    plus the engine identity line match the pass manifest — a silently unapplied
-   option (e.g. an out-of-range seed) cannot pass,
+   option (e.g. an out-of-range seed) cannot pass. Malformed input (truncated
+   header, string length prefix, or declared span) is always reported as a
+   decoder `ValidationError`, never a native crash/`struct.error`,
 3. decoded record streams (payloads only) are identical between the `on` passes
    (deterministic sample selection),
 4. no `MOVE_ATTEMPT` labels an unsearched move (child searches ≥ 1); outcome
    agrees with the returned value; ROOT_END/RUN_END totals match counted records;
-   a collection-cap hit is recorded (overflow ⇔ error_code 1 ⇔ code-1
+   RUN_END `overflow`/`error_code` carry only their 0/1 wire values; a
+   collection-cap hit is recorded (overflow ⇔ error_code 1 ⇔ code-1
    ERROR_RECORD), never silent.
 
-The runner also fails fast (before any search) when a `--research-seed` or
-`--research-max-records` value lies outside the range the engine itself
-declares for that spin option.
+The runner also fails fast (before any search) when the engine does not declare
+every required `PolicyResearch*` option (master switch, mode, seed, sample rate,
+max records, policy version, and log path), or when a `--research-seed` /
+`--research-max-records` value lies outside the range the engine itself declares
+for that spin option.
 
 Artifacts land under `runs/<corpus>-d<d>-h<h>-research-<stamp>/` (run-off,
 run-on-1, run-on-2, per-root logs, `research_summary.json`). Decode/validate any
