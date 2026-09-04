@@ -100,11 +100,13 @@ struct CandidateFeature {
     int            contHist = 0;     // sum of continuation entries at the search's own
                                      // offsets 0,1,2,3,5 (quiets only)
     int            lowPlyHist = 0;   // raw lowPlyHistory[ply][raw] (quiets, ply < 5)
-    int            seeScore = 0;     // feature: +1 see_ge(m,0), 0 see_ge(m,-100), else -1
+    int            seeScore = 0;     // see_bucket in the dataset: +1 see_ge(m,0), 0 see_ge(m,-100), else -1
     bool           isCheck = false;
     bool           isCapture = false;
     bool           isTTMove = false; // == the pseudo-legal ttMove emitted first
-    double         selectionProb = 0.0;  // filled by the sampler (1.0 / 2/(N-k))
+    double         selectionProb = 0.0;  // marginal inclusion probability in the
+                                         // probe set (1.0, or 2/(N-K) for the
+                                         // deterministic hash-sampled rest)
     bool           selected = false;     // filled by the sampler
 };
 
@@ -113,10 +115,14 @@ const char* candidate_stage_name(CandidateStage s);
 
 // ---------------------------------------------------------------------------
 // Force-next (slot-1) machinery for whole-node counterfactual replays
-// (plan §10.6: the candidate is forced into the node's exact slot-1
-// treatment, i.e. full decision-node replay with the candidate emitted first;
-// moves the real MovePicker would have emitted earlier are skipped WITHOUT
-// being searched or counted).
+// (plan §10.6, review fix: the candidate is forced into the node's exact
+// slot-1 treatment, i.e. full decision-node replay with the candidate emitted
+// first. Emissions the real MovePicker would have produced BEFORE the forced
+// candidate are swallowed without search or moveCount but buffered; once the
+// forced move has been searched and fails low, they are served back in their
+// original natural order before the picker's suffix resumes. The replay
+// therefore implements a genuine slot-1 REORDER -- [forced, original prefix,
+// original suffix] -- not a deletion of the earlier candidates).
 //
 // The armed request is thread-local and RAII-scoped to one synchronous replay
 // (ForceNextScope); the live move loop consumes it with force_next_step()
@@ -130,16 +136,37 @@ struct ForceNextState {
     Key  posKey = 0;
     int  ply = -1;
     Move forced = Move::none();
+    // Prefix buffer: legal natural-order emissions that precede the forced
+    // candidate in MovePicker order. Filled while armed (swallowed without
+    // search or moveCount); drained by force_next_buffer_pop() after the arm
+    // is consumed. A legal position has at most MAX_MOVES legal moves, so a
+    // fixed-size buffer is exact.
+    std::array<Move, MAX_MOVES> prefix = {};
+    int                         prefixCount = 0;
+    int                         prefixIdx = 0;
 };
 
 inline thread_local ForceNextState      gForceNext;
 inline thread_local u64                 gForceNextConsumedCount = 0;
+// Test-observable counters, reset per arm by ForceNextScope: the largest
+// prefix depth the buffer reached while armed, and the number of buffered
+// prefix moves actually served back by force_next_buffer_pop() (i.e. moves
+// the node RE-searched after the forced candidate failed low).
+inline thread_local int  gForceNextMaxPrefixSeen = 0;
+inline thread_local int  gForceNextBufferPops = 0;
 
 class ForceNextScope {
    public:
     ForceNextScope(Key posKey, int ply, Move forced) {
         assert(!gForceNext.armed && !gForceNext.consumed);  // never nest
-        gForceNext = {true, false, posKey, ply, forced};
+        gForceNext              = {};
+        gForceNext.armed        = true;
+        gForceNext.posKey       = posKey;
+        gForceNext.ply          = ply;
+        gForceNext.forced       = forced;
+        gForceNextConsumedCount = 0;
+        gForceNextMaxPrefixSeen = 0;
+        gForceNextBufferPops    = 0;
     }
     ~ForceNextScope() { gForceNext = {}; }
 
@@ -151,7 +178,7 @@ class ForceNextScope {
 // probe is active (research builds only; the call site is macro-gated).
 // Returns 1 when this emission must be SWALLOWED: the replay is armed for
 // this exact node and the forced candidate has not been emitted yet, so the
-// emission is skipped without a search and without incrementing moveCount
+// emission is buffered without a search and without incrementing moveCount
 // (the forced candidate keeps the node's exact slot-1 treatment). Returns 0
 // otherwise; when the emitted move IS the forced candidate the arm is cleared
 // and marked consumed, and the move proceeds as the node's slot-1 move.
@@ -165,8 +192,156 @@ inline int force_next_step(Key posKey, int ply, Move move) {
         ++gForceNextConsumedCount;
         return 0;  // forced move proceeds as slot 1
     }
-    return 1;  // swallow this natural-order emission (unsearched, uncounted)
+    // Natural-order emission that precedes the forced candidate: swallow it
+    // into the prefix buffer (it keeps slot-1 semantics for the forced move;
+    // it is searched after the forced move fails low).
+    assert(gForceNext.prefixCount < MAX_MOVES);
+    if (gForceNext.prefixCount < MAX_MOVES)
+        gForceNext.prefix[gForceNext.prefixCount++] = move;
+    if (gForceNext.prefixCount > gForceNextMaxPrefixSeen)
+        gForceNextMaxPrefixSeen = gForceNext.prefixCount;
+    return 1;
 }
+
+// Serves buffered pre-forced moves in their original natural order. Only
+// active AFTER the arm was consumed (forced candidate emitted as slot 1), so
+// the forced move is never displaced. Returns false when nothing is buffered
+// or the arm is still waiting for its forced emission; callers then pull the
+// next real MovePicker emission.
+inline bool force_next_buffer_pop(Move& move) {
+    if (gForceNext.armed || gForceNext.prefixIdx >= gForceNext.prefixCount)
+        return false;
+    move = gForceNext.prefix[gForceNext.prefixIdx++];
+    ++gForceNextBufferPops;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Decision-point capture channel for the isolated BASELINE replay of a
+// sampled node. The orchestrator hook now fires at the sampled node's search
+// ENTRY (search.cpp), where TT/static-eval/improving state does not exist
+// yet; the baseline replay instead re-executes the node from that entry state
+// and, at its own main move loop, fires decision_capture_step() when the
+// (position key, ply) matches. The capture therefore records decision-point
+// metadata and the full legal candidate enumeration from the replay's OWN
+// freshly constructed decision state -- the state the slot-1 forced replays
+// (same entry state, same deterministic pre-loop) also operate on, and the
+// state the live node is guaranteed to reach whenever the replay does.
+// Rows whose replay never fires the capture (deterministic pre-loop cutoffs)
+// are dropped: no decision point, no row.
+// ---------------------------------------------------------------------------
+struct DecisionCapture {
+    bool  armed = false;       // armed for one baseline replay
+    bool  fired = false;       // the target decision point was reached
+    Key   posKey = 0;
+    int   ply = -1;
+    bool  ttHit = false;
+    bool  improving = false;
+    Value staticEval = VALUE_NONE;
+    Move  ttMove = Move::none();
+    int   decisionDepth = 0;   // search depth at the decision point (post-IIR)
+    u64   decisionPointNodes = 0;  // shadow do_moves spent up to the decision point
+    std::vector<CandidateFeature> candidates;  // full legal denominator, emission order
+};
+
+inline thread_local DecisionCapture gDecisionCapture;
+
+// Node-counter epoch of the innermost running probe (set at probe start); the
+// decision capture reports do_moves spent INSIDE the replay only, since the
+// shadow worker's counter is re-synced from the live worker at sync_from().
+inline thread_local u64 gProbeStartNodes = 0;
+
+class DecisionCaptureScope {
+   public:
+    DecisionCaptureScope(Key posKey, int ply) {
+        gDecisionCapture         = DecisionCapture{};
+        gDecisionCapture.armed   = true;
+        gDecisionCapture.posKey  = posKey;
+        gDecisionCapture.ply     = ply;
+    }
+    ~DecisionCaptureScope() { gDecisionCapture.armed = false; }
+
+    DecisionCaptureScope(const DecisionCaptureScope&)            = delete;
+    DecisionCaptureScope& operator=(const DecisionCaptureScope&) = delete;
+};
+
+// Fired by the main move loop (search.cpp, POLICY_RESEARCH builds) on every
+// node; cheaply no-ops unless a baseline replay armed this exact node.
+void decision_capture_step(Search::Worker& worker, Position& pos, Search::Stack* ss,
+                           Key posKey, int ply, bool ttHit, Move ttMove, bool improving,
+                           Value staticEval, int decisionDepth);
+
+// ---------------------------------------------------------------------------
+// Live-subtree node oracle. The sampling hook records, per sampled decision
+// row, the live node's real subtree cost measured at the node's frame exit
+// (live do_moves from the sampling hook to the node's return). This is
+// written as a separate JSONL node_exit audit row when the node's search frame
+// exits, and is the per-node check that the isolated baseline replay's node
+// count corresponds to the live node's real subtree (the two should match
+// under determinism, modulo TT-eviction and budget-truncation differences).
+// A thread-local LIFO mirrors the synchronous nesting of sampled frames.
+// ---------------------------------------------------------------------------
+struct LiveOracleEntry {
+    Key  posKey = 0;
+    int  ply = -1;
+    int  entryDepth = 0;
+    u64  sampleSeed = 0;
+    Key  rootKey = 0;
+    u64  entryNodes = 0;
+    u64  liveNodes = 0;  // filled at pop: live do_moves from entry to exit
+};
+
+inline thread_local std::array<LiveOracleEntry, 16> gLiveOracle{};
+inline thread_local int                             gLiveOracleCount = 0;
+
+inline bool live_oracle_push(Key posKey, int ply, int entryDepth, u64 sampleSeed, Key rootKey,
+                             u64 entryNodes) {
+    if (gLiveOracleCount >= int(gLiveOracle.size()))
+        return false;
+    gLiveOracle[gLiveOracleCount++] =
+      LiveOracleEntry{posKey, ply, entryDepth, sampleSeed, rootKey, entryNodes, 0};
+    return true;
+}
+
+// Called from a node frame's exit (RAII scope in search.cpp). Pops and fills
+// out (when non-null) with a copy of the entry plus its live subtree cost
+// when the exiting frame is the innermost tracked sampled node; returns false
+// otherwise (e.g. shadow-probe frames, which never push, or a non-sampled
+// twin).
+inline bool live_oracle_pop(Key posKey, int ply, u64 exitNodes, LiveOracleEntry* out) {
+    if (gLiveOracleCount <= 0)
+        return false;
+    LiveOracleEntry& top = gLiveOracle[gLiveOracleCount - 1];
+    if (top.posKey != posKey || top.ply != ply)
+        return false;
+    if (out != nullptr)
+    {
+        *out            = top;
+        out->liveNodes  = exitNodes - top.entryNodes;
+    }
+    top = LiveOracleEntry{};
+    --gLiveOracleCount;
+    return true;
+}
+
+// RAII scope constructed in every search() frame (search.cpp, POLICY_RESEARCH
+// builds): when the frame exits and it is the innermost tracked sampled node,
+// the live subtree node cost is popped and a node_exit audit row is written
+// (joined to its decision row by root_key + pos_key + ply + entry_depth +
+// sample_seed). Definition in worker_snapshot.cpp.
+class LiveExitScope {
+   public:
+    LiveExitScope(const Search::Worker& worker, const Position& pos, const Search::Stack* ss);
+    ~LiveExitScope();
+
+    LiveExitScope(const LiveExitScope&)            = delete;
+    LiveExitScope& operator=(const LiveExitScope&) = delete;
+
+   private:
+    const Search::Worker* worker_;
+    const Position*       pos_;
+    const Search::Stack*  ss_;
+};
 
 // Enumerates all legal candidate moves at the given position by driving the
 // REAL MovePicker (same construction parameters as the step-14 move loop in
@@ -268,6 +443,7 @@ class IsolatedWorker {
                       u64                nodeBudget = 0) {
         ScopedShadowProbe guard;
         const u64 startNodes = shadowWorker->get_nodes();
+        gProbeStartNodes     = startNodes;  // decision-capture epoch
         shadowWorker->limits.nodes = (nodeBudget > 0) ? (startNodes + nodeBudget) : 0;
 
         const u64 fnBefore = gForceNextConsumedCount;
@@ -320,17 +496,19 @@ class IsolatedWorker {
 // search stack, and a re-synchronized worker snapshot, eliminating
 // candidate-order contamination.
 //
-// The force-next estimand (plan §10.6): replay_node_forced() re-runs the whole
-// decision node's search from its captured entry state with the candidate armed
-// as slot-1 move (see ForceNextScope); the replay applies the node's exact
-// step-1..step-13 pipeline and the candidate receives the exact slot-1
-// treatment (TT handling, razoring/futility gates already passed at hook time,
-// small probCut, per-move prunes, LMR, re-search, history updates). If the
-// forced move fails low the replay naturally continues the remaining moves, so
-// the measured outcome (fail-low/fail-high value, node cost, censoring) is the
-// decision-node outcome with the candidate forced first. Nodes whose replay
-// returns before the move loop never consume the arm (forced_slot1 == false)
-// and are not decision nodes: the sampler drops those rows.
+// The force-next estimand (plan §10.6, internal-counterfactual/2):
+// replay_node_forced() re-runs the whole decision node's search from its
+// captured entry state with the candidate armed as slot-1 move (see
+// ForceNextScope); the replay applies the node's exact step-1..step-13
+// pipeline and the candidate receives the exact slot-1 treatment (TT
+// handling, razoring/futility gates already passed at hook time, small
+// probCut, per-move prunes, LMR, re-search, history updates). If the forced
+// move fails low the replay continues over the buffered natural-order prefix
+// and then the picker suffix -- a genuine [forced, prefix, suffix] reorder --
+// so the measured outcome (fail-low/fail-high value, node cost, censoring)
+// is the decision-node outcome with the candidate forced first. Nodes whose
+// replay returns before the move loop never consume the arm (forced_slot1 ==
+// false) and are not decision nodes: the sampler drops those rows.
 class CandidateProbeRunner {
    public:
     CandidateProbeRunner(const Search::Worker& liveWorker,
@@ -362,10 +540,13 @@ class CandidateProbeRunner {
 };
 
 // Internal-node counterfactual hook invoked from Search::Worker::search at
-// eligible NonPV null-window decision nodes (search.cpp moves_loop entry).
-// Sampling, full-denominator enumeration, baseline + per-candidate whole-node
-// replays, and dataset row emission are implemented in worker_snapshot.cpp;
-// all live state must be untouched on return (asserted in unit tests).
+// the ENTRY of eligible NonPV null-window nodes (search.cpp, after the
+// pre-node early returns, before the node's own TT probe/static eval/pre-loop
+// work, which the whole-node replays re-execute from the same state).
+// Sampling, full-denominator enumeration (captured by the baseline replay at
+// its own decision point), baseline + per-candidate whole-node replays, and
+// dataset row emission are implemented in worker_snapshot.cpp; all live state
+// must be untouched on return (asserted in unit tests).
 void on_internal_node_counterfactual(Search::Worker& liveWorker,
                                      Position&       pos,
                                      Search::Stack*  ss,
@@ -374,11 +555,7 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
                                      Depth           depth,
                                      Depth           rootDepth,
                                      Key             rootKey,
-                                     Move            ttMove,
-                                     bool            ttHit,
-                                     bool            cutNode,
-                                     bool            improving,
-                                     Value           staticEval);
+                                     bool            cutNode);
 
 // Unit tests verifying Phase 5 §§4-5 requirements:
 // 1. Position deep cloning (StateInfo chain, repetition detection, independent moves/undo)

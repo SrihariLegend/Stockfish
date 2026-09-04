@@ -1341,9 +1341,12 @@ bool run_sandbox_unit_tests(Engine& engine) {
 
         Research::config().nodeBudget = 200000;
 
-        Research::on_internal_node_counterfactual(*liveWorker, p10Pos, dummySS, -50, -49, Depth(4),
-                                                  Depth(3), keyBefore, Move::none(), false, false,
-                                                  false, 0);
+        // Entry-hook invocation (internal-counterfactual/2 signature): the
+        // orchestrator samples the node at its search entry, replays it
+        // (baseline, capture-armed), and writes the decision row with the
+        // captured decision-point metadata and full candidate enumeration.
+        Research::on_internal_node_counterfactual(*liveWorker, p10Pos, dummySS, -50, -49,
+                                                  Depth(4), Depth(3), keyBefore, false);
 
         liveWorker->research_limits() = savedLimits;
         engine.get_threads().stop.store(savedStop, std::memory_order_relaxed);
@@ -1402,7 +1405,7 @@ bool run_sandbox_unit_tests(Engine& engine) {
                 const std::string line = content.substr(pos, eol - pos);
                 pos = eol + 1;
                 ++lineNo;
-                if (line.find("\"schema\":\"internal-counterfactual/1\"") == std::string::npos
+                if (line.find("\"schema\":\"internal-counterfactual/2\"") == std::string::npos
                     || line.find("\"type\":\"decision\"") == std::string::npos
                     || line.find("\"baseline\":{") == std::string::npos
                     || line.find("\"candidates\":[") == std::string::npos
@@ -1465,10 +1468,37 @@ bool run_sandbox_unit_tests(Engine& engine) {
                           << std::endl;
                 return false;
             }
+            // The swallowed emission must be buffered, not dropped.
+            if (gForceNext.prefixCount != 1 || gForceNext.prefix[0] != other
+                || gForceNextMaxPrefixSeen != 1)
+            {
+                std::cerr << "sandbox_test 11.1b failed: pre-forced emission not buffered"
+                          << std::endl;
+                return false;
+            }
             if (force_next_step(k, 1, fA) != 0 || gForceNext.armed || !gForceNext.consumed)
             {
                 std::cerr << "sandbox_test 11.2 failed: forced emission did not consume the arm"
                           << std::endl;
+                return false;
+            }
+            // While the arm is consumed the buffer pops in natural order.
+            Move popped = Move::none();
+            if (!force_next_buffer_pop(popped) || popped != other)
+            {
+                std::cerr << "sandbox_test 11.2b failed: buffered prefix move not served after "
+                             "arm consumption"
+                          << std::endl;
+                return false;
+            }
+            if (force_next_buffer_pop(popped))
+            {
+                std::cerr << "sandbox_test 11.2c failed: buffer over-served" << std::endl;
+                return false;
+            }
+            if (gForceNextBufferPops != 1)
+            {
+                std::cerr << "sandbox_test 11.2d failed: buffer pop counter wrong" << std::endl;
                 return false;
             }
             if (force_next_step(k, 1, other) != 0)
@@ -1505,6 +1535,103 @@ bool run_sandbox_unit_tests(Engine& engine) {
             std::cerr << "sandbox_test 11.6 failed: forcing the natural first move changed the "
                          "node outcome (nodes "
                       << base.nodes << " vs " << forced.nodes << ")" << std::endl;
+            return false;
+        }
+    }
+
+    // Part 12: Slot-1 Reorder (Prefix-Resume) Semantics -- regression for the
+    // review finding that the old force-next deleted the natural-order prefix.
+    // Scenario: a natural cutoff exists (baseline fail high) and a later
+    // natural candidate FAILS LOW when forced into slot 1, so the node's loop
+    // must continue instead of returning. Under genuine reorder semantics the
+    // forced replay must then re-search the buffered natural prefix from the
+    // loop head. What is asserted is the reorder MECHANISM: the k natural
+    // predecessors were buffered (max prefix depth == k) and served back into
+    // the search (pops in [1, k]). Scores and subtree costs of the re-searched
+    // prefix moves are NOT asserted against the baseline: the prefix moves run
+    // at their shifted slot numbers, so LMR and other moveCount-dependent
+    // pruning legitimately change their outcome/cost (this is the engine's
+    // own slot semantics -- a genuine reorder, not a re-run of the baseline).
+    // Deletion-style force-next fails the mechanism checks (no buffer, no
+    // pops).
+    {
+        StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
+        Position p12Pos;
+        p12Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false,
+                   &states->back());
+        Move m = UCIEngine::to_move(p12Pos, "e2e4");
+        states->emplace_back();
+        p12Pos.do_move(m, states->back());
+
+        auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
+        Search::Stack* dummySS = &(*dummyStack)[7 + 1];
+        dummySS->ply            = 1;
+        dummySS->staticEval     = VALUE_NONE;
+        for (int i = 7; i > 0; --i)
+        {
+            (dummySS - i)->continuationHistory = &liveWorker->continuationHistory[0][0][NO_PIECE][0];
+            (dummySS - i)->continuationCorrectionHistory =
+              &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
+            (dummySS - i)->staticEval = VALUE_NONE;
+        }
+
+        // Scan deterministic (depth, ordinal) configurations for the
+        // scenario: a natural cutoff exists (baseline fail high) and the
+        // forced candidate FAILS LOW in slot 1 (so the loop must continue and
+        // drain the buffered prefix instead of returning). Budgets keep each
+        // replay bounded; every replay here is fully isolated (fresh sync +
+        // overlay), so the scan is deterministic and side-effect free on live
+        // state.
+        const Value beta12 = Value(-49);
+        const auto  cands12 =
+          enumerate_candidates(p12Pos, *liveWorker, dummySS, Move::none(), Depth(4));
+        bool found = false;
+        for (int d = 3; d <= 7 && !found; ++d)
+        {
+            CandidateProbeRunner rBase(*liveWorker, p12Pos, dummySS);
+            const ProbeResult baseD = rBase.replay_node(-50, beta12, Depth(d), false, 200000);
+            if (!baseD.completed || baseD.score < beta12)
+                continue;  // no natural cutoff at this depth
+            for (int k = 1; k < int(cands12.size()) && k <= 6 && !found; ++k)
+            {
+                CandidateProbeRunner rF(*liveWorker, p12Pos, dummySS);
+                const ProbeResult forcedK =
+                  rF.replay_node_forced(cands12[k].move, -50, beta12, Depth(d), false, 200000);
+                if (!forcedK.completed || forcedK.score >= beta12 || !forcedK.forced_slot1)
+                    continue;  // forced candidate did not fail low / not slot-1
+                // Reorder regression assertions on this configuration. (The
+                // re-searched prefix moves run at their shifted slot numbers,
+                // so their scores and subtree costs legitimately differ from
+                // the baseline's slot-1..k treatment -- LMR and related
+                // moveCount-dependent pruning. What MUST hold is the reorder
+                // mechanism itself: the k natural predecessors were buffered
+                // (not deleted) and served back into the search after the
+                // forced candidate failed low.)
+                if (gForceNextMaxPrefixSeen != k)
+                {
+                    std::cerr
+                      << "sandbox_test 12.1 failed: prefix buffer depth " << gForceNextMaxPrefixSeen
+                      << " != forced ordinal " << k << " (natural prefix was dropped, not "
+                         "buffered) at depth "
+                      << d << std::endl;
+                    return false;
+                }
+                if (gForceNextBufferPops < 1 || gForceNextBufferPops > k)
+                {
+                    std::cerr << "sandbox_test 12.2 failed: buffered prefix pops "
+                              << gForceNextBufferPops << " outside [1, " << k
+                              << "] (prefix not re-searched after forced fail-low) at depth " << d
+                              << std::endl;
+                    return false;
+                }
+                found = true;
+            }
+        }
+        if (!found)
+        {
+            std::cerr << "sandbox_test 12.3 failed: no (depth, ordinal) configuration exhibited "
+                         "baseline-cutoff + forced-fail-low"
+                      << std::endl;
             return false;
         }
     }
@@ -1560,11 +1687,19 @@ ProbeResult CandidateProbeRunner::replay_impl(Move  forced,
     ResearchTTOverlay overlay(liveWorker.get_tt());
 
     if (forced == Move::none())
+    {
+        // Baseline replay: arm the decision-point capture for this exact node
+        // (position key, ply). The replay's own search fires
+        // decision_capture_step() at its main move loop and the orchestrator
+        // reads the result after this call returns.
+        DecisionCaptureScope captureScope(livePos.key(), liveSS->ply);
         return isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode,
                                            overlay, nodeBudget);
+    }
 
     // Armed only for the duration of this synchronous replay; the live move
-    // loop consumes it at the matching (position key, ply) node.
+    // loop consumes it at the matching (position key, ply) node. The baseline
+    // capture stays disarmed so forced replays never overwrite it.
     ForceNextScope scope(livePos.key(), liveSS->ply, forced);
     return isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode, overlay,
                                        nodeBudget);
@@ -1669,7 +1804,7 @@ std::vector<CandidateFeature> enumerate_candidates(const Position&            po
 namespace {
 
 // ---------------------------------------------------------------------------
-// JSON value formatting helpers for internal-counterfactual/1 decision rows.
+// JSON value formatting helpers for internal-counterfactual/2 decision rows.
 // Row STRUCTURE is declared here and in data-schema.md; the file/root/run
 // wrapper rows and caps live in InternalDatasetLog (research_log.cpp).
 // ---------------------------------------------------------------------------
@@ -1763,6 +1898,65 @@ const char* candidate_stage_name(CandidateStage s) {
     return "?";
 }
 
+// decision_capture_step: fired by the main move loop of every search node
+// (search.cpp moves_loop, POLICY_RESEARCH builds). No-ops unless an isolated
+// BASELINE replay of a sampled node is armed for this exact (posKey, ply) --
+// in which case this IS the replay's own decision point, reached after the
+// full deterministic pre-loop work (TT probe, static eval, history update,
+// razor/futility/null-move/ProbCut gates, small ProbCut). Records the
+// decision-point metadata and the full legal candidate enumeration from the
+// replay's OWN freshly constructed decision state -- the state the slot-1
+// forced replays (identical entry state, identical deterministic pre-loop)
+// and the live node operate on -- plus the shadow do_moves spent before it.
+void decision_capture_step(Search::Worker& worker, Position& pos, Search::Stack* ss,
+                           Key posKey, int ply, bool ttHit, Move ttMove, bool improving,
+                           Value staticEval, int decisionDepth) {
+    auto& c = gDecisionCapture;
+    if (!c.armed || c.fired || c.posKey != posKey || c.ply != ply)
+        return;
+    c.fired              = true;
+    c.ttHit              = ttHit;
+    c.improving          = improving;
+    c.staticEval         = staticEval;
+    c.ttMove             = ttMove;
+    c.decisionDepth      = decisionDepth;
+    const u64 shadowNow  = worker.get_nodes();
+    c.decisionPointNodes = shadowNow >= gProbeStartNodes ? shadowNow - gProbeStartNodes : 0;
+    c.candidates =
+      enumerate_candidates(pos, worker, ss, ttMove, Depth(decisionDepth));
+}
+
+LiveExitScope::LiveExitScope(const Search::Worker& worker, const Position& pos,
+                             const Search::Stack* ss) :
+    worker_(&worker),
+    pos_(&pos),
+    ss_(ss) {}
+
+LiveExitScope::~LiveExitScope() {
+    // Shadow frames never push oracle entries (sampling is suppressed inside
+    // probes), so the innermost tracked entry can only belong to a live frame.
+    if (Research::is_shadow_probe_active())
+        return;
+    LiveOracleEntry e;
+    if (!live_oracle_pop(pos_->key(), ss_->ply, worker_->get_nodes(), &e))
+        return;  // this frame is not the innermost tracked sampled node
+    if (Research::internal_log().active())
+    {
+        std::string row;
+        row += "{\"schema\":\"internal-counterfactual/2\",\"type\":\"node_exit\"";
+        row += ",\"root_key\":" + jnum(u64(e.rootKey));
+        row += ",\"pos_key\":" + jnum(u64(e.posKey));
+        row += ",\"ply\":" + jnum(i64(e.ply));
+        row += ",\"entry_depth\":" + jnum(i64(e.entryDepth));
+        row += ",\"sample_seed\":" + jnum(u64(e.sampleSeed));
+        row += ",\"live_subtree_nodes\":" + jnum(u64(e.liveNodes));
+        row += "}";
+        // Audit row: never consumes the decision-row cap; suppressed only
+        // when collection already ended (overflow/io failure).
+        Research::internal_log().write_row(row, false);
+    }
+}
+
 void on_internal_node_counterfactual(Search::Worker& liveWorker,
                                      Position&       pos,
                                      Search::Stack*  ss,
@@ -1771,11 +1965,7 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
                                      Depth           depth,
                                      Depth           rootDepth,
                                      Key             rootKey,
-                                     Move            ttMove,
-                                     bool            ttHit,
-                                     bool            cutNode,
-                                     bool            improving,
-                                     Value           staticEval) {
+                                     bool            cutNode) {
     // Gate chain, cheapest first. All live state must be untouched on return
     // (asserted at the end); every probe below runs on fully isolated shadow
     // state (CandidateProbeRunner), never on the live position.
@@ -1783,15 +1973,24 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
         || !liveWorker.is_mainthread() || Research::is_shadow_probe_active())
         return;
 
-    // Dataset armed and caps allow another row.
-    if (!Research::internal_log().active() || !Research::internal_log().would_record())
+    // Dataset armed and caps allow another row. When the row cap is already
+    // reached the sample is skipped cheaply (no replay) but the skip is
+    // reported so root_end's overflow flag says the dataset is truncated.
+    if (!Research::internal_log().active())
         return;
+    if (!Research::internal_log().would_record())
+    {
+        Research::internal_log().note_row_skipped();
+        return;
+    }
 
     // Decision nodes: non-PV null-window (PvNode || alpha == beta - 1 in the
-    // search, so this is exactly NonPV's invariant), not in check (hook
-    // eligibility), no excludedMove (eligibility), positive rootDepth (the
-    // search-context fallback contract, worker_snapshot.h).
+    // search, so this is exactly NonPV's invariant), not in check, no
+    // excludedMove (singular-extension re-searches are excluded), positive
+    // rootDepth (the search-context fallback contract, worker_snapshot.h).
     if (alpha + 1 != beta || rootDepth <= 0)
+        return;
+    if (ss->inCheck || ss->excludedMove != Move::none())
         return;
 
     // Defense in depth (the UCI site already refused unsafe configurations
@@ -1817,8 +2016,10 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
         return liveWorker.get_threads().stop.load(std::memory_order_relaxed);
     };
 
-    // Deterministic node sample (pure function of seed + keys + ply/depth;
-    // data-schema.md). Row caps gate above; sampling stops on live stop.
+    // Deterministic node sample (pure function of seed + entry keys;
+    // data-schema.md). The entry depth is mixed in (the decision-point depth
+    // after IIR is recorded from the baseline replay's decision capture).
+    // Row caps gate above; sampling stops on live stop.
     u64 h = Research::config().seed;
     h += 0x9E3779B97F4A7C15ULL ^ rootKey;
     ds_mix_step(h);
@@ -1830,39 +2031,59 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     if ((h % 1000000ULL) >= sampleThreshold)
         return;
 
-    // Full legal denominator in exact search-visible MovePicker order (real
-    // picker driven to exhaustion; legal-filtered). This is pure read-only
-    // scoring on live tables -- the same reads the node's own step-14 picker
-    // would perform -- with no live mutation.
-    auto candidates = enumerate_candidates(pos, liveWorker, ss, ttMove, depth);
-    const int N = static_cast<int>(candidates.size());
+    CandidateProbeRunner runner(liveWorker, pos, ss);
+    const u64 budget = Research::effective_node_budget(Research::config());  // always finite
+
+    // Baseline (unforced) whole-node replay first. It is armed with the
+    // decision-point capture: if the replay reaches its main move loop (the
+    // node truly acts as a decision node from this entry state), the capture
+    // records the decision metadata and the full legal candidate enumeration
+    // at the replay's own decision point. If the replay returns before the
+    // loop (deterministic pre-loop cutoff, which the live node reproduces),
+    // the capture never fires and the sample is dropped -- no decision row.
+    const ProbeResult baseline = runner.replay_node(alpha, beta, depth, cutNode, budget);
+    if (liveStopped())
+        return;
+    const DecisionCapture& cap = gDecisionCapture;
+    if (!cap.fired)
+        return;
+    // Copy the captured enumeration: selection marks are row-local state and
+    // must not leak into the TLS capture (rows are per-sample).
+    auto candidates = cap.candidates;
+    const int N     = static_cast<int>(candidates.size());
     if (N < 2)
         return;
 
     // Selection (plan 10.5): 2..8 legal candidates -> probe all (prob 1.0);
     // more -> top-K (K = min(topK option or 4, N)) at prob 1.0 plus 2
     // deterministic hash-sampled from the rest at marginal prob 2/(N-K).
+    // Every candidate gets its marginal inclusion probability (1.0 for the
+    // probe-all and top-K sets, 2/(N-K) for each member of the hash-sampled
+    // rest -- including the members that were not drawn).
     std::vector<SelectedProbe> sel;
     std::string                rule = "probe_all";
     if (N <= 8)
     {
         for (int i = 0; i < N; ++i)
             sel.push_back({i, 1.0});
+        for (auto& cf : candidates)
+            cf.selectionProb = 1.0;  // marginal inclusion probability
     }
     else
     {
         rule = "topK_plus_hash_sample";
-        const int top = std::clamp(Research::config().topK > 0 ? Research::config().topK : 4, 1, N - 1);
+        const int top =
+          std::clamp(Research::config().topK > 0 ? Research::config().topK : 4, 1, N - 1);
         for (int i = 0; i < top; ++i)
             sel.push_back({i, 1.0});
-        const int rest = N - top;
+        const int    rest     = N - top;
+        const double marginal = (rest == 1) ? 1.0 : (2.0 / rest);
+        int          b1 = -1, b2 = -1;
         if (rest == 1)
-            sel.push_back({top, 1.0});
+            b1 = top;
         else
         {
-            const double marginal = 2.0 / rest;
-            u64          low1 = ~0ULL, low2 = ~0ULL;
-            int          b1 = -1, b2 = -1;
+            u64 low1 = ~0ULL, low2 = ~0ULL;
             for (int i = top; i < N; ++i)
             {
                 const u64 sh = ds_subhash(h, i);
@@ -1879,27 +2100,27 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
                     b2   = i;
                 }
             }
+        }
+        if (rest == 1)
+            sel.push_back({b1, marginal});
+        else
+        {
             sel.push_back({b1, marginal});
             sel.push_back({b2, marginal});
         }
+        for (int i = 0; i < N; ++i)
+        {
+            auto& cf       = candidates[i];
+            cf.selectionProb = (i < top) ? 1.0 : marginal;
+        }
     }
     for (const auto& s : sel)
-    {
-        candidates[s.idx].selected       = true;
-        candidates[s.idx].selectionProb  = s.prob;
-    }
+        candidates[s.idx].selected = true;
 
-    CandidateProbeRunner runner(liveWorker, pos, ss);
-    const u64 budget = Research::effective_node_budget(Research::config());  // always finite
-
-    // Baseline (unforced) whole-node replay first, then one forced replay per
-    // selected candidate. Every replay is fully isolated (fresh sync, clone,
-    // stack rebind, empty TT overlay per candidate). Live stop is honored
-    // between probes; an abort drops the row (no partial rows).
-    const ProbeResult baseline = runner.replay_node(alpha, beta, depth, cutNode, budget);
-    if (liveStopped())
-        return;
-
+    // One forced (slot-1 reorder) whole-node replay per selected candidate.
+    // Every replay is fully isolated (fresh sync, clone, stack rebind, empty
+    // TT overlay per candidate). Live stop is honored between probes; an
+    // abort drops the row (no partial rows).
     std::vector<ProbeResult> forced;
     forced.reserve(sel.size());
     for (const auto& s : sel)
@@ -1912,10 +2133,10 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
 
     // Degenerate-node rule (documented in data-schema.md): a decision row is
     // only meaningful when at least one forced replay actually reached the
-    // node's main move loop and consumed the force-next arm. If every replay
-    // returned before the loop (deterministic pre-loop cutoffs in the shadow
-    // entry, e.g. step-13 small probCut) the node did not act as a decision
-    // node here and the row is dropped.
+    // node's main move loop and consumed the force-next arm. The baseline
+    // capture fired, so every forced replay reaches the same decision point
+    // unless a live stop intervened (handled above); the check stays as
+    // defense in depth.
     bool anyDecision = false;
     for (const auto& r : forced)
         anyDecision |= r.forced_slot1;
@@ -1925,19 +2146,23 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     // ---- assemble and write the decision row ----
     const bool c960 = pos.is_chess960();
     std::string row;
-    row += "{\"schema\":\"internal-counterfactual/1\",\"type\":\"decision\"";
+    row += "{\"schema\":\"internal-counterfactual/2\",\"type\":\"decision\"";
     row += ",\"root_key\":" + jnum(u64(rootKey));
     row += ",\"pos_key\":" + jnum(u64(pos.key()));
     row += ",\"fen\":" + jstr(pos.fen());
     row += ",\"ply\":" + jnum(i64(ss->ply));
-    row += ",\"depth\":" + jnum(i64(int(depth)));
+    row += ",\"entry_depth\":" + jnum(i64(int(depth)));
+    row += ",\"depth\":" + jnum(i64(cap.decisionDepth));
     row += ",\"root_depth\":" + jnum(i64(int(rootDepth)));
     row += ",\"alpha\":" + jnum(i64(int(alpha)));
     row += ",\"beta\":" + jnum(i64(int(beta)));
-    row += ",\"static_eval\":" + jvalue_or_null(staticEval, staticEval != VALUE_NONE);
-    row += ",\"improving\":" + jbool(improving);
-    row += ",\"tt_hit\":" + jbool(ttHit);
-    row += ",\"tt_move\":" + jstr(UCIEngine::move(ttMove, c960));
+    row += ",\"static_eval\":" + jvalue_or_null(cap.staticEval, cap.staticEval != VALUE_NONE);
+    row += ",\"improving\":" + jbool(cap.improving);
+    row += ",\"tt_hit\":" + jbool(cap.ttHit);
+    if (cap.ttMove != Move::none())
+        row += ",\"tt_move\":" + jstr(UCIEngine::move(cap.ttMove, c960));
+    else
+        row += ",\"tt_move\":null";
     row += ",\"cut_node\":" + jbool(cutNode);
     row += ",\"rule50\":" + jnum(i64(pos.state()->rule50));
     row += ",\"fullmove\":" + jnum(i64(pos.game_ply() / 2 + 1));
@@ -1947,13 +2172,15 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     row += ",\"n_candidates\":" + jnum(i64(N));
     row += ",\"node_budget\":" + jnum(u64(budget));
 
-    // baseline replay (unforced; the natural-order outcome of the same node)
+    // baseline replay (unforced; the natural-order outcome of the same node,
+    // measured from its true entry state -- node count includes the replayed
+    // pre-loop work; decision_point_nodes splits off the pre-loop cost).
     row += ",\"baseline\":{\"nodes\":" + jnum(u64(baseline.nodes));
+    row += ",\"decision_point_nodes\":" + jnum(u64(cap.decisionPointNodes));
     row += ",\"completed\":" + jbool(baseline.completed);
     row += ",\"stop\":" + jstr(stop_name(baseline.stopReason));
     row += ",\"budget_hit\":" + jbool(baseline.hit_budget);
     row += ",\"value\":" + jvalue_or_null(baseline.score, baseline.completed);
-    row += ",\"forced_slot1\":false";
     row += ",\"fail_high\":" + (baseline.completed
                                       ? jbool(baseline.score >= beta)
                                       : std::string("null"));
@@ -1968,17 +2195,34 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
         row += "{\"move\":" + jstr(UCIEngine::move(cf.move, c960));
         row += ",\"ordinal\":" + jnum(i64(cf.ordinal));
         row += ",\"stage\":" + jstr(candidate_stage_name(cf.stage));
-        row += ",\"stage_score\":" + jnum(i64(cf.stageScore));
+        if (cf.stage == CandidateStage::TT)
+            row += ",\"stage_score\":null";  // TT emissions carry no picker sort value
+        else
+            row += ",\"stage_score\":" + jnum(i64(cf.stageScore));
         row += ",\"main_hist\":" + jnum(i64(cf.mainHist));
-        row += ",\"capture_hist\":" + jnum(i64(cf.captureHist));
-        row += ",\"pawn_hist\":" + jnum(i64(cf.pawnHist));
-        row += ",\"cont_hist\":" + jnum(i64(cf.contHist));
-        row += ",\"low_ply_hist\":" + jnum(i64(cf.lowPlyHist));
-        row += ",\"see_score\":" + jnum(i64(cf.seeScore));
+        if (cf.isCapture)
+            row += ",\"capture_hist\":" + jnum(i64(cf.captureHist));
+        else
+            row += ",\"capture_hist\":null";
+        if (!cf.isCapture)
+        {
+            row += ",\"pawn_hist\":" + jnum(i64(cf.pawnHist));
+            row += ",\"cont_hist\":" + jnum(i64(cf.contHist));
+        }
+        else
+        {
+            row += ",\"pawn_hist\":null";
+            row += ",\"cont_hist\":null";
+        }
+        if (!cf.isCapture && int(ss->ply) < LOW_PLY_HISTORY_SIZE)
+            row += ",\"low_ply_hist\":" + jnum(i64(cf.lowPlyHist));
+        else
+            row += ",\"low_ply_hist\":null";
+        row += ",\"see_bucket\":" + jnum(i64(cf.seeScore));
         row += ",\"check\":" + jbool(cf.isCheck);
         row += ",\"capture\":" + jbool(cf.isCapture);
         row += ",\"tt_move\":" + jbool(cf.isTTMove);
-        row += ",\"prob\":" + jdouble(cf.selected ? cf.selectionProb : 0.0);
+        row += ",\"prob\":" + jdouble(cf.selectionProb);
         row += ",\"selected\":" + jbool(cf.selected);
         row += "}";
     }
@@ -2008,7 +2252,15 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     row += "}";
 
     const bool recorded = Research::internal_log().write_row(row);
-    (void) recorded;  // failure/cap already surfaced by the writer (info string)
+    if (recorded)
+    {
+        // Track this node's live subtree cost: when this live node's search
+        // frame exits, LiveExitScope writes the node_exit audit row that lets
+        // consumers compare the baseline replay node count against the real
+        // live subtree (determinism check; TT-eviction/budget truncation can
+        // still make them differ).
+        Research::live_oracle_push(pos.key(), ss->ply, int(depth), h, rootKey, liveNodesBefore);
+    }
 
     // Non-perturbation invariants (also covered by unit tests): the live
     // position, node counter, and stop flag are untouched by sampling.

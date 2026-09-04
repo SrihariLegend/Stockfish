@@ -331,7 +331,8 @@ void UCIEngine::go(std::istringstream& is) {
         if (threads == 1)
         {
             Research::recorder().on_go(engine.fen(), limits.depth, engine_info(true));
-            Research::internal_log().on_go(engine.fen(), limits.depth, engine_info(true));
+            Research::internal_log().on_go(engine.fen(), limits.depth, limits.nodes,
+                                           engine_info(true));
             if (Research::config().mode == Research::Mode::InternalCounterfactual
                 && Research::config().logPath.empty())
                 print_info_string("policy research internal counterfactual collection requires "

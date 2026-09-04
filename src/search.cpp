@@ -227,7 +227,7 @@ void Search::Worker::start_searching() {
           {0, {rootPos.checkers() ? -VALUE_MATE : VALUE_DRAW, rootPos}});
 #ifdef POLICY_RESEARCH
         Research::recorder().on_root_search_end(rootPos.key());
-        Research::internal_log().on_root_search_end(rootPos.key());
+        Research::internal_log().on_root_search_end(rootPos.key(), 0, 0, {}, VALUE_NONE);
 #endif
         main_manager()->updates.onBestmove(UCIEngine::move(Move::none()), "");
         return;
@@ -284,7 +284,16 @@ void Search::Worker::start_searching() {
     auto bestmove = UCIEngine::move(bestThread->rootMoves[0].pv[0], rootPos.is_chess960());
 #ifdef POLICY_RESEARCH
     Research::recorder().on_root_search_end(rootPos.key());
-    Research::internal_log().on_root_search_end(rootPos.key());
+    // Internal dataset root_end accounting: achieved depth, final live node
+    // count, and the final live best move/value (raw internal Value units;
+    // null when the root produced no searched move).
+    Research::internal_log().on_root_search_end(
+      rootPos.key(), u64(int(bestThread->rootDepth)), threads.nodes_searched(),
+      bestThread->rootMoves[0].pv.size() > 0
+        ? UCIEngine::move(bestThread->rootMoves[0].pv[0], rootPos.is_chess960())
+        : std::string{},
+      bestThread->rootMoves[0].pv.size() > 0 ? int(bestThread->rootMoves[0].score)
+                                             : VALUE_NONE);
 #endif
     main_manager()->updates.onBestmove(bestmove, ponder);
 }
@@ -1052,6 +1061,34 @@ Value Search::Worker::search(Position& pos,
 
     assert(0 <= ss->ply && ss->ply < MAX_PLY);
 
+#ifdef POLICY_RESEARCH
+    // Phase 5 internal-node counterfactual search hook (entry capture,
+    // internal-counterfactual/2): eligible NonPV null-window decision nodes
+    // are sampled HERE -- at their true search entry, before the node's own
+    // TT probe, static evaluation, and pre-loop pruning work -- so the
+    // isolated whole-node replays (baseline + slot-1 forced per candidate)
+    // re-execute the node from exactly the state this hook captured, with the
+    // sampled pre-loop work included in the replays exactly as in the live
+    // search. The baseline replay fires decision_capture_step() at its own
+    // main move loop, which records the decision-point metadata and the full
+    // legal candidate enumeration; rows whose replay never reaches a move
+    // loop (deterministic pre-loop cutoffs, e.g. razor/futility/null-move)
+    // never fire the capture and are dropped. The hook stays inert unless the
+    // internal dataset log is armed and below its caps; the observational
+    // quiet-move recorder hook (moves_loop) is unchanged.
+    if (!rootNode && !PvNode && alpha + 1 == beta && !ss->inCheck
+        && ss->excludedMove == Move::none() && is_mainthread() && Research::enabled()
+        && Research::config().mode == Research::Mode::InternalCounterfactual
+        && !Research::is_shadow_probe_active() && Research::internal_log().active())
+        Research::on_internal_node_counterfactual(*this, pos, ss, alpha, beta, depth, rootDepth,
+                                                  rootPos.key(), cutNode);
+
+    // Live-subtree node oracle: this frame's exit reports the live subtree
+    // node cost of the innermost sampled node on this path as a node_exit
+    // audit row (worker_snapshot.h); no-op when no sampled frame is tracked.
+    Research::LiveExitScope liveExitScope(*this, pos, ss);
+#endif
+
     Square prevSq  = ((ss - 1)->currentMove).is_ok() ? ((ss - 1)->currentMove).to_sq() : SQ_NONE;
     bestMove       = Move::none();
     priorReduction = (ss - 1)->reduction;
@@ -1372,21 +1409,6 @@ moves_loop:  // When in check, search starts here
         researchCtx = Research::recorder().begin_moves_loop(
           pos, ss->ply, depth, rootDepth, alpha, beta, ss->staticEval, improving,
           ss->ttHit, ttData.move != Move::none());
-
-    // Phase 5 internal-node counterfactual search hook:
-    // When PolicyResearchMode is internal_counterfactual, sample eligible NonPV null-window
-    // decision points and run isolated whole-node counterfactual replays (baseline +
-    // slot-1 forced) without mutating live search. Dataset gate: the hook stays inert
-    // unless the internal dataset log is armed and below its caps.
-    if (!rootNode && !PvNode && !ss->inCheck && excludedMove == Move::none()
-        && is_mainthread() && Research::enabled()
-        && Research::config().mode == Research::Mode::InternalCounterfactual
-        && !Research::is_shadow_probe_active() && Research::internal_log().active())
-    {
-        Research::on_internal_node_counterfactual(*this, pos, ss, alpha, beta, depth, rootDepth,
-                                                  rootPos.key(), ttData.move, ss->ttHit, cutNode,
-                                                  improving, ss->staticEval);
-    }
 #endif
 
     // Step 13. A small ProbCut idea
@@ -1394,6 +1416,18 @@ moves_loop:  // When in check, search starts here
     if ((ttData.bound & BOUND_LOWER) && ttData.depth >= depth - 4 && ttData.value >= probCutBeta
         && !is_decisive(beta) && is_valid(ttData.value) && !is_decisive(ttData.value))
         return probCutBeta;
+
+#ifdef POLICY_RESEARCH
+    // Phase 5 decision-point capture (internal-counterfactual/2): the armed
+    // isolated BASELINE replay of a sampled node fires this once when it
+    // reaches its own main move loop (after all pre-loop pruning, including
+    // the small ProbCut above). It records the decision-point metadata and
+    // the full legal candidate enumeration from the replay's OWN decision
+    // state -- the exact state the slot-1 forced replays (same entry state,
+    // same deterministic pre-loop) operate on. Cheap no-op when unarmed.
+    Research::decision_capture_step(*this, pos, ss, posKey, ss->ply, ttHit, ttData.move,
+                                    improving, ss->staticEval, int(depth));
+#endif
 
     const PieceToHistory* contHist[] = {
       (ss - 1)->continuationHistory, (ss - 2)->continuationHistory, (ss - 3)->continuationHistory,
@@ -1409,8 +1443,27 @@ moves_loop:  // When in check, search starts here
 
     // Step 14. Loop through all pseudo-legal moves until no moves remain
     // or a beta cutoff occurs.
+#ifdef POLICY_RESEARCH
+    // Phase 5 slot-1-reorder force-next (worker_snapshot.h): while an
+    // isolated forced replay is armed for THIS node, natural MovePicker
+    // emissions that precede the forced candidate are swallowed into the
+    // prefix buffer by force_next_step() below (no search, no moveCount).
+    // After the forced candidate is emitted and consumed the arm, this loop
+    // head serves the buffered prefix moves in their original order before
+    // resuming real picker emissions, so the replay is the genuine reorder
+    // [forced, original prefix, original suffix] -- earlier candidates are
+    // preserved, not deleted. Dead code in macro-off builds.
+    while (true)
+    {
+        if (!Research::force_next_buffer_pop(move))
+        {
+            if ((move = mp.next_move()) == Move::none())
+                break;
+        }
+#else
     while ((move = mp.next_move()) != Move::none())
     {
+#endif
         assert(move.is_ok());
 
         if (move == excludedMove)

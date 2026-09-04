@@ -457,7 +457,7 @@ void Recorder::on_run_end() {
 }
 
 // ---------------------------------------------------------------------------
-// InternalDatasetLog (internal-counterfactual/1, JSONL)
+// InternalDatasetLog (internal-counterfactual/2, JSONL)
 //
 // One self-contained dataset file per root. Row content is JSONL: numeric and
 // constrained string fields only (FEN and UCI move strings never contain
@@ -522,7 +522,7 @@ void InternalDatasetLog::finish_run() {
     rootOpen_  = false;
 }
 
-void InternalDatasetLog::on_go(const std::string& fen, int targetDepth,
+void InternalDatasetLog::on_go(const std::string& fen, int targetDepth, u64 targetNodes,
                                const std::string& engineInfo) {
     // Same deferral model as Recorder::on_go: a `go` may arrive on the UCI
     // thread while the previous root search is still closing; the lock orders
@@ -533,15 +533,16 @@ void InternalDatasetLog::on_go(const std::string& fen, int targetDepth,
         defer_           = true;
         deferFen_        = fen;
         deferDepth_      = targetDepth > 0 ? targetDepth : 0;
+        deferNodes_      = targetNodes > 0 ? targetNodes : 0;
         deferEngineInfo_ = engineInfo;
         return;
     }
     if (out_ != nullptr)
         finish_run();
-    arm_run(fen, targetDepth, engineInfo);
+    arm_run(fen, targetDepth, targetNodes, engineInfo);
 }
 
-void InternalDatasetLog::arm_run(const std::string& fen, int targetDepth,
+void InternalDatasetLog::arm_run(const std::string& fen, int targetDepth, u64 targetNodes,
                                  const std::string& engineInfo) {
     requested_ = false;
     active_    = false;
@@ -560,6 +561,7 @@ void InternalDatasetLog::arm_run(const std::string& fen, int targetDepth,
     engineInfo_   = engineInfo;
     pendingFen_   = fen;
     pendingDepth_ = targetDepth > 0 ? targetDepth : 0;
+    pendingNodes_ = targetNodes > 0 ? targetNodes : 0;
     overflow_     = false;
     ioFailed_     = false;
     rows_         = 0;
@@ -598,7 +600,7 @@ void InternalDatasetLog::on_root_search_start(u64 rootKey) {
     // run_start row: provenance + sampler configuration for this file.
     {
         std::string row;
-        row += "{\"schema\":\"internal-counterfactual/1\",\"type\":\"run_start\"";
+        row += "{\"schema\":\"internal-counterfactual/2\",\"type\":\"run_start\"";
         row += ",\"engine\":";
         json_quote_append(row, engineInfo_);
         row += ",\"seed\":" + json_num(seed_);
@@ -609,41 +611,94 @@ void InternalDatasetLog::on_root_search_start(u64 rootKey) {
         row += "}";
         emit_row_locked(row, false);  // lifecycle row: bypasses the decision cap
     }
-    // root_start row: root identity + start position.
+    // root_start row: root identity + start position + collection targets.
     {
         std::string row;
-        row += "{\"schema\":\"internal-counterfactual/1\",\"type\":\"root_start\"";
+        row += "{\"schema\":\"internal-counterfactual/2\",\"type\":\"root_start\"";
         row += ",\"root_key\":" + json_num(rootKey_);
         row += ",\"target_depth\":" + json_num(u64(pendingDepth_));
+        row += ",\"target_nodes\":" + json_num(pendingNodes_);
         row += ",\"fen\":";
         json_quote_append(row, pendingFen_);
         row += "}";
         emit_row_locked(row, false);  // lifecycle row: bypasses the decision cap
     }
+    // The collection targets (pendingDepth_/pendingNodes_) are intentionally
+    // kept: the always-written root_end row reports them when the root
+    // finishes. Only the start position is consumed here.
     pendingFen_.clear();
-    pendingDepth_ = 0;
 }
 
-void InternalDatasetLog::on_root_search_end(u64 rootKey) {
+void InternalDatasetLog::on_root_search_end(u64                 rootKey,
+                                            u64                 achievedDepth,
+                                            u64                 searchedNodes,
+                                            const std::string&  bestMove,
+                                            int                 bestValueRaw) {
     std::lock_guard<std::recursive_mutex> lk(m_);
-    if (!active_ || !rootOpen_ || rootKey != rootKey_)
+    // root_end is always written for an opened root -- including after the
+    // decision-row or byte caps raised overflow_ (overflow_ no longer clears
+    // active_, so the final accounting row always survives). The record and
+    // byte caps apply to decision rows only, and overflow/io-failure state is
+    // reported inside this very row.
+    if (!rootOpen_ || rootKey != rootKey_ || out_ == nullptr)
         return;
 
     {
+        const u64 targetDepth = pendingDepth_;
+        const u64 targetNodes = pendingNodes_;
+        const bool completed =
+          targetDepth > 0 ? achievedDepth >= targetDepth
+                          : (targetNodes > 0 ? searchedNodes >= targetNodes : true);
+
+        // "bytes" is defined as the file size AFTER this row (the last row of
+        // the file), so it is computed by fixed-point iteration: the row
+        // length depends on the digit count of the claim, and the claim must
+        // equal bytes_ + row length + 1. The iteration is monotone and
+        // converges within 2-3 passes (digit-count changes at most once per
+        // pass); the loop guard is pure defensive.
         std::string row;
-        row += "{\"schema\":\"internal-counterfactual/1\",\"type\":\"root_end\"";
-        row += ",\"root_key\":" + json_num(rootKey_);
-        row += ",\"rows\":" + json_num(rows_);
-        row += ",\"bytes\":" + json_num(bytes_);
-        row += ",\"overflow\":" + json_bool(overflow_);
-        row += ",\"io_failed\":" + json_bool(ioFailed_);
-        row += "}";
+        const auto build = [&](u64 bytesClaim) {
+            row = "{\"schema\":\"internal-counterfactual/2\",\"type\":\"root_end\"";
+            row += ",\"root_key\":" + json_num(rootKey_);
+            row += ",\"rows\":" + json_num(rows_);
+            row += ",\"bytes\":" + json_num(bytesClaim);
+            row += ",\"overflow\":" + json_bool(overflow_);
+            row += ",\"io_failed\":" + json_bool(ioFailed_);
+            row += ",\"target_depth\":" + json_num(targetDepth);
+            row += ",\"achieved_depth\":" + json_num(achievedDepth);
+            row += ",\"target_nodes\":" + json_num(targetNodes);
+            row += ",\"searched_nodes\":" + json_num(searchedNodes);
+            row += ",\"completed\":" + json_bool(completed);
+            row += ",\"best_move\":";
+            if (bestMove.empty())
+                row += "null";
+            else
+                json_quote_append(row, bestMove);
+            row += ",\"best_value\":"
+                   + (bestValueRaw == VALUE_NONE
+                        ? std::string("null")
+                        : (bestValueRaw >= 0 ? json_num(u64(bestValueRaw))
+                                             : "-" + json_num(u64(-i64(bestValueRaw)))));
+            row += "}";
+        };
+        u64 claim = bytes_;
+        for (int pass = 0; pass < 4; ++pass)
+        {
+            build(claim);
+            const u64 next = bytes_ + row.size() + 1;  // + newline
+            if (next == claim)
+                break;
+            claim = next;
+        }
         emit_row_locked(row, false);  // lifecycle row: always written
     }
 
     rootOpen_  = false;
     active_    = false;
     requested_ = false;
+    pendingFen_.clear();
+    pendingDepth_ = 0;
+    pendingNodes_ = 0;
     if (out_ != nullptr)
     {
         if (std::fflush(out_) != 0)
@@ -664,9 +719,10 @@ void InternalDatasetLog::on_root_search_end(u64 rootKey) {
     if (defer_)
     {
         defer_ = false;
-        arm_run(deferFen_, deferDepth_, deferEngineInfo_);
+        arm_run(deferFen_, deferDepth_, deferNodes_, deferEngineInfo_);
         deferFen_.clear();
         deferDepth_      = 0;
+        deferNodes_      = 0;
         deferEngineInfo_.clear();
     }
 }
@@ -685,21 +741,25 @@ void InternalDatasetLog::on_run_end() {
     rootOpen_  = false;
 }
 
-bool InternalDatasetLog::write_row(const std::string& jsonLine) {
+bool InternalDatasetLog::write_row(const std::string& jsonLine, bool decisionRow) {
     std::lock_guard<std::recursive_mutex> lk(m_);
     if (!active_ || ioFailed_ || overflow_)
         return false;
-    emit_row_locked(jsonLine, true);
+    emit_row_locked(jsonLine, decisionRow);
     return !ioFailed_ && !overflow_;
 }
 
 void InternalDatasetLog::emit_row_locked(const std::string& line, bool countsAgainstCap) {
     // Caller holds m_. The decision-row cap (effCap_) and the hard byte budget
-    // apply to decision rows only; hitting either stops sampling and raises
-    // overflow_, which the always-written root_end row reports. Lifecycle
-    // rows (run_start/root_start/root_end) are rare and tiny, so they bypass
-    // both caps; root_end in particular must never be dropped, because it
-    // carries the overflow/io_failed accounting for the whole file.
+    // apply to decision rows only; hitting either stops further decision rows
+    // (would_record()/write_row() see overflow_) and raises overflow_, which
+    // the always-written root_end row reports. Lifecycle rows
+    // (run_start/root_start/root_end) and node_exit audit rows are rare and
+    // tiny, so they bypass the caps; root_end in particular must never be
+    // dropped, because it carries the overflow/io_failed accounting for the
+    // whole file. Note that overflow_ deliberately does NOT clear active_: the
+    // collection is still "open" so the root lifecycle (including the final
+    // root_end row) completes normally; only the sampling gates go quiet.
     if (countsAgainstCap
         && (ioFailed_ || rows_ >= effCap_ || bytes_ + line.size() + 1 > HARD_MAX_BYTES))
     {
@@ -708,7 +768,6 @@ void InternalDatasetLog::emit_row_locked(const std::string& line, bool countsAga
                          "reached; collection disabled for the rest of this search"
                       << sync_endl;
         overflow_ = true;
-        active_   = false;
         return;
     }
 

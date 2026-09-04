@@ -219,7 +219,7 @@ class Recorder {
     bool rootOpen_ = false;
 };
 
-// Internal counterfactual dataset (JSONL, schema internal-counterfactual/1).
+// Internal counterfactual dataset (JSONL, schema internal-counterfactual/2).
 //
 // Phase 5: whole-node decision replays with slot-1 forced candidates are
 // emitted as versioned JSONL rows. This artifact is SEPARATE from the
@@ -249,25 +249,49 @@ class InternalDatasetLog {
                && rows_ < effCap_ && bytes_ < HARD_MAX_BYTES;
     }
 
+    // Called when the sampling hook skipped a candidate because the row or
+    // byte cap was already reached: the dataset is truncated relative to what
+    // the sampler would have produced, and root_end must say so (overflow_).
+    void note_row_skipped() {
+        std::lock_guard<std::recursive_mutex> lk(m_);
+        if (active_.load(std::memory_order_relaxed))
+            overflow_ = true;
+    }
+
     // UCI `go` handler (main/UCI thread), before the search starts. Only arms
     // when PolicyResearch is enabled with mode internal_counterfactual and a
     // non-empty log path; otherwise stays inactive (the UCI site prints the
     // diagnostic). Mirrors Recorder::on_go deferral so a `go` arriving while a
-    // root is closing can never lose or tear a request.
-    void on_go(const std::string& fen, int targetDepth, const std::string& engineInfo);
+    // root is closing can never lose or tear a request. targetNodes (limits.nodes)
+    // is 0 for depth-limited searches and vice versa; the root_end completion
+    // accounting uses whichever target the armed run had.
+    void on_go(const std::string& fen, int targetDepth, u64 targetNodes,
+               const std::string& engineInfo);
 
     // Root lifecycle on the main searching thread (next to the Recorder calls
     // in search.cpp). Emits the run_start and root_start rows when armed.
     void on_root_search_start(u64 rootKey);
-    void on_root_search_end(u64 rootKey);
+
+    // Emits the always-written root_end row with the run's final accounting.
+    // achievedDepth is the root depth reached by the search, searchedNodes the
+    // pool's total node count, bestMove/bestValue the final live root move and
+    // raw internal Value (VALUE_NONE / empty when the root had no moves).
+    void on_root_search_end(u64           rootKey,
+                            u64           achievedDepth = 0,
+                            u64           searchedNodes = 0,
+                            const std::string& bestMove  = {},
+                            int           bestValueRaw  = VALUE_NONE);
 
     // Engine shutdown (UCI `quit`). Closes any still-open root/file.
     void on_run_end();
 
     // Writes one complete JSONL row (hook-built content). Applies the record
-    // and byte caps and the io-failure policy. Returns false when the row was
-    // dropped (caps or io failure); sampling must stop then.
-    bool write_row(const std::string& jsonLine);
+    // and byte caps and the io-failure policy. decisionRow=true rows are
+    // decision rows and consume the decision-row cap (rows_); node_exit and
+    // lifecycle rows are audit rows that bypass the decision cap. Returns
+    // false when the row was dropped (caps or io failure); sampling must stop
+    // then.
+    bool write_row(const std::string& jsonLine, bool decisionRow = true);
 
     // Inspection accessors for tests and diagnostics
     u64  rows_written() const { return rows_; }
@@ -313,7 +337,8 @@ class InternalDatasetLog {
    private:
     void open_run();
     void finish_run();
-    void arm_run(const std::string& fen, int targetDepth, const std::string& engineInfo);
+    void arm_run(const std::string& fen, int targetDepth, u64 targetNodes,
+                 const std::string& engineInfo);
     void emit_row_locked(const std::string& line, bool countsAgainstCap);
 
     // Same threading model as the Recorder: on_go()/on_run_end() run on the
@@ -331,8 +356,10 @@ class InternalDatasetLog {
     bool        defer_     = false;
     std::string deferFen_, deferEngineInfo_;
     int         deferDepth_ = 0;
+    u64         deferNodes_ = 0;
     std::string logPath_, pendingFen_, engineInfo_;
-    int         pendingDepth_ = 0;
+    int         pendingDepth_ = 0;   // target search depth (0 in node-limited runs)
+    u64         pendingNodes_ = 0;   // target node count (0 in depth-limited runs)
     u64         seed_ = 0;
     double      sampleRate_ = 1.0;
     int         topK_ = 0;
