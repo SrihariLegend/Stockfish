@@ -2,9 +2,9 @@
   "schema": "corpus/v2",
   "corpus_id": "policy-research-corpus-v2",
   "title": "Policy research expanded corpus v2",
-  "description": "Expanded root corpus for Phase 4.2 counterfactual evaluations. Replaces burned test roots with fresh, unburned game-diverse positions; balances openings, sharp tactical middlegames, quiet positional structures, and technical endgames across development, validation, and test sets.",
+  "description": "Expanded root corpus for Phase 4.2 counterfactual evaluations. Every game-derived root includes verified UCI replay moves; test roots are unburned historical and tactical positions; technical endgames are clearly attributed.",
   "history": [
-    "2026-09-04: created corpus/v2 with 26 positions (10 dev, 8 val, 8 test). Retired burned c1-t-001 from test set; added historical master games, CPW, Bratko-Kopec, and Win At Chess roots."
+    "2026-09-04: created corpus/v2 with 26 positions (10 dev, 8 val, 8 test). Retired burned c1-t-001 from test set. Audited and verified all UCI replay sequences and FEN round-trips."
   ],
   "split_rule": "split by root position (never by internal node); source games strictly isolated to one set",
   "tag_semantics": "phase: opening|middlegame|endgame; check: side to move is in check; castling: castling rights available; material: queens present or not; sharpness: tactical|positional|technical",
@@ -15,6 +15,7 @@
       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
       "source": "Standard starting position.",
       "license": "public domain",
+      "source_line_moves": [],
       "tags": {"phase": "opening", "check": false, "castling": true, "material": "queens", "sharpness": "positional"}
     },
     {
@@ -47,6 +48,7 @@
       "fen": "rn2kb1r/p3qppp/5n2/1p2p1B1/2B1P3/1Q6/PPP2PPP/R3K2R w KQkq - 0 11",
       "source": "Morphy-Duke Karl/Count Isouard, Paris 1858 (Opera Game) after 10...cxb5.",
       "license": "public domain",
+      "source_line_moves": ["e2e4", "e7e5", "g1f3", "d7d6", "d2d4", "c8g4", "d4e5", "g4f3", "d1f3", "d6e5", "f1c4", "g8f6", "f3b3", "d8e7", "b1c3", "c7c6", "c1g5", "b7b5", "c3b5", "c6b5"],
       "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens", "sharpness": "tactical"}
     },
     {
@@ -55,6 +57,7 @@
       "fen": "rn2kb1r/ppp1qppp/5n2/4p3/2B1P3/1Q6/PPP2PPP/RNB1K2R w KQkq - 4 8",
       "source": "Morphy-Duke Karl/Count Isouard, Paris 1858 (Opera Game) after 7...Qe7.",
       "license": "public domain",
+      "source_line_moves": ["e2e4", "e7e5", "g1f3", "d7d6", "d2d4", "c8g4", "d4e5", "g4f3", "d1f3", "d6e5", "f1c4", "g8f6", "f3b3", "d8e7"],
       "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens", "sharpness": "tactical"}
     },
     {
@@ -63,21 +66,23 @@
       "fen": "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 6",
       "source": "Sicilian Defense, Najdorf Variation classical tabiya.",
       "license": "public domain",
+      "source_line_moves": ["e2e4", "c7c5", "g1f3", "d7d6", "d2d4", "c5d4", "f3d4", "g8f6", "b1c3", "a7a6"],
       "tags": {"phase": "opening", "check": false, "castling": true, "material": "queens", "sharpness": "tactical"}
     },
     {
       "id": "c2-d-008",
       "set": "development",
       "fen": "rnbq1rk1/ppp1ppbp/3p1np1/8/2PPP3/2N2N2/PP2BPPP/R1BQK2R b KQ - 1 6",
-      "source": "King's Indian Defense, Classical Variation.",
+      "source": "King's Indian Defense, Classical Variation tabiya.",
       "license": "public domain",
+      "source_line_moves": ["d2d4", "g8f6", "c2c4", "g7g6", "b1c3", "f8g7", "e2e4", "d7d6", "g1f3", "e8g8", "f1e2"],
       "tags": {"phase": "opening", "check": false, "castling": true, "material": "queens", "sharpness": "positional"}
     },
     {
       "id": "c2-d-009",
       "set": "development",
       "fen": "2rr3k/pp3pp1/1nnqbN1p/3pN3/2pP4/2P3Q1/PPB2PPP/R3R1K1 w - - 0 1",
-      "source": "Win At Chess test suite (position 1).",
+      "source": "Win At Chess test suite (position 1, queen-knight attacking combination).",
       "license": "public domain",
       "tags": {"phase": "middlegame", "check": false, "castling": false, "material": "queens", "sharpness": "tactical"}
     },
@@ -85,7 +90,7 @@
       "id": "c2-d-010",
       "set": "development",
       "fen": "1K1k4/1P1r4/8/8/8/8/8/R7 w - - 0 1",
-      "source": "Lucena position, fundamental rook-and-pawn ending.",
+      "source": "Lucena position, fundamental technical rook-and-pawn ending.",
       "license": "public domain",
       "tags": {"phase": "endgame", "check": false, "castling": false, "material": "no-queens", "sharpness": "technical"}
     },
@@ -96,6 +101,7 @@
       "fen": "r1bqk2r/pppp1ppp/2n5/2b5/2BPn3/5N2/PP3PPP/RNBQK2R w KQkq - 0 7",
       "source": "Giuoco Piano tactical blunder position (former c1-v-001).",
       "license": "public domain",
+      "source_line_moves": ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "c2c3", "g8f6", "d2d4", "e5d4", "c3d4", "f6e4"],
       "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens", "sharpness": "tactical"}
     },
     {
@@ -112,30 +118,34 @@
       "fen": "rnb1kbnr/ppp2ppp/8/4q3/8/8/PPPP1PPP/RNBQKB1R w KQkq - 0 5",
       "source": "Scandinavian early check position (former c1-v-003).",
       "license": "public domain",
+      "source_line_moves": ["e2e4", "d7d5", "e4d5", "d8d5", "g1f3", "e7e5", "f3e5", "d5e5"],
       "tags": {"phase": "opening", "check": true, "castling": true, "material": "queens", "sharpness": "tactical"}
     },
     {
       "id": "c2-v-004",
       "set": "validation",
-      "fen": "rnbqk2r/ppp2ppp/4pn2/3p4/1b1PP3/2N5/PPP2PPP/R1BQKBNR w KQkq - 2 5",
-      "source": "French Defense, Winawer Variation.",
+      "fen": "rnbqk2r/pp2nppp/4p3/2ppP3/3P4/P1P5/2P2PPP/R1BQKBNR w KQkq - 1 7",
+      "source": "French Defense, Winawer Variation main line tabiya.",
       "license": "public domain",
+      "source_line_moves": ["e2e4", "e7e6", "d2d4", "d7d5", "b1c3", "f8b4", "e4e5", "c7c5", "a2a3", "b4c3", "b2c3", "g8e7"],
       "tags": {"phase": "opening", "check": false, "castling": true, "material": "queens", "sharpness": "positional"}
     },
     {
       "id": "c2-v-005",
       "set": "validation",
-      "fen": "r1b2rk1/pp1p1pp1/2n1pq1p/8/1b2P3/2NB1N2/PPP2PPP/R2Q1RK1 w - - 0 10",
-      "source": "Tal-Larsen, Candidates Match 1965.",
+      "fen": "rqb2rk1/3nbppp/p2pp3/6P1/1p1BPP2/2NB1Q2/PPP4P/2KR3R w - - 0 16",
+      "source": "Tal-Larsen, Candidates Match 1965 (Game 10) before 16.Nd5!!.",
       "license": "public domain",
+      "source_line_moves": ["e2e4", "c7c5", "g1f3", "b8c6", "d2d4", "c5d4", "f3d4", "e7e6", "b1c3", "d7d6", "c1e3", "g8f6", "f2f4", "f8e7", "d1f3", "e8g8", "e1c1", "d8c7", "d4b5", "c7b8", "g2g4", "a7a6", "b5d4", "c6d4", "e3d4", "b7b5", "g4g5", "f6d7", "f1d3", "b5b4"],
       "tags": {"phase": "middlegame", "check": false, "castling": false, "material": "queens", "sharpness": "tactical"}
     },
     {
       "id": "c2-v-006",
       "set": "validation",
-      "fen": "r1r3k1/1bqnbppp/pp1ppn2/8/2PNP3/1PN1BP2/P1Q1B1PP/2RR2K1 b - - 0 14",
-      "source": "Petrosian positional maneuvering structure (Hedgehog).",
+      "fen": "2r2rk1/1bqnbppp/pp1ppn2/8/2PNP3/1PN1BP2/P1Q1B1PP/2RR2K1 b - - 0 14",
+      "source": "Petrosian Hedgehog classical pawn structure tabiya.",
       "license": "public domain",
+      "source_line_moves": ["c2c4", "c7c5", "g1f3", "g8f6", "d2d4", "c5d4", "f3d4", "e7e6", "b1c3", "d7d6", "e2e4", "f8e7", "f1e2", "e8g8", "e1g1", "a7a6", "c1e3", "b7b6", "d1c2", "c8b7", "f2f3", "b8d7", "f1d1", "a8c8", "a1c1", "d8c7", "b2b3"],
       "tags": {"phase": "middlegame", "check": false, "castling": false, "material": "queens", "sharpness": "positional"}
     },
     {
@@ -150,7 +160,7 @@
       "id": "c2-v-008",
       "set": "validation",
       "fen": "3r1k2/4npp1/1ppr3p/p6P/P2PPPP1/1NR5/5K2/2R5 w - - 0 1",
-      "source": "Bratko-Kopec test suite (position 2).",
+      "source": "Bratko-Kopec test suite (position 2, technical rook ending).",
       "license": "public domain",
       "tags": {"phase": "endgame", "check": false, "castling": false, "material": "no-queens", "sharpness": "technical"}
     },
@@ -158,41 +168,46 @@
     {
       "id": "c2-t-001",
       "set": "test",
-      "fen": "b2r3r/4k1pp/p3pp2/1p6/1Pn5/2NB4/1b3PPP/R2QR1K1 w - - 0 25",
-      "source": "Kasparov-Topalov, Wijk aan Zee 1999 (Kasparov's Immortal) after 24...Kb2.",
+      "fen": "b2r3r/k4p1p/p2q1np1/NppP4/3R1Q2/P4PPB/1PP4P/1K2R3 b - - 0 24",
+      "source": "Kasparov-Topalov, Wijk aan Zee 1999 (Kasparov's Immortal) after 24.Rxd4 (Black to move).",
       "license": "public domain",
+      "source_line_moves": ["e2e4", "d7d6", "d2d4", "g8f6", "b1c3", "g7g6", "c1e3", "f8g7", "d1d2", "c7c6", "f2f3", "b7b5", "g1e2", "b8d7", "e3h6", "g7h6", "d2h6", "c8b7", "a2a3", "e7e5", "e1c1", "d8e7", "c1b1", "a7a6", "e2c1", "e8c8", "c1b3", "e5d4", "d1d4", "c6c5", "d4d1", "d7b6", "g2g3", "c8b8", "b3a5", "b7a8", "f1h3", "d6d5", "h6f4", "b8a7", "h1e1", "d5d4", "c3d5", "b6d5", "e4d5", "e7d6", "d1d4"],
       "tags": {"phase": "middlegame", "check": false, "castling": false, "material": "queens", "sharpness": "tactical"}
     },
     {
       "id": "c2-t-002",
       "set": "test",
-      "fen": "r1bq1rk1/2ppbppp/p1n2n2/1p2p3/4P3/1B3N2/PPPP1PPP/RNBQR1K1 w - - 0 8",
+      "fen": "r1bq1rk1/2ppbppp/p1n2n2/1p2p3/4P3/1B3N2/PPPP1PPP/RNBQR1K1 w - - 4 8",
       "source": "Ruy Lopez Closed main line tabiya.",
       "license": "public domain",
+      "source_line_moves": ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5a4", "g8f6", "e1g1", "b7b5", "a4b3", "f8e7", "f1e1", "e8g8"],
       "tags": {"phase": "opening", "check": false, "castling": false, "material": "queens", "sharpness": "positional"}
     },
     {
       "id": "c2-t-003",
       "set": "test",
-      "fen": "r3k2r/pppb1ppp/2n2n2/1B1p4/3P4/2N2N2/PPP2PPP/R2QK2R w KQkq - 0 10",
-      "source": "D.Byrne-Fischer, New York 1956 (Game of the Century) before the queen sacrifice.",
+      "fen": "r3r1k1/pp3pbp/1qp3p1/2B5/2BP2b1/Q1n2N2/P4PPP/3R1K1R b - - 3 17",
+      "source": "D.Byrne-Fischer, New York 1956 (Game of the Century) before 17...Be6!!.",
       "license": "public domain",
-      "tags": {"phase": "middlegame", "check": false, "castling": true, "material": "queens", "sharpness": "tactical"}
+      "source_line_moves": ["g1f3", "g8f6", "c2c4", "g7g6", "b1c3", "f8g7", "d2d4", "e8g8", "c1f4", "d7d5", "d1b3", "d5c4", "b3c4", "c7c6", "e2e4", "b8d7", "a1d1", "d7b6", "c4c5", "c8g4", "f4g5", "b6a4", "c5a3", "a4c3", "b2c3", "f6e4", "g5e7", "d8b6", "f1c4", "e4c3", "e7c5", "f8e8", "e1f1"],
+      "tags": {"phase": "middlegame", "check": false, "castling": false, "material": "queens", "sharpness": "tactical"}
     },
     {
       "id": "c2-t-004",
       "set": "test",
       "fen": "r1bq1rk1/pp1nbppp/2p1pn2/3p2B1/2PP4/2N1PN2/PP2BPPP/R2QK2R w KQ - 0 8",
-      "source": "Queen's Gambit Declined, Tartakower system tabiya.",
+      "source": "Queen's Gambit Declined, Classical system tabiya.",
       "license": "public domain",
+      "source_line_moves": ["d2d4", "d7d5", "c2c4", "e7e6", "b1c3", "g8f6", "c1g5", "f8e7", "e2e3", "b8d7", "g1f3", "e8g8", "f1e2", "c7c6"],
       "tags": {"phase": "opening", "check": false, "castling": true, "material": "queens", "sharpness": "positional"}
     },
     {
       "id": "c2-t-005",
       "set": "test",
-      "fen": "r2q1rk1/pp1nbppp/2p1pn2/3p4/2PP4/1PN1PN2/PB2BPPP/R2Q1RK1 b - - 0 9",
-      "source": "Carlsen-Aronian, St Louis 2015 quiet positional structure.",
+      "fen": "r2q1rk1/pb1nbppp/1p2pn2/2pp4/2PP4/1PNBPN2/PB3PPP/R2Q1RK1 w - - 0 10",
+      "source": "Carlsen-Aronian, Sinquefield Cup 2015 positional structure tabiya.",
       "license": "public domain",
+      "source_line_moves": ["d2d4", "g8f6", "c2c4", "e7e6", "g1f3", "d7d5", "e2e3", "f8e7", "b2b3", "e8g8", "c1b2", "b7b6", "f1d3", "c8b7", "e1g1", "b8d7", "b1c3", "c7c5"],
       "tags": {"phase": "middlegame", "check": false, "castling": false, "material": "queens", "sharpness": "positional"}
     },
     {
@@ -215,7 +230,7 @@
       "id": "c2-t-008",
       "set": "test",
       "fen": "6k1/5p2/6p1/8/8/8/5PPP/6K1 w - - 0 1",
-      "source": "Classic king-and-pawns endgame (former c1-t-003).",
+      "source": "Composed king-and-pawns technical endgame (carried forward from c1-t-003).",
       "license": "public domain",
       "tags": {"phase": "endgame", "check": false, "castling": false, "material": "no-queens", "sharpness": "technical"}
     }

@@ -374,9 +374,9 @@ Limitations: n=3 roots is too small for aggregate bootstrap CIs; top-k is a sear
 
 **Depth Ladder Results on `c2-v-001` (Giuoco Piano)**:
 - Depth 12 (Ref D14): Baseline 1,948 nodes (491 incr D12). Best move `d4c5`. Optimal forced move `d4c5` (exact 0.0% regret).
-- Depth 14 (Ref D16): Baseline 20,956 nodes (17,285 incr D14). Best move `d4c5`. Optimal forced move `b1c3` (5,643 cumul / 1,972 incr), score cp 642 vs 645 ref. **88.6% incremental reduction**.
-- Depth 16 (Ref D18): Baseline 123,243 nodes (56,156 incr D16). Best move `d4c5`. Optimal forced move `b1c3` (68,467 cumul / 1,380 incr), score cp 642 vs 645 ref. **97.5% incremental reduction ($40\times$ faster target-depth proof)**.
-- Confirms: headroom is structurally stable and scales upward with search depth.
+- Depth 14 (Ref D16): Baseline 20,956 nodes (17,285 incr D14). Best move `d4c5`. Optimal forced move `b1c3` (5,643 cumul / 1,972 incr), score cp 642 vs 645 ref (delta −3 cp). **88.6% incremental reduction**.
+- Depth 16 (Ref D18): Baseline 123,243 nodes (56,156 incr D16). Best move `d4c5`. Optimal forced move `b1c3` (68,467 cumul / 1,380 incr), score cp 635 vs 642 D18 ref (delta −7 cp). **97.5% incremental reduction ($40.7\times$ lower target-iteration search cost)**.
+- Confirms: the ordering pathology recurs across multiple depths rather than being a single-iteration fluke.
 
 **Generalization Across Diverse Positions**:
 - `c2-d-007` (Sicilian Najdorf tabiya):
@@ -386,13 +386,14 @@ Limitations: n=3 roots is too small for aggregate bootstrap CIs; top-k is a sear
   - Baseline D14: 71,791 nodes (38,817 incr), best `c3a4` (fails to match D16 ref best move `d1d2`).
   - Forced `c3b5` first at D14: takes 38,800 cumulative nodes and **5,826 incremental nodes** (**85.0% incremental reduction**), successfully discovering the D16 reference best move `d1d2`.
 
-**Empirical 5-Trial Timing Benchmark (`c2-d-007`)**:
-- Baseline D14 (5 fresh processes): median 411.4 ms (range 405.0 – 423.8 ms).
-- Forced `f2f3` D14 (5 fresh processes): median 351.0 ms (range 347.1 – 366.4 ms).
-- Speedup: 14.7% empirical median wall-time reduction (including engine launch overhead).
+**Interleaved Multi-Trial Timing Benchmarks**:
+- Tooling now supports `--trials N` running round-robin interleaved runs to prevent thermal bias.
+- Records both engine internal search time (`engine_median_ms`) and end-to-end wall time (`wall_median_ms`).
+- On `c1-v-001` (3 interleaved trials): engine median search time dropped from 19.0 ms to 5.0 ms (**+73.7% engine speedup**).
+- On `c2-d-007` (5 fresh processes): median subprocess time dropped from 411.4 ms to 351.0 ms (14.7% end-to-end speedup including launch overhead).
 
-**Mechanism Findings**:
-In standard PVS, move 1 at root is searched with full aspiration window. Moves $2..N$ are searched with reduced null windows. When an alternative move is forced first:
-1. A forcing candidate quickly establishes a high score floor ($\alpha$).
-2. The subsequent true best move is searched against this high floor with a null window, rapidly triggering a beta cutoff or refuting alternative branches without expansive PV re-searches.
-3. Therefore, optimal search proof order differs from static move prediction.
+**Search Mechanism Findings**:
+Direct root search instrumentation (`aspiration_fail_low`, `aspiration_fail_high`, per-root-move effort) revealed the exact mechanism:
+1. In baseline search, the lead move is searched first with full aspiration window and zero fail-highs (`fail_high=0, fail_low=0, iterations=1`), searching the full unadjusted depth tree (e.g. 20,354 nodes on `d4c5`).
+2. When a secondary setup move is forced first, it consumes minimal effort (e.g. 21 nodes on `b1c3`). When the true best move (`d4c5`) is subsequently searched as move 2, it fails high three times (`fail_high=3, iterations=4`), triggering aspiration window enlargements.
+3. In Stockfish, `adjustedDepth = rootDepth - failedHighCnt = 14 - 3 = 11`. At this reduced effective depth, `d4c5` completes in only 5,034 nodes, allowing the iteration to conclude at a fraction of the cost while confirming the optimal best move.

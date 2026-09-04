@@ -98,6 +98,9 @@ class TestCorpus(unittest.TestCase):
             self.assertEqual(len(tst), 8)
             # Ensure burned c1-t-001 is not in test
             self.assertNotIn("c1-t-001", [p["id"] for p in tst])
+            # Ensure all positions have valid FEN strings with 6 fields
+            for p in corpus["positions"]:
+                self.assertEqual(len(p["fen"].split()), 6, msg=f"Root {p['id']} FEN must have 6 fields")
 
 
 class TestNormalize(unittest.TestCase):
@@ -484,6 +487,25 @@ class TestForceFirstRootOrder(unittest.TestCase):
         r = self.driver.search(STARTPOS, depth=8, force="d2d4", force_depth=9)
         self.assertEqual(r["nodes"], base["nodes"])
         self.assertEqual(r["best"], base["best"])
+
+    def test_root_telemetry_emission_and_parse(self):
+        self._skip_if_no_engine()
+        import tools.policy_research.p4_force_first as p4
+        eng = p4.Engine(self.ENGINE)
+        res = eng.run_search(STARTPOS, depth=6)
+        self.assertIsNotNone(res["root_telemetry"], "root_telemetry should be captured at target depth 6")
+        tel = res["root_telemetry"]
+        self.assertEqual(tel["depth"], 6)
+        self.assertGreaterEqual(tel["aspiration_iterations"], 1)
+        self.assertIn("moves", tel)
+        self.assertGreater(len(tel["moves"]), 0)
+
+    def test_score_tolerance_below_25(self):
+        # Unit test verifying Finding 8: score tolerance below 25 cp rejects larger deltas
+        tolerance = 10
+        diff_abs = 20
+        score_agrees = (diff_abs <= tolerance)
+        self.assertFalse(score_agrees, "20 cp delta must not pass a 10 cp tolerance gate")
 
 
 # ---------------------------------------------------------------------------

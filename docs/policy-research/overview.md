@@ -124,21 +124,20 @@ methodological recommendations from the expert review:
    Evaluating `c2-v-001` across increasing search depths (D12, D14, D16 with
    references at D14, D16, D18):
    - At D12: baseline is small (1,948 nodes / 491 incremental); baseline `d4c5` is already optimal ($R_{\text{norm}} = 0.0\%$).
-   - At D14: baseline grows to 20,956 nodes (17,285 incremental); forcing `b1c3` takes 5,643 cumulative nodes (1,972 incremental), **88.6% incremental node reduction**! Both agree best move is `d4c5`.
-   - At D16: baseline explodes to 123,243 nodes (56,156 incremental); forcing `b1c3` takes 68,467 cumulative nodes (**1,380 incremental nodes**), **97.5% incremental node reduction ($40\times$ cheaper target-depth proof)**! Both agree best move is `d4c5`.
-   - This proves depth stability: the ordering headroom is not an iteration artifact; it expands at deeper depths.
+   - At D14: baseline grows to 20,956 nodes (17,285 incremental); forcing `b1c3` takes 5,643 cumulative nodes (1,972 incremental), **88.6% incremental node reduction**; score cp 642 vs 645 reference (delta −3 cp). Both agree best move is `d4c5`.
+   - At D16: baseline grows to 123,243 nodes (56,156 incremental); forcing `b1c3` takes 68,467 cumulative nodes (**1,380 incremental nodes**), **97.5% incremental node reduction ($40.7\times$ lower target-iteration search cost)**; score cp 635 vs 642 D18 reference (delta −7 cp). Both agree best move is `d4c5`.
+   - Depth stability: this ordering pathology recurs across multiple depths rather than being a single-iteration artifact.
 4. **Generalization Across New Roots**:
    - `c2-d-007` (Sicilian Najdorf): baseline D14 searched 129,556 nodes (66,264 incremental); forcing `f2f3` took 66,704 nodes (3,412 incremental), an **incremental node reduction of 94.9%** ($66,264 \to 3,412$), while agreeing with the D16 reference best move `c1e3`.
-   - `c2-v-005` (Tal-Larsen 1965): baseline D14 missed the deeper best move, picking inferior `c3a4` (71,791 nodes); forcing `c3b5` took only 38,800 nodes (5,826 incremental, **85.0% incremental node reduction**) and **discovered the D16 reference best move `d1d2`** within 1 cp of the reference.
-5. **Empirical Wall-Time Verification (5-Trial Runs)**:
-   - On `c2-d-007` (Sicilian Najdorf, workload ~400 ms): 5 fresh-process baseline runs had a median wall time of 411.4 ms; 5 forced `f2f3` runs had a median of 351.0 ms. Every forced run was faster than every baseline run, establishing an **empirical median wall-time reduction of 14.7%** (including process startup).
-6. **Search Mechanism Demystified**:
-   Tracing root execution in `Search::Worker::search()` revealed the exact causal mechanism:
-   - In standard PVS, move 1 at the root is searched with the full aspiration window $(\alpha, \beta)$, while moves $2..N$ are searched with reduced null windows $(-(\alpha+1), -\alpha)$.
-   - In positions like `c2-v-001` and `c2-d-007`, the baseline lead move attempts a complex tactical line that requires deep calculation to verify.
-   - When a forcing, high-utility alternative (`b1c3` or `f2f3`) is searched first, it proves a high score floor quickly. This immediately raises $\alpha$ throughout the root search.
-   - When the actual best move is subsequently searched, it is searched as move 2 with a null window against this high $\alpha$ floor. It achieves a rapid beta-cutoff refutation or verification, avoiding millions of speculative nodes.
-   - This proves that **proof-cost ordering is not equivalent to move prediction**: searching an alternative move first can establish an optimal pruning floor that collapses the overall proof tree size.
+   - `c2-v-005` (Tal-Larsen 1965): baseline D14 picked `c3a4` (71,791 nodes, failing to match D16 ref best move `d1d2`); forcing `c3b5` took only 38,800 nodes (5,826 incremental, **85.0% incremental node reduction**) and **discovered the D16 reference best move `d1d2`** within 1 cp of the reference.
+5. **Multi-Trial Interleaved Timing Benchmarks**:
+   - Built an interleaved multi-trial benchmark in `p4_force_first.py` (`--trials N`) that disentangles engine search time from Python subprocess startup overhead.
+   - On `c1-v-001` (3 interleaved runs): engine median search time dropped from 19.0 ms to 5.0 ms (**+73.7% engine speedup**), while end-to-end wall time dropped from 343.0 ms to 302.3 ms.
+6. **Search Telemetry & Mechanism Evidence**:
+   Direct root search instrumentation (`aspiration_fail_low`, `aspiration_fail_high`, per-root-move effort) revealed the causal mechanism:
+   - On `c1-v-001`, the baseline searches `d4c5` first with zero aspiration failures (`fail_high=0, fail_low=0, iterations=1`), requiring **20,354 nodes** on `d4c5` at unadjusted depth 14.
+   - When `b1c3` is forced first, it consumes only 21 nodes. When `d4c5` is searched as move 2, it fails high three times (`fail_high=3, iterations=4`), triggering aspiration window enlargements. Stockfish's aspiration window code sets `adjustedDepth = rootDepth - failedHighCnt = 14 - 3 = 11`. At this reduced effective depth, `d4c5` completes in only **5,034 nodes**, allowing the target iteration to finish at a fraction of the cost.
+   - Searching a secondary move first can trigger aspiration fail-high window adjustments that drastically reduce the node cost of the iteration while preserving the optimal move.
 
 ## Phase 3 — observational dataset and calibration baseline
 

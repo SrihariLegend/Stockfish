@@ -49,12 +49,43 @@ import re
 import statistics
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[0]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import run_corpus as rc
+
+
+def parse_root_telemetry_line(line: str):
+    m = re.search(
+        r"root_telemetry depth (\d+) fail_low (\d+) fail_high (\d+) iterations (\d+) moves(.*)",
+        line,
+    )
+    if not m:
+        return None
+    d = int(m.group(1))
+    fail_low = int(m.group(2))
+    fail_high = int(m.group(3))
+    iterations = int(m.group(4))
+    moves_str = m.group(5).strip()
+    moves_map = {}
+    if moves_str:
+        for item in moves_str.split():
+            parts = item.split(":")
+            if len(parts) >= 3:
+                moves_map[parts[0]] = {
+                    "effort": int(parts[1]),
+                    "score": int(parts[2]),
+                }
+    return {
+        "depth": d,
+        "aspiration_fail_low": fail_low,
+        "aspiration_fail_high": fail_high,
+        "aspiration_iterations": iterations,
+        "moves": moves_map,
+    }
 
 
 def parse_info_line(line: str):
@@ -170,6 +201,7 @@ class Engine:
             )
 
     def _talk(self, commands, target_depth: int):
+        t0 = time.perf_counter()
         p = subprocess.Popen(
             [self.path],
             stdin=subprocess.PIPE,
@@ -183,6 +215,7 @@ class Engine:
             "prev_depth_nodes": 0,
             "time_ms": None,
             "prev_depth_time_ms": 0,
+            "wall_time_ms": None,
             "score_type": None,
             "score_val": None,
             "score_bound": None,
@@ -192,6 +225,8 @@ class Engine:
             "best": None,
             "ponder": None,
             "info_strings": [],
+            "telemetry": {},
+            "root_telemetry": None,
         }
         try:
             p.stdin.write("uci\n")
@@ -209,6 +244,10 @@ class Engine:
                 line = line.strip()
                 if line.startswith("info string research"):
                     res["info_strings"].append(line)
+                    if "root_telemetry" in line:
+                        tel = parse_root_telemetry_line(line)
+                        if tel:
+                            res["telemetry"][tel["depth"]] = tel
                 info = parse_info_line(line)
                 if info:
                     if info.get("depth") == target_depth - 1:
@@ -237,6 +276,8 @@ class Engine:
                 pass
             p.wait()
 
+        wall_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+        res["wall_time_ms"] = wall_ms
         if res["nodes"] is None or res["best"] is None:
             raise RuntimeError(
                 f"Search failed to produce results at target depth {target_depth}. "
@@ -244,6 +285,7 @@ class Engine:
             )
         res["incremental_nodes"] = max(0, res["nodes"] - (res["prev_depth_nodes"] or 0))
         res["incremental_time_ms"] = max(0, (res["time_ms"] or 0) - (res["prev_depth_time_ms"] or 0))
+        res["root_telemetry"] = res["telemetry"].get(target_depth)
         return res
 
     def top_k(self, fen: str, depth: int, k: int):
@@ -313,6 +355,7 @@ def evaluate_root(
     k: int,
     depth_mode: str,
     score_tolerance_cp: int,
+    trials: int = 1,
 ):
     fen = root_info["fen"]
     root_set = root_info["set"]
@@ -356,7 +399,7 @@ def evaluate_root(
             if base_diff_ref is not None:
                 additional_error_vs_base = max(0, abs(score_diff_ref) - abs(base_diff_ref))
 
-        # Classification of score stability with mate sign check (Finding 3)
+        # Classification of score stability with mate sign check (Finding 3, 8)
         if r["score_type"] == "mate" and ref["score_type"] == "mate":
             mate_sign_agree = (r["score_val"] > 0) == (ref["score_val"] > 0)
             score_agrees = mate_sign_agree
@@ -366,21 +409,17 @@ def evaluate_root(
             score_status = "score_collapse"
         else:
             diff_abs = abs(score_diff_ref)
+            score_agrees = (diff_abs <= score_tolerance_cp)
             if diff_abs == 0:
                 score_status = "exact_ref"
-                score_agrees = True
-            elif diff_abs <= 25:
+            elif diff_abs <= min(25, score_tolerance_cp):
                 score_status = "near_ref"
-                score_agrees = True
             elif diff_abs <= score_tolerance_cp:
                 score_status = "within_tolerance"
-                score_agrees = True
             elif diff_abs <= 100:
                 score_status = "mild_drift"
-                score_agrees = False
             else:
                 score_status = "score_collapse"
-                score_agrees = False
 
         # Multi-band tolerance sensitivity (Findings 2, 4)
         bands = [25, 50, 75, 100]
@@ -418,11 +457,13 @@ def evaluate_root(
             "prev_depth_nodes": r["prev_depth_nodes"],
             "time_ms": r["time_ms"],
             "incremental_time_ms": r["incremental_time_ms"],
+            "wall_time_ms": r["wall_time_ms"],
             "score_type": r["score_type"],
             "score_val": r["score_val"],
             "score_bound": r["score_bound"],
             "best": r["best"],
             "pv": r["pv"],
+            "root_telemetry": r["root_telemetry"],
             "node_delta_vs_base": r["nodes"] - base["nodes"],
             "node_ratio_vs_base": r["nodes"] / base["nodes"],
             "incremental_delta_vs_base": inc_delta,
@@ -477,6 +518,47 @@ def evaluate_root(
         tolerance_sensitivity[str(b)] = {
             "absolute_gate": abs_opt,
             "relative_gate": rel_opt,
+        }
+
+    # Multi-trial timing benchmark if trials > 1 (Findings 4, 6)
+    timing_trials = None
+    if trials > 1:
+        base_eng_times = [base["time_ms"]]
+        cand_eng_times = {mv: [] for mv in candidates}
+        base_wall_times = [base.get("wall_time_ms", base["time_ms"])]
+        cand_wall_times = {mv: [] for mv in candidates}
+        for rec in forced_records:
+            cand_eng_times[rec["move"]].append(rec["time_ms"])
+            cand_wall_times[rec["move"]].append(rec.get("wall_time_ms", rec["time_ms"]))
+
+        for _ in range(2, trials + 1):
+            r_b = eng.run_search(fen, depth)
+            base_eng_times.append(r_b["time_ms"])
+            base_wall_times.append(r_b.get("wall_time_ms", r_b["time_ms"]))
+
+            for mv in candidates:
+                f_d = depth if depth_mode == "isolated" else 0
+                r_c = eng.run_search(fen, depth, force_move=mv, force_depth=f_d)
+                cand_eng_times[mv].append(r_c["time_ms"])
+                cand_wall_times[mv].append(r_c.get("wall_time_ms", r_c["time_ms"]))
+
+        timing_trials = {
+            "trials_count": trials,
+            "baseline": {
+                "engine_times_ms": base_eng_times,
+                "engine_median_ms": statistics.median(base_eng_times),
+                "wall_times_ms": base_wall_times,
+                "wall_median_ms": statistics.median(base_wall_times),
+            },
+            "candidates": {
+                mv: {
+                    "engine_times_ms": cand_eng_times[mv],
+                    "engine_median_ms": statistics.median(cand_eng_times[mv]),
+                    "wall_times_ms": cand_wall_times[mv],
+                    "wall_median_ms": statistics.median(cand_wall_times[mv]),
+                }
+                for mv in candidates
+            },
         }
 
     valid_records = [c for c in forced_records if c["quality_valid"]]
@@ -545,6 +627,7 @@ def evaluate_root(
             "score_bound": base["score_bound"],
             "best": base["best"],
             "pv": base["pv"],
+            "root_telemetry": base.get("root_telemetry"),
         },
         "reference": {
             "depth": ref_depth,
@@ -557,6 +640,7 @@ def evaluate_root(
         },
         "candidates": forced_records,
         "tolerance_sensitivity": tolerance_sensitivity,
+        "timing_trials": timing_trials,
         "summary": {
             "candidate_count": len(forced_records),
             "valid_candidate_count": len(valid_records),
@@ -626,6 +710,27 @@ def print_root_report(res: dict):
     else:
         print(f"Quality-valid min:  NONE PASSED QUALITY GATES")
 
+    # Search telemetry printout (Finding 3)
+    if b.get("root_telemetry"):
+        b_tel = b["root_telemetry"]
+        print(f"Root search telemetry @ D{res['depth']}:")
+        print(f"  Baseline: fail_low={b_tel['aspiration_fail_low']}, fail_high={b_tel['aspiration_fail_high']}, aspiration_iterations={b_tel['aspiration_iterations']}")
+        opt_c = next((c for c in res["candidates"] if c["move"] == opt_node["move"]), None)
+        if opt_c and opt_c.get("root_telemetry"):
+            c_tel = opt_c["root_telemetry"]
+            print(f"  Optimal forced move ({opt_node['move']}): fail_low={c_tel['aspiration_fail_low']}, fail_high={c_tel['aspiration_fail_high']}, aspiration_iterations={c_tel['aspiration_iterations']}")
+
+    # Multi-trial timing printout if present
+    if res.get("timing_trials"):
+        tt = res["timing_trials"]
+        b_tt = tt["baseline"]
+        print(f"Multi-trial timing ({tt['trials_count']} interleaved runs):")
+        print(f"  Baseline: engine median {b_tt['engine_median_ms']:.1f} ms | wall median {b_tt['wall_median_ms']:.1f} ms")
+        if opt_node["move"] and opt_node["move"] in tt["candidates"]:
+            c_tt = tt["candidates"][opt_node["move"]]
+            eng_speedup = (b_tt['engine_median_ms'] - c_tt['engine_median_ms']) / b_tt['engine_median_ms'] if b_tt['engine_median_ms'] else 0.0
+            print(f"  Optimal ({opt_node['move']}): engine median {c_tt['engine_median_ms']:.1f} ms ({eng_speedup:+.1%} engine speedup) | wall median {c_tt['wall_median_ms']:.1f} ms")
+
     # Tolerance sensitivity printout (Findings 2, 4)
     print(f"Score tolerance sensitivity:")
     sens = res.get("tolerance_sensitivity", {})
@@ -670,6 +775,7 @@ def main():
         help="isolated: override only at target depth (Experiment B). persistent: override all depths (Experiment A).",
     )
     ap.add_argument("--score-tolerance", type=int, default=50, help="Max score cp delta vs reference.")
+    ap.add_argument("--trials", type=int, default=1, help="Number of interleaved timing trials (default: 1).")
     ap.add_argument("--ids", default="c1-d-001,c1-v-001,c1-t-001", help="Comma-separated root IDs.")
     ap.add_argument("--corpus", default=None, help="Path to corpus JSON (default: corpora/corpus-v1.json).")
     ap.add_argument("--out", default=None, help="Output JSON path.")
@@ -709,6 +815,7 @@ def main():
             k=args.k,
             depth_mode=args.depth_mode,
             score_tolerance_cp=args.score_tolerance,
+            trials=args.trials,
         )
         all_results.append(res)
         print_root_report(res)

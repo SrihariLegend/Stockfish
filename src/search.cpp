@@ -30,6 +30,7 @@
 #include <iostream>
 #include <list>
 #include <ratio>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -475,8 +476,16 @@ bool Search::Worker::iterative_deepening() {
             int failedHighCnt = 0;
             if (!pvIdx)
                 failHighRecovery = std::max(0, failHighRecovery - 2);
+#ifdef POLICY_RESEARCH
+            int aspirationFailLow = 0;
+            int aspirationFailHigh = 0;
+            int aspirationIterations = 0;
+#endif
             while (true)
             {
+#ifdef POLICY_RESEARCH
+                aspirationIterations++;
+#endif
                 // Adjust the effective depth searched, but ensure at least one
                 // effective increment for every four searchAgain steps (see issue #2717).
                 Depth adjustedDepth = std::max(1, rootDepth - failedHighCnt - failHighRecovery
@@ -509,6 +518,9 @@ bool Search::Worker::iterative_deepening() {
                 // otherwise exit the loop.
                 if (bestValue <= alpha)
                 {
+#ifdef POLICY_RESEARCH
+                    aspirationFailLow++;
+#endif
                     beta  = alpha;
                     alpha = std::max(bestValue - delta, -VALUE_INFINITE);
 
@@ -518,6 +530,9 @@ bool Search::Worker::iterative_deepening() {
                 }
                 else if (bestValue >= beta)
                 {
+#ifdef POLICY_RESEARCH
+                    aspirationFailHigh++;
+#endif
                     alpha = std::max(beta - delta, alpha);
                     beta  = std::min(bestValue + delta, VALUE_INFINITE);
                     ++failedHighCnt;
@@ -533,6 +548,25 @@ bool Search::Worker::iterative_deepening() {
             // Gradually increase depth after reduced depth search
             if (failedHighCnt > 0 && !pvIdx)
                 failHighRecovery = (failedHighCnt + 1) / 2 + 2;
+#ifdef POLICY_RESEARCH
+            if (is_mainthread() && multiPV == 1 && Research::enabled()
+                && Research::config().mode == Research::Mode::RootCounterfactual)
+            {
+                std::stringstream ss_tel;
+                ss_tel << "info string research root_telemetry depth " << int(rootDepth)
+                       << " fail_low " << aspirationFailLow
+                       << " fail_high " << aspirationFailHigh
+                       << " iterations " << aspirationIterations
+                       << " moves";
+                for (size_t i = 0; i < rootMoves.size(); ++i)
+                {
+                    ss_tel << " " << UCIEngine::move(rootMoves[i].pv[0], rootPos.is_chess960())
+                           << ":" << rootMoves[i].effort
+                           << ":" << int(rootMoves[i].score);
+                }
+                sync_cout << ss_tel.str() << sync_endl;
+            }
+#endif
 
             if (threads.stop && pvIdx)
             {

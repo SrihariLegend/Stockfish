@@ -266,6 +266,10 @@ Key features & options:
   sensitivity across gates $\pm 25, \pm 50, \pm 75, \pm 100\text{ cp}$.
 - Disentangles node-optimal candidate from time-optimal candidate, and records
   durable provenance (engine banner, executable SHA256, embedded commit, tool git state, timestamp).
+- `--trials <N>`: runs N interleaved timing trials per intervention, reporting both
+  engine search time (UCI `time <ms>`) and end-to-end wall time.
+- Emits and parses root search telemetry (`aspiration_fail_low`, `aspiration_fail_high`,
+  aspiration iterations, and per-root-move node efforts) under `POLICY_RESEARCH`.
 - Schema: `policy-research-p4-counterfactual/3`.
 ```
 

@@ -1044,23 +1044,24 @@ Pilot comparison (depth 14, candidate shortlist = depth 10 MultiPV top 4):
   - Incremental counts in persistent mode reflect divergent trajectory steps.
 
 **P4.2 Status — expanded corpus, depth ladder, and mechanism verified.**
-- Delivered `tools/policy_research/corpora/corpus-v2.json` (26 positions:
-  10 development, 8 validation, 8 unburned test roots).
+- Delivered audited `tools/policy_research/corpora/corpus-v2.json` (26 positions:
+  10 development, 8 validation, 8 unburned test roots, with verified UCI replay sequences).
 - Verified depth ladder stability on `c2-v-001`: incremental node reduction
-  grows from 0% at D12 to 88.6% at D14 ($17,285 \to 1,972$) to 97.5% at D16
-  ($56,156 \to 1,380$, a $40\times$ proof-cost reduction), with both baseline
-  and forced runs agreeing on best move `d4c5`.
-- Verified generalization on new roots: `c2-d-007` (Najdorf) shows 94.9%
-  incremental node reduction ($66,264 \to 3,412$), and `c2-v-005` (Tal-Larsen)
-  shows 85.0% incremental reduction ($38,817 \to 5,826$) while discovering the
-  D16 reference best move `d1d2` that the D14 baseline missed.
-- Verified wall-time reduction on 5-trial fresh-process runs: median time
-  dropped from 411.4 ms to 351.0 ms (−14.7% wall time including process startup).
-- Search mechanism established: high-utility setup moves establish a rapid
-  alpha floor that allows subsequent moves to refute/verify via narrow null-window
-  scouting, collapsing the overall proof tree.
+  scales from 0% at D12 to 88.6% at D14 ($17,285 \to 1,972$) to 97.5% at D16
+  ($56,156 \to 1,380$, a $40.7\times$ lower target-iteration search cost),
+  with score cp 635 vs 642 D18 reference (delta −7 cp), both agreeing on best move `d4c5`.
+- Verified on new roots: `c2-d-007` (Najdorf) shows 94.9% incremental node
+  reduction ($66,264 \to 3,412$), and `c2-v-005` (Tal-Larsen) shows 85.0%
+  incremental reduction ($38,817 \to 5,826$) while discovering the D16 reference
+  best move `d1d2` that the D14 baseline missed.
+- Verified engine search-time speedup with interleaved multi-trial benchmark:
+  on `c1-v-001`, engine median search time dropped from 19.0 ms to 5.0 ms (+73.7%).
+- Search mechanism established via root telemetry: forcing a secondary move
+  induces aspiration fail-high adjustments (`fail_high=3`), triggering effective
+  depth reductions (`adjustedDepth = rootDepth - failedHighCnt`) that collapse
+  the node cost of proving the best move.
 - Standing zero-regression gate re-verified: macro-off `bench 16 1 10 default depth`
-  = 453,169 nodes. Full test suite: 92 tests green.
+  = 453,169 nodes. Full test suite: 93 tests green.
 
 ---
 
