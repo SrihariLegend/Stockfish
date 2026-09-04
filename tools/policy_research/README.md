@@ -232,7 +232,7 @@ printf 'policy_research_test_overlay\nquit\n' | src/stockfish   # expect OVERLAY
 ```
 
 Internal counterfactual dataset collection (research build; versioned JSONL,
-schema `internal-counterfactual/1`, spec in `docs/policy-research/data-schema.md`):
+schema `internal-counterfactual/2`, spec in `docs/policy-research/data-schema.md`):
 
 ```bash
 printf 'setoption name PolicyResearch value on\nsetoption name PolicyResearchMode value internal_counterfactual\nsetoption name PolicyResearchLogPath value /tmp/icf.jsonl\nsetoption name PolicyResearchSampleRate value 0.05\nposition startpos moves e2e4 c7c5 g1f3 d7d6\ngo depth 8\n' | src/stockfish

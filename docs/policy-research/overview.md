@@ -13,7 +13,7 @@ tests, exit gates, definition of done).
 | 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
 | 3 | Observational dataset and calibration baseline | **Complete (schema-derivable subset)** — prefix-free uniform-rate dataset v2 + root-held-out baseline report (protocol P3.2) landed; the P3.1 evaluation review (leaky row-random split + duplicated iterative-deepening prefixes, row-level SEs on 12 roots, non-random cell exclusion, collinear margins, in-sample isotonic fit) was fully addressed. §8.3 history / §8.4 baseline-score calibration and candidate-denominator analyses remain gated on the counterfactual candidate-enumeration schema (Phases 4/5). Strong *generalization* claims need a larger root sample (corpus/v2) |
 | 4 | Root-level counterfactual experiments | **Complete (Factorial Causal Decomposition, Multi-Trial Timing & Canonical Evidence)** — 26-root immutable `corpus/v3` (quarantined test set), full 2³ factorial causal decomposition isolating aspiration-optimism coupling and PV-follow decoupling, 12-trial counterbalanced timing (73.7% kernel time reduction [3.80× speedup factor] on `c3-v-001`, 64.9% kernel reduction [2.85× speedup factor] on `c3-d-004`), 18-root strict-candidate depth ladder (D12/D14/D16), and canonical tracked evidence in `docs/policy-research/evidence/p4-canonical/`. |
-| 5 | Internal counterfactual search sandbox | **Complete (Isolated Worker Sandbox, TT Overlay, Full Stack Forward Init, Whole-Table TT Immutability & Safety Hardening, Whole-Node Replay Force-Next Estimand & Versioned Internal-Counterfactual Dataset)** — compile-time templated `search<NT, TTAccess>` / `qsearch<NT, TTAccess>`, deep `StateInfo::previous` chain cloning with threefold repetition detection, private history rebinding, copy-on-first-access `ResearchTTOverlay`, whole-table 100% bit-for-bit base TT immutability verification, forward stack initialization up to `MAX_PLY + 10`, `Threads == 1` invariant assertion, automatic shadow search node budgeting & cooperative cancellation (`nodeBudget`), `ScopedShadowProbe` recorder suppression, and internal NNUE evaluation fidelity verified. M2/M3 adds the force-next estimand (whole-node replay, candidate forced into slot 1 with exact MovePicker-order slot semantics), MovePicker-exact candidate enumeration driving the real picker, and the versioned JSONL dataset `internal-counterfactual/1` (finite-default budget + robust stop handling, decision rows with selection probabilities and per-probe censoring, non-perturbation verified bit-for-bit on live search). |
+| 5 | Internal counterfactual search sandbox | **Complete (Isolated Worker Sandbox, TT Overlay, Full Stack Forward Init, Whole-Table TT Immutability & Safety Hardening, Whole-Node Replay Force-Next Estimand & Versioned Internal-Counterfactual Dataset)** — compile-time templated `search<NT, TTAccess>` / `qsearch<NT, TTAccess>`, deep `StateInfo::previous` chain cloning with threefold repetition detection, private history rebinding, copy-on-first-access `ResearchTTOverlay`, whole-table 100% bit-for-bit base TT immutability verification, forward stack initialization up to `MAX_PLY + 10`, `Threads == 1` invariant assertion, automatic shadow search node budgeting & cooperative cancellation (`nodeBudget`), `ScopedShadowProbe` recorder suppression, and internal NNUE evaluation fidelity verified. M2/M3 adds the force-next estimand (whole-node replay from true search entry, candidate forced into slot 1 as a genuine reorder — the swallowed natural prefix is buffered and re-searched after the forced move fails low, never deleted), decision-point capture inside the baseline replay itself, MovePicker-exact candidate enumeration driving the real picker, and the versioned JSONL dataset `internal-counterfactual/2` (finite-default budget + robust stop handling, decision rows with marginal inclusion probabilities and per-probe censoring, live-subtree `node_exit` audit rows, complete `root_end` accounting, non-perturbation verified bit-for-bit on live search). |
 | 6 | Oracle / ratio / interaction-gap studies | Not started |
 | 7 | Proof-time survival modeling | Not started |
 | 8 | Exact and prototype Jacobian experiments | Not started |
@@ -170,7 +170,7 @@ top-K at probability 1 (K = min(TopK or 4, N-1)) plus two deterministically
 hash-sampled candidates from the rest at marginal probability 2/(N-K).
 
 **Dataset:** rows are written as a *separate* versioned JSONL artifact, schema
-`internal-counterfactual/1` (spec in `data-schema.md`), selected by
+`internal-counterfactual/2` (spec in `data-schema.md`), selected by
 `PolicyResearchMode=internal_counterfactual`; mode selection arms exactly one
 writer. Collection is restricted to fixed-depth/fixed-node offline `go` commands
 with `Threads == 1`; live stop is honored before and between every replay (an
@@ -187,20 +187,28 @@ in the always-written `root_end` row (lifecycle rows bypass the decision cap).
 **Non-perturbation (verified):** on `position startpos moves e2e4 c7c5 g1f3 d7d6`
 `go depth 8`, the armed run (sampling active, 31 decision rows) produced the
 identical final info row — score cp 41, nodes 5320, same PV — as the unarmed
-run; probes are CPU-only. Non-perturbation claims are limited to fixed-depth /
+run; probes are CPU-only. (Re-verified under the /2 entry-hook pipeline: the
+e2e2 suite runs four roots incl. a fixed-node root; each armed root is
+bit-identical in live info rows to its unarmed twin and writes a fully
+accounted run file with matched decision/node_exit rows.) Non-perturbation claims are limited to fixed-depth /
 fixed-node offline collection; recurrences and static-eval re-application inside
 replays are documented replay-of-captured-state semantics.
 
-**C++ sandbox suite extensions (Parts 8–11):** (8) whole-node replay
+**C++ sandbox suite extensions (Parts 8–12):** (8) whole-node replay
 determinism and order invariance across runners plus illegal-forced rejection;
 (9) differential enumeration against an independent second fresh MovePicker drive
-with per-emission stage-score equality and split self-consistency, including a
-capture-rich Kiwipete position; (10) armed-hook non-mutation and row pipeline
+with per-emission stage-score equality and split self-consistency (startpos, 20
+candidates, tt=e2e4; the capture-rich Kiwipete enumeration path is separately
+exercised by the Python `policy_research_enumerate_candidates` drive); (10) armed-hook non-mutation and row pipeline
 (live key/nodes/base-TT bytes untouched, schema-valid JSONL decision row written
 and re-read); (11) `force_next_step` swallow/count semantics, mismatch
 non-consumption, and the natural-first-forced no-op control (forcing the natural
-first candidate reproduces the baseline replay exactly). Python suite:
-`tools/policy_research/tests/test_sandbox.py` (107 tests) adds the armed-vs-unarmed
+first candidate reproduces the baseline replay exactly); (12) prefix-resume
+regression — a natural cutoff scenario plus a forced slot-1 candidate that fails
+low must re-search the buffered prefix (buffer depth == forced ordinal, pops in
+[1, k]) under deterministic depth/ordinal scans. Python suite:
+`tools/policy_research/tests/test_sandbox.py` (4 test methods, exercised by
+`python3 -m unittest`) adds the armed-vs-unarmed
 bit-identical live search comparison, dataset lifecycle row checks, collection
 gate diagnostics (missing log path, movetime, `Threads=2`), and the new
 enumerate-command output with optional depth token and stage names.

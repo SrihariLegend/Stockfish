@@ -131,29 +131,65 @@ class TestResearchSandbox(unittest.TestCase):
         decisions = [r for r in rows if r["type"] == "decision"]
         self.assertGreater(len(decisions), 0, "No decision rows collected")
         for r in rows:
-            self.assertEqual(r["schema"], "internal-counterfactual/1")
+            self.assertEqual(r["schema"], "internal-counterfactual/2")
         d = decisions[0]
-        for field in ("root_key", "pos_key", "fen", "ply", "depth", "root_depth", "alpha",
-                      "beta", "static_eval", "improving", "tt_hit", "cut_node", "rule50",
-                      "fullmove", "sample_seed", "sample_rate", "selection", "n_candidates",
-                      "node_budget", "baseline", "candidates", "probes"):
+        for field in ("root_key", "pos_key", "fen", "ply", "depth", "entry_depth",
+                      "root_depth", "alpha", "beta", "static_eval", "improving", "tt_hit",
+                      "cut_node", "rule50", "fullmove", "sample_seed", "sample_rate",
+                      "selection", "n_candidates", "node_budget", "baseline", "candidates",
+                      "probes"):
             self.assertIn(field, d, f"decision row missing {field}")
         self.assertEqual(d["root_key"], d["pos_key"] or d["root_key"])
+        for field in ("nodes", "decision_point_nodes", "completed", "stop", "budget_hit",
+                      "value", "fail_high"):
+            self.assertIn(field, d["baseline"], f"baseline missing {field}")
+        b = d["baseline"]
+        self.assertGreaterEqual(b["nodes"], 0)
+        self.assertGreaterEqual(b["decision_point_nodes"], 0)
+        self.assertLessEqual(b["decision_point_nodes"], b["nodes"])
         for cand in d["candidates"]:
             for field in ("move", "ordinal", "stage", "stage_score", "main_hist",
                           "capture_hist", "pawn_hist", "cont_hist", "low_ply_hist",
-                          "see_score", "check", "capture", "tt_move", "prob", "selected"):
+                          "see_bucket", "check", "capture", "tt_move", "prob", "selected"):
                 self.assertIn(field, cand, f"candidate missing {field}")
+            self.assertIn(cand["see_bucket"], (-1, 0, 1))
+            if cand["capture"]:
+                self.assertIsNone(cand["pawn_hist"])
+                self.assertIsNone(cand["cont_hist"])
+            else:
+                self.assertIsNotNone(cand["pawn_hist"])
+                self.assertIsNotNone(cand["cont_hist"])
         for probe in d["probes"]:
             for field in ("move", "prob", "nodes", "completed", "stop", "budget_hit",
                           "value", "forced_slot1", "fail_high"):
                 self.assertIn(field, probe, f"probe missing {field}")
+            if probe["completed"]:
+                self.assertIsNotNone(probe["value"])
+            else:
+                self.assertIsNone(probe["value"], "censored probe must carry value null")
         for probe in d["probes"]:
             self.assertTrue(probe["forced_slot1"],
                             "Row kept although no forced replay consumed the force-next arm")
+        self.assertEqual(d["baseline"]["nodes"], d["probes"][0]["nodes"] or 0)
         root_end = rows[-1]
         self.assertFalse(root_end["io_failed"])
         self.assertEqual(root_end["rows"], len(decisions))
+        self.assertFalse(root_end["overflow"])
+        self.assertEqual(root_end["target_depth"], rows[1]["target_depth"])
+        self.assertEqual(root_end["target_nodes"], rows[1]["target_nodes"])
+        # node_exit audit rows join the recorded decisions on the full identity
+        # key; lifecycle rows bypass the decision-row cap.
+        exits = [r for r in rows if r["type"] == "node_exit"]
+        key = lambda r: (r["root_key"], r["pos_key"], r["ply"], r["entry_depth"],
+                         r["sample_seed"])
+        exit_keys = {key(r) for r in exits}
+        self.assertEqual(len(exits), len(decisions))
+        for d2 in decisions:
+            self.assertIn(key(d2), exit_keys, "decision row without matching node_exit")
+        self.assertIn("target_depth", rows[1])
+        self.assertIn("target_nodes", rows[1])
+        self.assertIn("achieved_depth", root_end)
+        self.assertIn("searched_nodes", root_end)
 
     def test_dataset_armed_unarmed_diagnostics(self):
         """Fixed-depth-only and Threads==1 collection gates produce the skip

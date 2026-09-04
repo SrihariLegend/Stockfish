@@ -603,25 +603,27 @@ LMR, re-searches, history updates, and TT writes — but all writes go to the pr
 isolated worker/TT state. The `ScopedShadowProbe` guard disables only recursive
 *instrumentation/intervention*, not normal search behavior.
 
-The first internal dataset is deliberately narrower:
+The internal counterfactual dataset keeps a deliberately narrow decision
+definition:
 
-- non-root, `NonPV`, null-window decisions;
-- normal main-search move loop, not qsearch;
-- not in check;
-- `excludedMove == Move::none()`;
-- no tablebase probe;
-- one explicitly named MovePicker stage (initially quiets);
-- TT move already absent or already attempted, so it is not displaced;
-- fixed current `alpha`, `beta`, effective `depth`, `moveCount`, and stage.
+- non-root, `NonPV` (null-window), main-search nodes — not qsearch, not PV;
+- node not in check; `excludedMove == Move::none()`; no tablebase probe;
+- fixed current `alpha`, `beta`, effective `depth`, `rootDepth`, `cutNode`.
 
-Node-level null move and ProbCut occur before `moves_loop`; a sampled move-loop
-decision therefore inherits their real effects in its common pre-decision state.
-Descendant nodes execute them normally. A forced candidate receives the exact
-search treatment of the next slot, including the baseline reduction/window. The
-initial internal counterfactual target is the candidate probe outcome/cost. Full
-"remaining node cost if chosen next" is deferred until the move-loop continuation
-can be isolated without duplicating search logic. Root-level force-first experiments
-remain the first source of complete total-search-cost counterfactuals.
+M2/M3 reworked the estimand to a **whole-node replay from true search entry**
+(entry hook before the step-4 TT probe, `search.cpp`): every sampled node is
+replayed from its real entry state on an isolated synced worker with a fresh
+overlay, so all pre-loop logic (IID, TT probe, null move, ProbCut, razoring,
+the step-13 small-ProbCut return) and the loop itself run exactly as the live
+node would. The baseline replay (unforced) is measurement B and carries the
+decision capture; each selected candidate is then forced into slot 1 as a
+genuine reorder — natural emissions that preceded it in picker order are
+buffered, and if the forced move fails low they are re-searched from the loop
+head (prefix-preserving; no deletion). Candidate enumeration drives the real
+`MovePicker` for the full legal denominator with exact stages/ordinals, so
+slot semantics (including moveCount/LMR treatment of shifted moves) are the
+engine's own. Descendant nodes execute normal search policy inside every
+replay; their writes stay in the isolated worker/TT state.
 
 If future experiments include the TT move, singular-extension behavior must remain
 active exactly as in the normal search. It must never be approximated by an
@@ -827,11 +829,15 @@ production builds. Map of the current research runtime modules:
 - `policy_research/research_log.h/.cpp` — observational binary recorder
   (`ResearchLog`, schema `research-data/1`, see `data-schema.md`) and the
   versioned JSONL internal counterfactual writer (`InternalDatasetLog`, schema
-  `internal-counterfactual/1`, singleton `Research::internal_log()`). The
+  `internal-counterfactual/2`, singleton `Research::internal_log()`). The
   internal writer defers `go` requests while a root is open (recorder-mirrored
-  lifecycle), opens one file per root at the first root start, and closes at
-  root end / run end. `would_record()` is the hot-path sampling gate (active,
-  no io failure/overflow, decision rows under cap, bytes under hard budget).
+  lifecycle), opens one self-contained file per root at the first root start,
+  and closes at root end / run end; the always-written `root_end` row carries
+  the row/byte accounting, overflow/io state, and target/achieved/search
+  completeness (fixed-point `bytes` claim). `would_record()` is the hot-path
+  sampling gate (active, no io failure/overflow, decision rows under cap, bytes
+  under hard budget); a skip behind the cap raises `overflow_` via
+  `note_row_skipped()` so truncated datasets are identifiable.
 - `policy_research/scoped_probe.h` — `ScopedShadowProbe` thread-local guard:
   suppresses recorder sampling, internal-log rows, and nested probes while a
   shadow search runs.
@@ -844,20 +850,32 @@ production builds. Map of the current research runtime modules:
     probes returning `ProbeResult` (nodes/completed/stop/budget/score/
     `forced_slot1`); `research_fatal` for programming errors (no exceptions).
   - `CandidateProbeRunner` + `replay_node` / `replay_node_forced`:
-    whole-node replay of the captured live node on a fresh per-replay synced
-    worker with fresh empty overlay (measurement-B semantics, plan §10.6).
+    whole-node replay of the captured live node from its true search entry on
+    a fresh per-replay synced worker with fresh empty overlay (measurement-B
+    semantics, plan §10.6); the baseline replay runs with a
+    `DecisionCaptureScope` so decision-point metadata is captured inside the
+    replay itself, and a `gProbeStartNodes` epoch keeps node accounting
+    replay-relative.
   - `ForceNextScope` + `force_next_step`: thread-local RAII arm matched on
     `(posKey, ply)` at the main search move loop (search.cpp); emissions
-    before the forced candidate are swallowed without incrementing
-    `moveCount`; consumption raises the thread-local consumed counter
-    (`forced_slot1` detection).
+    before the forced candidate are buffered in natural order (prefix
+    buffer, reorder semantics — never deleted), the forced candidate is
+    searched as slot 1, and after it fails low the buffered prefix is popped
+    back into the loop head; consumption raises the thread-local consumed
+    counter (`forced_slot1` detection).
   - `CandidateStage` / `CandidateFeature` / `enumerate_candidates`: exact
     denominator enumeration by driving the real `MovePicker` on the live
     position and histories (order = picker emission order, `pos.legal()`
     filter, classification by re-applying the picker's own splits to
     `research_emitted_score()`).
   - `on_internal_node_counterfactual`: the search hook (search.cpp) building
-    and writing decision rows via `InternalDatasetLog::write_row`.
+    and writing decision rows via `InternalDatasetLog::write_row`, pushing the
+    live-oracle entry (LIFO) for the recorded node so `LiveExitScope` writes
+    the joined `node_exit` audit row when the live frame exits.
+  - `LiveExitScope` (ctor in search.cpp entry, dtor in
+    `worker_snapshot.cpp`): pops the live oracle and writes the `node_exit`
+    audit row (live subtree node count, joins to the decision row on
+    `(root_key, pos_key, ply, entry_depth, sample_seed)`).
   - `run_sandbox_unit_tests` / overlay tests: `policy_research_test_sandbox`
     and `policy_research_test_overlay` UCI commands (parts 1-11).
 
