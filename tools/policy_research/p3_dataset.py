@@ -1306,7 +1306,7 @@ def _git_worktree_dirty(cwd: Path) -> int:
     """Number of files with uncommitted changes (-1 when git unavailable)."""
     try:
         import subprocess
-        r = subprocess.run(["git", "-C", str(cwd), "status", "--porcelain"],
+        r = subprocess.run(["git", "-C", str(cwd), "status", "--porcelain", "--untracked-files=no"],
                            capture_output=True, text=True, timeout=20)
         if r.returncode != 0:
             return -1

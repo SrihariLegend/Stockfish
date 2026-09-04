@@ -372,7 +372,7 @@ def git_state(cwd: Path) -> dict:
         commit = "unknown"
     try:
         porcelain = subprocess.run(
-            ["git", "-C", str(cwd), "status", "--porcelain"],
+            ["git", "-C", str(cwd), "status", "--porcelain", "--untracked-files=no"],
             text=True,
             capture_output=True,
             timeout=30,
