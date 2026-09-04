@@ -106,36 +106,38 @@ methodological findings and recommendations from the expert review:
 
 1. **Immutable Expanded Corpus (`corpus/v3`)**:
    - 26 positions (10 development: `c3-d-001`..`c3-d-010`, 8 validation: `c3-v-001`..`c3-v-008`, 8 test: `c3-t-001`..`c3-t-008`).
-   - Re-indexed with unique IDs (`c3-*`) to eliminate version collision.
+   - Re-indexed with unique IDs (`c3-*`) to eliminate version collision. SHA256: `c7c7d47c558f8d23b6d3a726ebda886a98633f39d5d9749b153e052259a5b944`.
    - Audited every single root: every root with `source_line_moves` is verified byte-for-byte against Stockfish's internal board parser across all 6 fields (including halfmove clock and fullmove count).
    - Corrected King's Indian (`c3-d-008`) halfmove clock to 3 (exact replay match), and replaced the non-standard `c2-v-007` FEN with the authentic classic Philidor 6th-rank defense tabiya (`4k3/R7/4r3/4P3/8/8/8/4K3 w - - 0 1`, Philidor 1777).
    - Test set is strictly isolated and quarantined for final model evaluation.
-2. **Telemetry Attribution & Target-Iteration Effort Reset**:
+2. **Move-Identity Telemetry Attribution & Target-Iteration Effort**:
    - Emits per-attempt aspiration telemetry (`info string research root_telemetry ... attempts <depth>:<val>:<res>:<alpha>:<beta> ...`).
-   - Disambiguates cumulative effort across all depths from the target-iteration effort increment $\Delta E_D(m) = E_D(m) - E_{D-1}(m)$ spent on move $m$ at depth $D$.
-3. **Causal Decomposition (Pure MovePicker Order vs Aspiration Depth Control)**:
-   Added research options `PolicyResearchPreserveAspiration` and `PolicyResearchDisableFailHighReduction` to test the causal hypotheses empirically across 5 conditions:
-   - On `c3-d-004` (CPW4, tactical middlegame): savings are **100% pure MovePicker ordering efficiency** (zero aspiration failures in baseline and intervention; 70.3% node reduction at unreduced nominal depth 14).
-   - On `c3-v-001` (Giuoco Piano blunder): savings decompose into ~50% pure MovePicker ordering efficiency at nominal depth and ~23% aspiration fail-high depth compression.
-   - On `c3-d-002` (Kiwipete): fail-high depth reductions control search explosion in high-branching tactical positions.
-   - Demonstrates that both mechanisms operate in Stockfish, rather than an exclusive single mechanism.
-4. **Randomized 10-Trial Timing Benchmark**:
-   - Implemented counterbalanced randomized execution order across trials in `p4_force_first.py` (`--trials N`) to eliminate thermal and first-runner cache warming biases.
-   - On `c3-v-001` (10 randomized runs): engine median search time dropped from 18.5 ms (mean 18.5±0.5 ms) to 5.0 ms (mean 5.2±0.4 ms), an exact **+73.0% engine search speedup** (IQR 0 ms, $p < 0.0001$).
-   - On `c3-d-004` (10 randomized runs): engine median search time dropped from 63.0 ms to 23.0 ms (**+63.5% engine search speedup**).
-5. **Multi-Depth Ladder Stability**:
-   - On `c3-d-004`: cumulative savings scale across depths: D12 (+72.2%), D14 (+64.3%), D16 (+80.5%, saving **1,101,557 cumulative nodes** while discovering the reference best move `c4c5`).
-   - On `c3-v-001`: cumulative savings scale from D14 (+73.1%) to D16 (+44.4%).
-6. **18-Root Canonical Population Distribution (`corpus/v3` Dev + Val)**:
+   - Disambiguates cumulative effort from target-iteration effort increments $\Delta E_D(m) = E_D(m) - E_{D-1}(m)$ by snapshotting and looking up effort by move identity (`Move`), resolving the vector-reordering sorting defect so move incremental efforts sum directly to target-iteration search nodes.
+3. **Common-Prefix Causal Decomposition (Pure Move Order vs Aspiration Depth Control)**:
+   Added research options `PolicyResearchPreserveAspiration` and `PolicyResearchDisableFailHighReduction`, depth-gated to the intervention target depth so that depths 1..D-1 run standard Stockfish search identically (`prev_depth_nodes` is 100% byte-for-byte identical across all 5 conditions):
+   - On `c3-d-004` (CPW4, tactical middlegame): savings are **100% pure MovePicker alpha-beta ordering efficiency** with zero aspiration failures in any condition (64.8% cumulative / 95.6% target-iteration node reduction at unreduced nominal depth 14).
+   - On `c3-v-001` (Giuoco Piano blunder): pure move ordering at nominal depth 14 saves 31.0% cumulative / 37.6% target-iteration nodes (14,450 vs 20,956); joint intervention forced to nominal depth 14 saves 55.7% (9,293 nodes); joint intervention with fail-high depth reduction saves 73.1% (5,643 nodes at D11).
+   - On `c3-d-002` (Kiwipete): fail-high depth reductions control search explosion in high-branching tactical positions (forcing nominal D14 inflates nodes from 18k to 32k or 78k).
+4. **Balanced Latin-Square Multi-Trial Timing Benchmark**:
+   - Implemented a balanced Latin square cyclic design across trials in `p4_force_first.py` (`--trials N`) where each treatment appears in each ordinal position an equal number of times across trials, eliminating thermal and first-runner cache warming biases.
+   - On `c3-v-001` (12 counterbalanced runs): engine median search time dropped from 18.0 ms (IQR 0.0 ms, mean 18.2±0.4 ms) to 5.0 ms (IQR 1.0 ms, mean 5.2±0.5 ms), an exact **+72.2% engine search speedup**.
+   - On `c3-d-004` (12 counterbalanced runs): engine median search time dropped from 62.0 ms (IQR 1.0 ms, mean 62.2±0.5 ms) to 23.0 ms (IQR 0.0 ms, mean 22.8±0.5 ms), an exact **+62.9% engine search speedup**.
+5. **Full 18-Root Population Depth Ladder (D12, D14, D16)**:
+   Evaluated the full 18-root development and validation corpus across depths 12, 14, 16 (`depth-ladder-dev-val.json`):
+   - Positive opportunity rate expands with depth: **5/18 (27.8%) at D12**, **9/18 (50.0%) at D14**, and **12/18 (66.7%) at D16**.
+   - Confirms persistent positive scaling on key roots: `c3-d-004` (+50.6% D12 $\to$ +64.3% D14 $\to$ +80.6% D16), `c3-d-002` (+25.8% D12 $\to$ +28.7% D14 $\to$ +44.7% D16), `c3-v-005` (+49.4% D12 $\to$ +3.6% D14 $\to$ +15.9% D16).
+   - Reveals depth-dependent phase transitions: `c3-v-001` (0% D12 $\to$ +73.1% D14 $\to$ +44.4% D16), `c3-d-006` (0% D12 $\to$ +18.7% D14 $\to$ +82.7% D16).
+   - Demonstrates stable baseline-optimality on mate-in-2 tacticals: `c3-d-009` (0.0% at all plies).
+6. **18-Root Canonical Population Distribution (`corpus/v3` Dev + Val, Schema v4)**:
    - **7 Result-preserving savings** (38.9%): preserves baseline best move, beats baseline cost.
    - **2 Convergence corrections** (11.1%): corrects baseline suboptimal move to reference best move, beats baseline cost.
-   - **5 Baseline optimal** (27.8%): baseline is already the best/cheapest move (regret 0.0).
-   - **3 Harmful interventions** (16.7%): candidate matches reference, but costs strictly more nodes than baseline.
-   - **1 No valid candidate** (5.6%): no candidate matches reference within score tolerance.
+   - **6 Baseline optimal** (33.3%): baseline is already the best/cheapest move (regret 0.0; including `c3-d-009` mate in 2).
+   - **2 Harmful interventions** (11.1%): candidate matches reference, but costs strictly more nodes than baseline (`c3-v-003`, `c3-v-004`).
+   - **1 No valid candidate** (5.6%): no candidate matches reference within score tolerance (`c3-d-005`).
    - Total positive opportunities: **9 / 18 (50.0%)**.
-   - Macro mean savings (with rational baseline fallback): **18.5% cumulative, 34.9% target-iteration**.
+   - Macro mean savings: **18.5% cumulative, 34.9% target-iteration**.
    - Macro median savings: **1.8% cumulative, 7.8% target-iteration**.
-   - Pooled savings across 18 roots: **22.4% cumulative, 42.8% target-iteration**.
+   - Pooled savings across 18 roots: **22.4% cumulative** (908,892 $\to$ 705,384 nodes), **42.8% target-iteration** (475,490 $\to$ 271,982 nodes).
 
 ## Phase 3 — observational dataset and calibration baseline
 

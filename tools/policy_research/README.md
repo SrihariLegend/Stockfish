@@ -266,15 +266,15 @@ Key features & options:
   sensitivity across gates $\pm 25, \pm 50, \pm 75, \pm 100\text{ cp}$.
 - Disentangles node-optimal candidate from time-optimal candidate, and records
   durable provenance (engine banner, executable SHA256, embedded commit, tool git state, timestamp).
-- `--trials <N>`: runs N counterbalanced randomized timing trials per intervention, reporting
+- `--trials <N>`: runs N counterbalanced timing trials using a balanced Latin square cyclic design, reporting
   engine search time (UCI `time <ms>`), median, IQR, mean, and standard deviation.
 - `--preserve-aspiration`: causal ablation testing pure MovePicker ordering with baseline aspiration center and width.
-- `--disable-fail-high-reduction`: causal ablation forcing searches to full nominal depth without `failedHighCnt` reductions.
+- `--disable-fail-high-reduction`: causal ablation forcing searches to full nominal depth without `failedHighCnt` reductions (depth-gated to intervention depth).
 - Emits and parses root search telemetry (`aspiration_fail_low`, `aspiration_fail_high`,
-  aspiration iterations, individual attempts with window $[ \alpha, \beta ]$, and per-root-move node efforts) under `POLICY_RESEARCH`.
+  aspiration iterations, individual attempts with window $[ \alpha, \beta ]$, and per-root-move node efforts by move identity) under `POLICY_RESEARCH`.
 - Categorizes outcomes into 5 mutually exclusive, exhaustive taxonomy classes:
   `result_preserving_saving`, `convergence_correction_saving`, `baseline_optimal`, `harmful_intervention`, and `no_valid_candidate`.
-- Schema: `policy-research-p4-counterfactual/3`.
+- Schema: `policy-research-p4-counterfactual/4`.
 ```
 
 Pilot semantics and limits are documented in `overview.md` (P4.1) and

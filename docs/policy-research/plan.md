@@ -1046,25 +1046,28 @@ Pilot comparison (depth 14, candidate shortlist = depth 10 MultiPV top 4):
 **P4.2 Status — expanded corpus v3, causal decomposition, and canonical evaluation complete.**
 - Delivered audited and immutable `tools/policy_research/corpora/corpus-v3.json` (26 positions:
   10 development `c3-d-001`..`c3-d-010`, 8 validation `c3-v-001`..`c3-v-008`, 8 unburned test roots `c3-t-001`..`c3-t-008`, with 100% byte-for-byte FEN replay verification).
-- Performed rigorous causal decomposition across 5 experimental conditions (`baseline`, `joint_intervention`, `preserve_aspiration`, `disable_fail_high_reduction`, `pure_order_nominal_depth`):
-  - On `c3-d-004` (CPW4, tactical middlegame): savings are **100% pure MovePicker alpha-beta ordering efficiency** with zero aspiration failures in any condition (70.3% node reduction at unreduced nominal depth 14).
-  - On `c3-v-001` (Giuoco Piano blunder): savings decompose into ~50% pure MovePicker ordering efficiency at nominal depth and ~23% aspiration fail-high depth compression.
-  - On `c3-d-002` (Kiwipete): fail-high depth reductions control search explosion in high-branching tactical positions.
-- Executed randomized 10-trial counterbalanced timing benchmark:
-  - On `c3-v-001`: engine median search time dropped from 18.5 ms (mean 18.5±0.5 ms) to 5.0 ms (mean 5.2±0.4 ms), an exact **+73.0% engine search speedup** (IQR 0 ms, $p < 0.0001$).
-  - On `c3-d-004`: engine median search time dropped from 63.0 ms to 23.0 ms (**+63.5% engine search speedup**).
-- Verified depth ladder stability on `c3-d-004`: cumulative node reduction
-  scales across depths: D12 (+72.2%), D14 (+64.3%), D16 (+80.5%, saving **1,101,557 cumulative nodes** while finding reference best move `c4c5`). On `c3-v-001`: cumulative savings scale from D14 (+73.1%) to D16 (+44.4%).
-- Canonical 18-root evaluation on `corpus-v3.json` (test roots quarantined):
+- Move-identity telemetry attribution: snapshotting and lookup of `RootMove::effort` by move identity (`Move`) ensures move incremental efforts sum directly to target-iteration search nodes (eliminating the previous vector-sorting index defect).
+- Depth-gated causal decomposition across 5 experimental conditions with verified common prefix (`prev_depth_nodes` 100% byte-for-byte identical across all 5 conditions):
+  - On `c3-d-004` (CPW4, tactical middlegame): savings are **100% pure MovePicker alpha-beta ordering efficiency** with zero aspiration failures in any condition (64.8% cumulative / 95.6% target-iteration node reduction at unreduced nominal depth 14).
+  - On `c3-v-001` (Giuoco Piano blunder): pure move ordering at nominal depth 14 saves 31.0% cumulative / 37.6% target-iteration nodes (14,450 vs 20,956); joint intervention forced to nominal depth 14 saves 55.7% (9,293 nodes); joint intervention with fail-high depth reduction saves 73.1% (5,643 nodes at D11).
+  - On `c3-d-002` (Kiwipete): fail-high depth reductions control search explosion in high-branching tactical positions (forcing nominal D14 inflates nodes from 18k to 32k or 78k).
+- Executed balanced Latin-square 12-trial counterbalanced timing benchmark:
+  - On `c3-v-001`: engine median search time dropped from 18.0 ms (IQR 0.0 ms, mean 18.2±0.4 ms) to 5.0 ms (IQR 1.0 ms, mean 5.2±0.5 ms), an exact **+72.2% engine search speedup**.
+  - On `c3-d-004`: engine median search time dropped from 62.0 ms (IQR 1.0 ms, mean 62.2±0.5 ms) to 23.0 ms (IQR 0.0 ms, mean 22.8±0.5 ms), an exact **+62.9% engine search speedup**.
+- Full 18-root population depth ladder evaluated across D12, D14, D16 (`depth-ladder-dev-val.json`):
+  - Positive opportunity expands with depth: **5/18 (27.8%) at D12**, **9/18 (50.0%) at D14**, and **12/18 (66.7%) at D16**.
+  - Confirms persistent positive scaling on key roots: `c3-d-004` (+50.6% D12 $\to$ +64.3% D14 $\to$ +80.6% D16), `c3-d-002` (+25.8% D12 $\to$ +28.7% D14 $\to$ +44.7% D16), `c3-v-005` (+49.4% D12 $\to$ +3.6% D14 $\to$ +15.9% D16).
+  - Depth-dependent phase transitions: `c3-v-001` (0% D12 $\to$ +73.1% D14 $\to$ +44.4% D16), `c3-d-006` (0% D12 $\to$ +18.7% D14 $\to$ +82.7% D16).
+- Canonical 18-root evaluation on `corpus-v3.json` (test roots quarantined, Schema v4):
   - 7 Result-preserving savings (38.9%)
   - 2 Convergence corrections (11.1%)
-  - 5 Baseline optimal (27.8%)
-  - 3 Harmful interventions (16.7%)
-  - 1 No valid candidate (5.6%)
+  - 6 Baseline optimal (33.3%) (including `c3-d-009` mate in 2)
+  - 2 Harmful interventions (11.1%) (`c3-v-003`, `c3-v-004`)
+  - 1 No valid candidate (5.6%) (`c3-d-005`)
   - Macro mean savings: 18.5% cumulative, 34.9% target-iteration.
-  - Pooled savings across 18 roots: 22.4% cumulative, 42.8% target-iteration.
+  - Pooled savings across 18 roots: 22.4% cumulative (908,892 $\to$ 705,384 nodes), 42.8% target-iteration (475,490 $\to$ 271,982 nodes).
 - Standing zero-regression gate re-verified: macro-off `bench 16 1 10 default depth`
-  = **453,169** nodes. Full test suite: 97 tests green.
+  = **453,169** nodes. Full test suite: 100 tests green.
 
 ---
 

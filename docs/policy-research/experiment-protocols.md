@@ -373,33 +373,36 @@ Limitations: n=3 roots is too small for aggregate bootstrap CIs; top-k is a sear
   - Every position with `source_line_moves` is 100% byte-for-byte verified via replay from startpos against Stockfish's board parser.
   - Burned exploratory root `c1-t-001` is completely excluded from the test set; all 8 test roots are strictly quarantined.
 
-**Multi-Depth Ladder Results**:
+**Multi-Depth Ladder Results (Full 18-Root Population Evaluation)**:
+- Evaluated all 18 development and validation roots across plies D12, D14, D16 (`depth-ladder-dev-val.json`).
+- Aggregate positive opportunities expand with ply depth: **5/18 (27.8%) at D12**, **9/18 (50.0%) at D14**, and **12/18 (66.7%) at D16**.
 - On `c3-d-004` (CPW4, tactical middlegame):
-  - D12 (Ref D14): Baseline 8,269 nodes; forced `g1h1` takes 2,296 nodes (**72.2% cumulative reduction**).
+  - D12 (Ref D14): Baseline 8,269 nodes; forced `g1h1` takes 4,082 nodes (**50.6% cumulative reduction**).
   - D14 (Ref D16): Baseline 69,878 nodes (47,379 incr); forced `g1h1` takes 24,972 nodes (2,473 incr), **64.3% cumulative reduction, 94.8% incremental reduction**.
-  - D16 (Ref D18): Baseline 1,369,213 nodes; forced `g1h1` takes 267,656 nodes (**80.5% cumulative reduction, saving 1,101,557 nodes**).
+  - D16 (Ref D18): Baseline 1,369,213 nodes; forced `g1h1` takes 265,584 nodes (**80.6% cumulative reduction, saving 1,103,629 nodes**).
 - On `c3-v-001` (Giuoco Piano):
+  - D12: Baseline optimal (1,948 nodes).
   - D14 (Ref D16): Baseline 20,956 nodes (17,285 incr); forced `b1c3` takes 5,643 nodes (1,972 incr), **73.1% cumulative reduction, 88.6% incremental reduction**.
   - D16 (Ref D18): Baseline 123,243 nodes; forced `b1c3` takes 68,467 nodes (**44.4% cumulative reduction**).
 
-**Causal Decomposition (Pure Move Order vs Aspiration Depth Control)**:
-Evaluated across 5 conditions: `baseline`, `joint_intervention`, `preserve_aspiration` (order only, baseline aspiration center/width), `disable_fail_high_reduction` (forced nominal depth), and `pure_order_nominal_depth` (pure order at nominal depth):
-- On `c3-d-004`: zero aspiration failures occur in all 5 conditions; nodes drop from 69,878 to 20,779 (**70.3% pure MovePicker alpha-beta ordering reduction at nominal depth 14**).
-- On `c3-v-001`: baseline searches at unadjusted D14 (20,956 nodes); pure order at nominal depth saves 49.8% (10,513 nodes); joint intervention allows 3 fail-highs reducing effective depth to 11 (5,643 nodes, 73.1% saving).
-- On `c3-d-002` (Kiwipete): fail-high depth reductions prevent search explosion in complex tactical trees.
+**Common-Prefix Causal Decomposition (Pure Move Order vs Aspiration Depth Control)**:
+Evaluated across 5 conditions with verified common prefix (`prev_depth_nodes` 100% byte-for-byte identical across all 5 conditions: 3,671 on `c3-v-001`, 22,499 on `c3-d-004`, 16,131 on `c3-d-002`, 63,292 on `c3-d-007`):
+- On `c3-d-004`: zero aspiration failures occur in all 5 conditions; nodes drop from 69,878 to 24,596 (**64.8% pure MovePicker alpha-beta ordering reduction at unadjusted nominal depth 14**).
+- On `c3-v-001`: baseline searches at nominal D14 (20,956 nodes); pure move order with baseline aspiration saves 31.0% (14,450 nodes); joint intervention forced to nominal D14 saves 55.7% (9,293 nodes); joint intervention with fail-high depth reduction saves 73.1% (5,643 nodes at D11).
+- On `c3-d-002` (Kiwipete): fail-high depth reductions prevent search explosion (forcing nominal D14 inflates nodes from 18k to 32k or 78k).
 
-**Randomized Multi-Trial Timing Benchmarks**:
-- Tooling supports `--trials N` running counterbalanced randomized execution order across trials to prevent thermal and first-runner cache warming biases.
-- On `c3-v-001` (10 randomized runs): engine median search time dropped from 18.5 ms (mean 18.5±0.5 ms) to 5.0 ms (mean 5.2±0.4 ms), an exact **+73.0% engine search speedup** (IQR 0 ms, $p < 0.0001$).
-- On `c3-d-004` (10 randomized runs): engine median search time dropped from 63.0 ms (mean 63.1±1.6 ms) to 23.0 ms (mean 22.8±0.6 ms), an exact **+63.5% engine search speedup** (IQR 1 ms).
+**Balanced Latin-Square Multi-Trial Timing Benchmarks**:
+- Tooling supports `--trials N` running a strictly counterbalanced balanced Latin square cyclic design where each treatment appears in each position slot an equal number of times across trials.
+- On `c3-v-001` (12 counterbalanced runs): engine median search time dropped from 18.0 ms (IQR 0.0 ms, mean 18.2±0.4 ms) to 5.0 ms (IQR 1.0 ms, mean 5.2±0.5 ms), an exact **+72.2% engine search speedup**.
+- On `c3-d-004` (12 counterbalanced runs): engine median search time dropped from 62.0 ms (IQR 1.0 ms, mean 62.2±0.5 ms) to 23.0 ms (IQR 0.0 ms, mean 22.8±0.5 ms), an exact **+62.9% engine search speedup**.
 
-**18-Root Canonical Population Statistics (`corpus/v3` Dev + Val)**:
+**18-Root Canonical Population Statistics (`corpus/v3` Dev + Val, Schema v4)**:
 - 7 Result-preserving savings (38.9%)
 - 2 Convergence corrections (11.1%)
-- 5 Baseline optimal (27.8%)
-- 3 Harmful interventions (16.7%)
-- 1 No valid candidate (5.6%)
+- 6 Baseline optimal (33.3%) (including `c3-d-009` mate in 2)
+- 2 Harmful interventions (11.1%) (`c3-v-003`, `c3-v-004`)
+- 1 No valid candidate (5.6%) (`c3-d-005`)
 - Total positive opportunity: 9 / 18 (50.0%)
 - Macro mean savings: 18.5% cumulative, 34.9% target-iteration.
 - Macro median savings: 1.8% cumulative, 7.8% target-iteration.
-- Pooled savings: 22.4% cumulative, 42.8% target-iteration.
+- Pooled savings across 18 roots: 22.4% cumulative (908,892 $\to$ 705,384 nodes), 42.8% target-iteration (475,490 $\to$ 271,982 nodes).
