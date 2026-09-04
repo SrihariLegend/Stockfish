@@ -24,16 +24,29 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <sstream>
+#include <stdexcept>
 
 #include "../engine.h"
+#include "../misc.h"
+#include "../movegen.h"
 #include "../thread.h"
 #include "../uci.h"
 #include "research_log.h"
+#include "research_options.h"
 
 namespace Stockfish::Research {
 
 bool IsolatedWorker::is_safe_environment(const Search::Worker& liveWorker) {
-    return int(liveWorker.options["Threads"]) == 1;
+    return int(liveWorker.options["Threads"]) == 1 && liveWorker.threads.num_threads() == 1;
+}
+
+void IsolatedWorker::do_move(Position& pos, Move m, StateInfo& st, Search::Stack* ss) {
+    shadowWorker->do_move(pos, m, st, ss);
+}
+
+void IsolatedWorker::undo_move(Position& pos, Move m) {
+    shadowWorker->undo_move(pos, m);
 }
 
 Value IsolatedWorker::evaluate(const Position& pos) {
@@ -45,8 +58,11 @@ Value IsolatedWorker::evaluate_worker(Search::Worker& w, const Position& pos) {
 }
 
 IsolatedWorker::IsolatedWorker(const Search::Worker& liveWorker) {
-    assert(is_safe_environment(liveWorker)
-           && "IsolatedWorker requires Threads == 1 for safe isolation");
+    if (!is_safe_environment(liveWorker))
+    {
+        std::cerr << "IsolatedWorker error: safe isolation requires Threads == 1 and single-thread pool" << std::endl;
+        throw std::runtime_error("IsolatedWorker requires Threads == 1 for safe isolation");
+    }
 
     const usize threadCount =
       std::max(usize(1), liveWorker.sharedHistory.get_size() / CORRHIST_BASE_SIZE);
@@ -872,8 +888,388 @@ bool run_sandbox_unit_tests(Engine& engine) {
         }
     }
 
+    // Part 6: Single-Thread Safety Enforcement (assert-free, runtime check in release builds)
+    {
+        if (!IsolatedWorker::is_safe_environment(*liveWorker))
+        {
+            std::cerr << "sandbox_test 6.1 failed: live worker does not report safe environment" << std::endl;
+            return false;
+        }
+    }
+
+    // Part 7: Structured ProbeResult & Budget Censoring
+    {
+        StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
+        Position p7Pos;
+        p7Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false, &states->back());
+        Move m = UCIEngine::to_move(p7Pos, "e2e4");
+        states->emplace_back();
+        p7Pos.do_move(m, states->back());
+
+        IsolatedWorker worker7(*liveWorker);
+        Position shadowPos;
+        std::vector<StateInfo> shadowStates;
+        p7Pos.clone_to(shadowPos, shadowStates);
+
+        auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
+        Search::Stack* dummySS = &(*dummyStack)[7 + 1];
+        dummySS->ply = 1;
+        for (int i = 7; i > 0; --i)
+        {
+            (dummySS - i)->continuationHistory = &liveWorker->continuationHistory[0][0][NO_PIECE][0];
+            (dummySS - i)->continuationCorrectionHistory = &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
+            (dummySS - i)->staticEval = VALUE_NONE;
+        }
+        Search::Stack* shadowSS = worker7.clone_and_rebind_stack(*liveWorker, dummySS, 7, 10);
+        ResearchTTOverlay overlay7(engine.get_tt());
+
+        // 7.1: Normal unbudgeted search produces completed ProbeResult
+        ProbeResult resNormal = worker7.probe<PV>(shadowPos, shadowSS, -100, 100, Depth(3), false, overlay7, 0);
+        if (!resNormal.completed || resNormal.hit_budget || resNormal.nodes == 0)
+        {
+            std::cerr << "sandbox_test 7.1 failed: normal probe not completed" << std::endl;
+            return false;
+        }
+
+        // 7.2: Budgeted search with tight budget sets hit_budget and completed == false
+        ResearchTTOverlay overlayBudget(engine.get_tt());
+        IsolatedWorker workerBudget(*liveWorker);
+        Position shadowPosB;
+        std::vector<StateInfo> shadowStatesB;
+        p7Pos.clone_to(shadowPosB, shadowStatesB);
+        Search::Stack* shadowSSB = workerBudget.clone_and_rebind_stack(*liveWorker, dummySS, 7, 10);
+
+        ProbeResult resBudget = workerBudget.probe<PV>(shadowPosB, shadowSSB, -100, 100, Depth(6), false, overlayBudget, 10);
+        if (resBudget.completed)
+        {
+            std::cerr << "sandbox_test 7.2 failed: budgeted probe marked completed" << std::endl;
+            return false;
+        }
+        if (!resBudget.hit_budget)
+        {
+            std::cerr << "sandbox_test 7.2 failed: budgeted probe hit_budget is false" << std::endl;
+            return false;
+        }
+    }
+
+    // Part 8: Inter-Candidate Order Invariance via CandidateProbeRunner
+    {
+        StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
+        Position p8Pos;
+        p8Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false, &states->back());
+        Move m = UCIEngine::to_move(p8Pos, "e2e4");
+        states->emplace_back();
+        p8Pos.do_move(m, states->back());
+
+        auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
+        Search::Stack* dummySS = &(*dummyStack)[7 + 1];
+        dummySS->ply = 1;
+        for (int i = 7; i > 0; --i)
+        {
+            (dummySS - i)->continuationHistory = &liveWorker->continuationHistory[0][0][NO_PIECE][0];
+            (dummySS - i)->continuationCorrectionHistory = &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
+            (dummySS - i)->staticEval = VALUE_NONE;
+        }
+
+        Move candA = UCIEngine::to_move(p8Pos, "c7c5");
+        Move candB = UCIEngine::to_move(p8Pos, "e7e5");
+
+        // Run sequence A: probe candA then candB
+        CandidateProbeRunner runnerA(*liveWorker, p8Pos, dummySS);
+        ProbeResult resA1 = runnerA.probe_candidate(candA, -50, -49, Depth(3), 0);
+        ProbeResult resB1 = runnerA.probe_candidate(candB, -50, -49, Depth(3), 0);
+
+        // Run sequence B: probe candB then candA on fresh runner
+        CandidateProbeRunner runnerB(*liveWorker, p8Pos, dummySS);
+        ProbeResult resB2 = runnerB.probe_candidate(candB, -50, -49, Depth(3), 0);
+        ProbeResult resA2 = runnerB.probe_candidate(candA, -50, -49, Depth(3), 0);
+
+        if (resA1.nodes != resA2.nodes || resA1.score != resA2.score)
+        {
+            std::cerr << "sandbox_test 8.1 failed: candidate A non-deterministic across evaluation orders ("
+                      << resA1.nodes << ":" << resA1.score << " vs " << resA2.nodes << ":" << resA2.score << ")" << std::endl;
+            return false;
+        }
+        if (resB1.nodes != resB2.nodes || resB1.score != resB2.score)
+        {
+            std::cerr << "sandbox_test 8.1 failed: candidate B non-deterministic across evaluation orders ("
+                      << resB1.nodes << ":" << resB1.score << " vs " << resB2.nodes << ":" << resB2.score << ")" << std::endl;
+            return false;
+        }
+    }
+
+    // Part 9: Full Candidate Denominator Enumeration (Phase 3 §8.3/§8.4)
+    {
+        StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
+        Position p9Pos;
+        p9Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false, &states->back());
+        auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
+        Search::Stack* dummySS = &(*dummyStack)[7];
+        dummySS->ply = 0;
+
+        auto candidates = enumerate_candidates(p9Pos, *liveWorker, dummySS, Move::none());
+
+        // Startpos has exactly 20 legal moves
+        if (candidates.size() != 20)
+        {
+            std::cerr << "sandbox_test 9.1 failed: candidate count != 20 (" << candidates.size() << ")" << std::endl;
+            return false;
+        }
+        for (const auto& cf : candidates)
+        {
+            if (!p9Pos.legal(cf.move))
+            {
+                std::cerr << "sandbox_test 9.2 failed: non-legal candidate emitted" << std::endl;
+                return false;
+            }
+        }
+    }
+
+    // Part 10: Real Search Hook Invariant & Non-Mutation Verification
+    {
+        StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
+        Position p10Pos;
+        p10Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false, &states->back());
+        Move m = UCIEngine::to_move(p10Pos, "e2e4");
+        states->emplace_back();
+        p10Pos.do_move(m, states->back());
+
+        auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
+        Search::Stack* dummySS = &(*dummyStack)[7 + 1];
+        dummySS->ply = 1;
+        for (int i = 7; i > 0; --i)
+        {
+            (dummySS - i)->continuationHistory = &liveWorker->continuationHistory[0][0][NO_PIECE][0];
+            (dummySS - i)->continuationCorrectionHistory = &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
+            (dummySS - i)->staticEval = VALUE_NONE;
+        }
+
+        const Key keyBefore = p10Pos.key();
+        const u64 nodesBefore = liveWorker->get_nodes();
+        TranspositionTable& baseTT = engine.get_tt();
+        std::vector<u8> ttSnapshot(baseTT.byte_size());
+        std::memcpy(ttSnapshot.data(), baseTT.cluster_data(), baseTT.byte_size());
+
+        // Configure internal counterfactual mode
+        Research::config().switchOn = true;
+        Research::config().mode = Research::Mode::InternalCounterfactual;
+        Research::config().sampleRate = 1.0;
+        Research::config().topK = 2;
+        Research::config().nodeBudget = 50;
+
+        on_internal_node_counterfactual(*liveWorker, p10Pos, dummySS, -50, -49, Depth(3), Depth(3), keyBefore, Move::none());
+
+        // Reset research config
+        Research::config().mode = Research::Mode::Off;
+        Research::config().switchOn = false;
+
+        if (p10Pos.key() != keyBefore)
+        {
+            std::cerr << "sandbox_test 10.1 failed: on_internal_node_counterfactual mutated position key" << std::endl;
+            return false;
+        }
+        if (liveWorker->get_nodes() != nodesBefore)
+        {
+            std::cerr << "sandbox_test 10.1 failed: on_internal_node_counterfactual mutated live worker nodes" << std::endl;
+            return false;
+        }
+        if (std::memcmp(ttSnapshot.data(), baseTT.cluster_data(), baseTT.byte_size()) != 0)
+        {
+            std::cerr << "sandbox_test 10.1 failed: on_internal_node_counterfactual mutated base TT" << std::endl;
+            return false;
+        }
+    }
+
     std::cout << "info string research: all sandbox unit tests passed successfully." << std::endl;
     return true;
+}
+
+CandidateProbeRunner::CandidateProbeRunner(const Search::Worker& liveWorker,
+                                           const Position&       livePos,
+                                           const Search::Stack*  liveSS,
+                                           int                   windowBefore,
+                                           int                   maxDepth) :
+    liveWorker(liveWorker),
+    livePos(livePos),
+    liveSS(liveSS),
+    windowBefore(windowBefore),
+    maxDepth(maxDepth),
+    isolatedWorker(liveWorker) {}
+
+ProbeResult CandidateProbeRunner::probe_candidate(Move  candidate,
+                                                  Value alpha,
+                                                  Value beta,
+                                                  Depth depth,
+                                                  u64   nodeBudget) {
+    if (!livePos.legal(candidate))
+        return ProbeResult{VALUE_NONE, 0, false, false};
+
+    isolatedWorker.sync_from(liveWorker);
+    isolatedWorker.reset_stop();
+
+    Position shadowPos;
+    std::vector<StateInfo> shadowStates;
+    livePos.clone_to(shadowPos, shadowStates);
+
+    Search::Stack* shadowSS =
+      isolatedWorker.clone_and_rebind_stack(liveWorker, liveSS, windowBefore, maxDepth);
+
+    StateInfo newSt;
+    isolatedWorker.do_move(shadowPos, candidate, newSt, shadowSS);
+
+    Search::Stack* childSS = shadowSS + 1;
+
+    ResearchTTOverlay overlay(liveWorker.get_tt());
+
+    const Depth childDepth = (depth > 1) ? (depth - 1) : Depth(0);
+
+    ProbeResult res;
+    if (beta == alpha + 1)
+        res = isolatedWorker.probe<NonPV>(
+          shadowPos, childSS, -beta, -alpha, childDepth, false, overlay, nodeBudget);
+    else
+        res = isolatedWorker.probe<PV>(
+          shadowPos, childSS, -beta, -alpha, childDepth, false, overlay, nodeBudget);
+
+    isolatedWorker.undo_move(shadowPos, candidate);
+
+    if (res.completed && res.score != VALUE_NONE && std::abs(res.score) < VALUE_INFINITE)
+        res.score = -res.score;
+
+    return res;
+}
+
+std::vector<CandidateFeature> enumerate_candidates(const Position&       pos,
+                                                   const Search::Worker& worker,
+                                                   const Search::Stack*  ss,
+                                                   Move                  ttMove) {
+    std::vector<CandidateFeature> result;
+    const Color us = pos.side_to_move();
+
+    for (const auto& m : MoveList<LEGAL>(pos))
+    {
+        CandidateFeature cf;
+        cf.move = m;
+        cf.isCapture = pos.capture_stage(m);
+        cf.isCheck = pos.gives_check(m);
+        cf.isTTMove = (ttMove != Move::none() && m == ttMove);
+
+        const Piece pc = pos.moved_piece(m);
+        const Square to = m.to_sq();
+
+        cf.mainHist = int(worker.mainHistory[us][m.raw()]);
+        cf.captureHist = cf.isCapture ? int(worker.captureHistory[pc][to][type_of(pos.piece_on(to))]) : 0;
+
+        cf.contHist = 0;
+        if (ss != nullptr)
+        {
+            if (ss->ply >= 1)
+                cf.contHist += int((*(ss - 1)->continuationHistory)[pc][to]);
+            if (ss->ply >= 2)
+                cf.contHist += int((*(ss - 2)->continuationHistory)[pc][to]);
+            if (ss->ply >= 4)
+                cf.contHist += int((*(ss - 4)->continuationHistory)[pc][to]);
+        }
+
+        cf.seeScore = pos.see_ge(m, 0) ? 1 : (pos.see_ge(m, -100) ? 0 : -1);
+
+        if (cf.isTTMove)
+        {
+            cf.stage = 1;
+            cf.stageScore = 1000000;
+        }
+        else if (cf.isCapture && pos.see_ge(m, 0))
+        {
+            cf.stage = 2;
+            cf.stageScore = 500000 + cf.captureHist;
+        }
+        else if (!cf.isCapture)
+        {
+            cf.stage = 4;
+            cf.stageScore = 2 * cf.mainHist + cf.contHist;
+        }
+        else
+        {
+            cf.stage = 5;
+            cf.stageScore = -100000 + cf.captureHist;
+        }
+
+        result.push_back(cf);
+    }
+
+    std::stable_sort(result.begin(), result.end(), [](const CandidateFeature& a, const CandidateFeature& b) {
+        return a.stageScore > b.stageScore;
+    });
+
+    return result;
+}
+
+void on_internal_node_counterfactual(Search::Worker& liveWorker,
+                                     Position&       pos,
+                                     Search::Stack*  ss,
+                                     Value           alpha,
+                                     Value           beta,
+                                     Depth           depth,
+                                     Depth           rootDepth,
+                                     Key             rootKey,
+                                     Move            ttMove) {
+    if (!Research::enabled() || Research::config().mode != Research::Mode::InternalCounterfactual
+        || Research::is_shadow_probe_active() || !liveWorker.is_mainthread())
+        return;
+
+    u64 h = Research::config().seed;
+    h += 0x9E3779B97F4A7C15ULL ^ rootKey;
+    h = (h ^ (h >> 30)) * 0xBF58476D1CE4E5B9ULL ^ pos.key();
+    h = (h ^ (h >> 27)) * 0x94D049BB133111EBULL
+        ^ (static_cast<u64>(ss->ply) | (static_cast<u64>(depth) << 16) | (static_cast<u64>(rootDepth) << 32));
+    h ^= (h >> 31);
+    const u32 sampleThreshold =
+      static_cast<u32>(std::clamp(Research::config().sampleRate, 0.0, 1.0) * 1000000.0 + 0.5);
+    if ((h % 1000000ULL) >= sampleThreshold)
+        return;
+
+    const Key  liveKeyBefore   = pos.key();
+    const u64  liveNodesBefore = liveWorker.get_nodes();
+    const bool liveStopBefore  = liveWorker.get_threads().stop.load(std::memory_order_relaxed);
+
+    auto candidates = enumerate_candidates(pos, liveWorker, ss, ttMove);
+    if (candidates.size() < 2)
+        return;
+
+    int probeK = (Research::config().topK > 0) ? Research::config().topK : 4;
+    probeK     = std::min(probeK, int(candidates.size()));
+
+    struct CandidateProbeSummary {
+        Move        move;
+        ProbeResult result;
+    };
+    std::vector<CandidateProbeSummary> probeResults;
+    probeResults.reserve(probeK);
+
+    CandidateProbeRunner runner(liveWorker, pos, ss);
+
+    for (int i = 0; i < probeK; ++i)
+    {
+        Move        m   = candidates[i].move;
+        ProbeResult res = runner.probe_candidate(m, alpha, beta, depth, Research::config().nodeBudget);
+        probeResults.push_back({m, res});
+    }
+
+    std::stringstream ss_tel;
+    ss_tel << "info string research internal_counterfactual root " << std::hex << rootKey << std::dec
+           << " ply " << ss->ply << " depth " << int(depth) << " alpha " << int(alpha)
+           << " beta " << int(beta) << " candidates " << probeResults.size();
+    for (const auto& pr : probeResults)
+    {
+        ss_tel << " " << UCIEngine::move(pr.move, pos.is_chess960()) << ":" << pr.result.nodes
+               << ":" << int(pr.result.score) << ":"
+               << (pr.result.completed ? "ok" : (pr.result.hit_budget ? "budget" : "stopped"));
+    }
+    sync_cout << ss_tel.str() << sync_endl;
+
+    assert(pos.key() == liveKeyBefore);
+    assert(liveWorker.get_nodes() == liveNodesBefore);
+    assert(liveWorker.get_threads().stop.load(std::memory_order_relaxed) == liveStopBefore);
 }
 
 }  // namespace Stockfish::Research

@@ -57,6 +57,7 @@ class OptionsMap;
 #ifdef POLICY_RESEARCH
 namespace Research {
 class IsolatedWorker;
+class CandidateProbeRunner;
 }
 #endif
 
@@ -336,6 +337,8 @@ class Worker {
 
 #ifdef POLICY_RESEARCH
     u64 get_nodes() const { return nodes.load(std::memory_order_relaxed); }
+    TranspositionTable& get_tt() const { return tt; }
+    ThreadPool& get_threads() const { return threads; }
 #endif
 
     // Public because they need to be updatable by the stats
@@ -437,6 +440,7 @@ class Worker {
     friend class SearchManager;
 #ifdef POLICY_RESEARCH
     friend class Stockfish::Research::IsolatedWorker;
+    friend class Stockfish::Research::CandidateProbeRunner;
 #endif
 };
 

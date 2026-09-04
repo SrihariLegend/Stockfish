@@ -26,10 +26,12 @@
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "../history.h"
 #include "../memory.h"
+#include "../movegen.h"
 #include "../numa.h"
 #include "../position.h"
 #include "../search.h"
@@ -42,6 +44,36 @@ class ThreadPool;
 }
 
 namespace Stockfish::Research {
+
+// ProbeResult captures the outcome of an isolated shadow search probe.
+// Distinguishes completed evaluations from budget-censored or aborted probes.
+struct ProbeResult {
+    Value score      = VALUE_NONE;
+    u64   nodes      = 0;
+    bool  completed  = false;
+    bool  hit_budget = false;
+};
+
+// CandidateFeature captures MovePicker stage and history scores for candidate enumeration (Phase 3 §8.3/§8.4).
+struct CandidateFeature {
+    Move move        = Move::none();
+    int  stage       = 0;  // 1: TT, 2: good capture, 3: killer, 4: quiet, 5: bad capture
+    int  stageScore  = 0;
+    int  mainHist    = 0;
+    int  captureHist = 0;
+    int  contHist    = 0;
+    int  seeScore    = 0;
+    bool isCheck     = false;
+    bool isCapture   = false;
+    bool isTTMove    = false;
+};
+
+// Enumerates all legal candidate moves at the given position and extracts their MovePicker
+// and history features, providing the full candidate denominator for Phase 3 §8.3/§8.4.
+std::vector<CandidateFeature> enumerate_candidates(const Position&       pos,
+                                                   const Search::Worker& worker,
+                                                   const Search::Stack*  ss,
+                                                   Move                  ttMove = Move::none());
 
 // IsolatedWorker owns an isolated Search::Worker and its private SharedHistories.
 // It allows running isolated shadow searches (e.g. via ResearchTTOverlay) without
@@ -67,6 +99,10 @@ class IsolatedWorker {
     // Precondition verification: safe isolation requires Threads == 1
     static bool is_safe_environment(const Search::Worker& liveWorker);
 
+    // Friend-access wrappers to do/undo move with accumulatorStack push/pop on shadowWorker
+    void do_move(Position& pos, Move m, StateInfo& st, Search::Stack* ss);
+    void undo_move(Position& pos, Move m);
+
     // Evaluates a position using shadowWorker's private accumulatorStack and network
     Value evaluate(const Position& pos);
 
@@ -86,8 +122,40 @@ class IsolatedWorker {
                                           int                   maxDepth     = MAX_PLY);
 
     // Executes a shadow search using ResearchTTOverlay without mutating live state.
-    // If nodeBudget > 0, the shadow search automatically halts once nodeBudget nodes
-    // have been searched.
+    // Accurately distinguishes completed evaluations from budget-censored or aborted searches.
+    template<NodeType NT = NonPV>
+    ProbeResult probe(Position&          pos,
+                      Search::Stack*     ss,
+                      Value              alpha,
+                      Value              beta,
+                      Depth              depth,
+                      bool               cutNode,
+                      ResearchTTOverlay& overlay,
+                      u64                nodeBudget = 0) {
+        ScopedShadowProbe guard;
+        const u64 startNodes = shadowWorker->get_nodes();
+        if (nodeBudget > 0)
+            shadowWorker->limits.nodes = startNodes + nodeBudget;
+        else
+            shadowWorker->limits.nodes = 0;
+
+        Value val = shadowWorker->search<NT, ResearchTTOverlay>(pos, ss, alpha, beta, depth, cutNode,
+                                                               overlay);
+
+        const u64 endNodes  = shadowWorker->get_nodes();
+        const u64 spent     = (endNodes >= startNodes) ? (endNodes - startNodes) : 0;
+        const bool stopped   = is_stopped();
+        const bool hitBudget = (nodeBudget > 0 && spent >= nodeBudget) || (stopped && nodeBudget > 0);
+
+        ProbeResult result;
+        result.score      = val;
+        result.nodes      = spent;
+        result.completed  = !stopped && !hitBudget;
+        result.hit_budget = hitBudget;
+        return result;
+    }
+
+    // Convenience wrapper returning only the score
     template<NodeType NT = NonPV>
     Value search(Position&          pos,
                  Search::Stack*     ss,
@@ -97,13 +165,7 @@ class IsolatedWorker {
                  bool               cutNode,
                  ResearchTTOverlay& overlay,
                  u64                nodeBudget = 0) {
-        ScopedShadowProbe guard;
-        if (nodeBudget > 0)
-            shadowWorker->limits.nodes = shadowWorker->get_nodes() + nodeBudget;
-        else
-            shadowWorker->limits.nodes = 0;
-        return shadowWorker->search<NT, ResearchTTOverlay>(pos, ss, alpha, beta, depth, cutNode,
-                                                           overlay);
+        return probe<NT>(pos, ss, alpha, beta, depth, cutNode, overlay, nodeBudget).score;
     }
 
    private:
@@ -114,6 +176,50 @@ class IsolatedWorker {
     std::unique_ptr<std::array<Search::Stack, MAX_PLY + 10>>   shadowStack;
     std::unique_ptr<std::array<Search::PVMoves, MAX_PLY + 10>> shadowPV;
 };
+
+// CandidateProbeRunner executes isolated counterfactual evaluations for multiple candidate
+// moves at a specific internal decision state. It guarantees complete inter-candidate
+// isolation: each candidate is probed with an independent ResearchTTOverlay, fresh position clone,
+// rebound search stack, and re-synchronized worker state, eliminating candidate-order contamination.
+class CandidateProbeRunner {
+   public:
+    CandidateProbeRunner(const Search::Worker& liveWorker,
+                         const Position&       livePos,
+                         const Search::Stack*  liveSS,
+                         int                   windowBefore = 7,
+                         int                   maxDepth     = MAX_PLY);
+
+    // Evaluates a candidate move as the next move from the decision state.
+    // The candidate move is played on a cloned position, and the resulting child state
+    // is searched with null-window [-beta, -alpha] at depth - 1.
+    // Returns a ProbeResult with the score negated back to the parent perspective.
+    ProbeResult probe_candidate(Move  candidate,
+                                Value alpha,
+                                Value beta,
+                                Depth depth,
+                                u64   nodeBudget = 0);
+
+    IsolatedWorker& worker() { return isolatedWorker; }
+
+   private:
+    const Search::Worker& liveWorker;
+    const Position&       livePos;
+    const Search::Stack*  liveSS;
+    int                   windowBefore;
+    int                   maxDepth;
+    IsolatedWorker        isolatedWorker;
+};
+
+// Internal-node counterfactual hook invoked from Search::Worker::search at eligible NonPV decision nodes.
+void on_internal_node_counterfactual(Search::Worker& liveWorker,
+                                     Position&       pos,
+                                     Search::Stack*  ss,
+                                     Value           alpha,
+                                     Value           beta,
+                                     Depth           depth,
+                                     Depth           rootDepth,
+                                     Key             rootKey,
+                                     Move            ttMove);
 
 // Unit tests verifying Phase 5 §§4-5 requirements:
 // 1. Position deep cloning (StateInfo chain, repetition detection, independent moves/undo)

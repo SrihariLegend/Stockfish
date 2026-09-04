@@ -179,6 +179,30 @@ void UCIEngine::loop() {
             bool ok = Research::run_sandbox_unit_tests(engine);
             sync_cout << (ok ? "SANDBOX_TEST_OK" : "SANDBOX_TEST_FAIL") << sync_endl;
         }
+        else if (token == "policy_research_enumerate_candidates")
+        {
+            if (engine.main_worker())
+            {
+                auto candidates = Research::enumerate_candidates(
+                  engine.get_pos(), *engine.main_worker(), nullptr, Move::none());
+                sync_cout << "info string candidates_begin count " << candidates.size() << sync_endl;
+                for (const auto& cf : candidates)
+                {
+                    sync_cout << "info string candidate move "
+                              << UCIEngine::move(cf.move, engine.get_pos().is_chess960())
+                              << " stage " << cf.stage
+                              << " stage_score " << cf.stageScore
+                              << " main_hist " << cf.mainHist
+                              << " capture_hist " << cf.captureHist
+                              << " cont_hist " << cf.contHist
+                              << " see_score " << cf.seeScore
+                              << " is_check " << (cf.isCheck ? 1 : 0)
+                              << " is_capture " << (cf.isCapture ? 1 : 0)
+                              << sync_endl;
+                }
+                sync_cout << "info string candidates_end total " << candidates.size() << sync_endl;
+            }
+        }
 #endif
         else if (token == "export_net")
         {

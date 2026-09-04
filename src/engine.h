@@ -121,6 +121,7 @@ class Engine {
     Search::Worker* main_worker() { return threads.main_thread() ? threads.main_thread()->worker.get() : nullptr; }
     TranspositionTable& get_tt() { return tt; }
     ThreadPool& get_threads() { return threads; }
+    const Position& get_pos() const { return pos; }
 #endif
 
    private:

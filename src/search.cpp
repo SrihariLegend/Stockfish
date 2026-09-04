@@ -42,6 +42,7 @@
 #include "policy_research/research_options.h"
 #include "policy_research/scoped_probe.h"
 #include "policy_research/tt_overlay.h"
+#include "policy_research/worker_snapshot.h"
 #endif
 #include "misc.h"
 #include "movegen.h"
@@ -1368,6 +1369,18 @@ moves_loop:  // When in check, search starts here
         researchCtx = Research::recorder().begin_moves_loop(
           pos, ss->ply, depth, rootDepth, alpha, beta, ss->staticEval, improving,
           ss->ttHit, ttData.move != Move::none());
+
+    // Phase 5 internal-node counterfactual search hook:
+    // When PolicyResearchMode is internal_counterfactual, sample eligible NonPV null-window
+    // decision points and run isolated candidate counterfactual probes without mutating live search.
+    if (!rootNode && !PvNode && !ss->inCheck && excludedMove == Move::none()
+        && is_mainthread() && Research::enabled()
+        && Research::config().mode == Research::Mode::InternalCounterfactual
+        && !Research::is_shadow_probe_active())
+    {
+        Research::on_internal_node_counterfactual(
+          *this, pos, ss, alpha, beta, depth, rootDepth, rootPos.key(), ttData.move);
+    }
 #endif
 
     // Step 13. A small ProbCut idea
