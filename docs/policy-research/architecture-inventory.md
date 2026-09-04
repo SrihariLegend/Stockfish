@@ -816,3 +816,66 @@ The version-1 data schema must use fixed-width fields independent of native C++ 
 - Store colors, pieces, and squares as explicit fixed-width numeric fields under a
   schema version, plus a position/root identifier. Never dump native `Move`,
   `Score`, or padded structs directly.
+
+## 10.9 Research runtime modules (current tree map)
+
+All research code is macro-gated (`POLICY_RESEARCH`) and never linked into
+production builds. Map of the current research runtime modules:
+
+- `policy_research/research_options.h` — `Research::Config`, mode enum, UCI
+  option registration (`PolicyResearch*`), `enabled()` canonical predicate.
+- `policy_research/research_log.h/.cpp` — observational binary recorder
+  (`ResearchLog`, schema `research-data/1`, see `data-schema.md`) and the
+  versioned JSONL internal counterfactual writer (`InternalDatasetLog`, schema
+  `internal-counterfactual/1`, singleton `Research::internal_log()`). The
+  internal writer defers `go` requests while a root is open (recorder-mirrored
+  lifecycle), opens one file per root at the first root start, and closes at
+  root end / run end. `would_record()` is the hot-path sampling gate (active,
+  no io failure/overflow, decision rows under cap, bytes under hard budget).
+- `policy_research/scoped_probe.h` — `ScopedShadowProbe` thread-local guard:
+  suppresses recorder sampling, internal-log rows, and nested probes while a
+  shadow search runs.
+- `policy_research/tt_overlay.h/.cpp` — `ResearchTTOverlay`: immutable base TT
+  plus private copy-on-first-access clusters; shadow searches write only the
+  overlay.
+- `policy_research/worker_snapshot.h/.cpp` — the measurement core:
+  - `IsolatedWorker`: heap worker clone with private histories/network/thread
+    pool, `sync_from`, stack rebinding, `search<NT, TTAccess>` / `qsearch<NT>`
+    probes returning `ProbeResult` (nodes/completed/stop/budget/score/
+    `forced_slot1`); `research_fatal` for programming errors (no exceptions).
+  - `CandidateProbeRunner` + `replay_node` / `replay_node_forced`:
+    whole-node replay of the captured live node on a fresh per-replay synced
+    worker with fresh empty overlay (measurement-B semantics, plan §10.6).
+  - `ForceNextScope` + `force_next_step`: thread-local RAII arm matched on
+    `(posKey, ply)` at the main search move loop (search.cpp); emissions
+    before the forced candidate are swallowed without incrementing
+    `moveCount`; consumption raises the thread-local consumed counter
+    (`forced_slot1` detection).
+  - `CandidateStage` / `CandidateFeature` / `enumerate_candidates`: exact
+    denominator enumeration by driving the real `MovePicker` on the live
+    position and histories (order = picker emission order, `pos.legal()`
+    filter, classification by re-applying the picker's own splits to
+    `research_emitted_score()`).
+  - `on_internal_node_counterfactual`: the search hook (search.cpp) building
+    and writing decision rows via `InternalDatasetLog::write_row`.
+  - `run_sandbox_unit_tests` / overlay tests: `policy_research_test_sandbox`
+    and `policy_research_test_overlay` UCI commands (parts 1-11).
+
+Live-search touch points (all macro-gated, all no-ops in production builds):
+search.cpp hook + force-next swallow; search.cpp root start/end lifecycle
+calls; uci.cpp `go` gating/diagnostics, `quit` close, and the
+`policy_research_enumerate_candidates [depth]` diagnostic command; ucioption.cpp
+option plumbing; search.h research accessors.
+
+## 10.10 Exact candidate ordering (resolution of the §10.7 limitation)
+
+The §10.7 limitation ("a fresh MovePicker at an arbitrary later decision point
+starts again from TT/stage zero and includes already-attempted moves") is
+resolved for the internal counterfactual instrument by measuring at *node
+entry*: the decision-row denominator is enumerated at the same state the
+whole-node replay re-enters, so MovePicker emission order over the full legal
+set is the exact slot order a slot-1-forced move would face, and later slots
+are exercised by the natural continuation of the replay after the forced move
+fails (plan §10.6 measurement B). A MovePicker *snapshot* of the remaining
+mid-node state (copying stage/scalars and rebasing internal pointers) remains
+out of scope: the replay design never needs it.

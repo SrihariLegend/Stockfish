@@ -224,6 +224,28 @@ Artifacts from a run must be regenerated whenever the executable is rebuilt
 python3 -m unittest discover -s tools/policy_research/tests -v
 ```
 
+Sandbox/overlay C++ suites (research build):
+
+```bash
+printf 'policy_research_test_sandbox\nquit\n' | src/stockfish   # expect SANDBOX_TEST_OK
+printf 'policy_research_test_overlay\nquit\n' | src/stockfish   # expect OVERLAY_TEST_OK
+```
+
+Internal counterfactual dataset collection (research build; versioned JSONL,
+schema `internal-counterfactual/1`, spec in `docs/policy-research/data-schema.md`):
+
+```bash
+printf 'setoption name PolicyResearch value on\nsetoption name PolicyResearchMode value internal_counterfactual\nsetoption name PolicyResearchLogPath value /tmp/icf.jsonl\nsetoption name PolicyResearchSampleRate value 0.05\nposition startpos moves e2e4 c7c5 g1f3 d7d6\ngo depth 8\n' | src/stockfish
+# rows: run_start, root_start, decision*, root_end
+```
+
+Collection gates (each prints an `info string` diagnostic and skips): `Threads`
+must be 1; limits must be fixed-depth or fixed-node (`go depth N` / `go nodes N`)
+with no movetime/infinite/clock; `PolicyResearchLogPath` must be non-empty in
+internal mode. Live search is bit-identical armed vs unarmed (verified; probes
+are CPU-only shadow replays). MovePicker-order diagnostic enumeration:
+`policy_research_enumerate_candidates [depth]`.
+
 Integration (double-run determinism on `c1-d-001` at depth 6) requires the engine:
 
 ```bash

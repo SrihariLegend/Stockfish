@@ -239,3 +239,129 @@ For fixed-depth, single-thread runs of one executable:
 - RUN_END `overflow` must agree with `error_code` and with the presence of a
   code-1 ERROR_RECORD.
 - policy version present (may be empty only when explicitly unset).
+
+---
+
+# Internal counterfactual dataset (JSONL, schema `internal-counterfactual/1`)
+
+Separate versioned artifact from the binary recorder above. Produced by the
+phase-5 internal counterfactual instrument (`PolicyResearchMode=internal_counterfactual`),
+which arms exactly one writer per `go` (observational binary logging and this
+dataset are never active together). One file per root search, truncated on each
+armed `go`; the file is UTF-8 JSON Lines (one JSON object per line, `\n`
+terminated, no pretty printing).
+
+Row type sequence per file: exactly one `run_start` (line 1), exactly one
+`root_start` (line 2), zero or more `decision` rows, exactly one `root_end` as
+the final line. `root_end` is always written — including when a decision-row cap
+or byte budget stopped collection — and carries the accounting for the file.
+
+## Lifecycle rows
+
+### run_start
+```json
+{"schema":"internal-counterfactual/1","type":"run_start",
+ "engine":"<engine_info(true)>","seed":<u64>,"sample_rate":<0<r<=1 double>,
+ "top_k":<int>,"node_budget":<u64>,"max_records":<u32 effective cap>}
+```
+
+### root_start
+```json
+{"schema":"internal-counterfactual/1","type":"root_start",
+ "root_key":<u64>,"target_depth":<int, 0 for fixed-node go>,"fen":"<root FEN>"}
+```
+
+### root_end
+```json
+{"schema":"internal-counterfactual/1","type":"root_end","root_key":<u64>,
+ "rows":<u64 decision rows in file>,"bytes":<u64 total file bytes incl. lifecycle>,
+ "overflow":<bool>,"io_failed":<bool>}
+```
+`rows` counts decision rows only; `bytes` counts every row including lifecycle
+rows. Decision-row caps (`max_records`, effective hard cap) and the hard byte
+budget apply to decision rows; lifecycle rows bypass them. `overflow` is true
+only when a decision row was actually dropped (byte budget or mid-row failure);
+hitting `max_records` exactly stops sampling via the `would_record` gate without
+raising overflow.
+
+## decision rows
+
+One row per sampled eligible internal decision node that produced at least one
+forced replay consuming the force-next arm (`forced_slot1 == true` for at least
+one probe). Eligibility: NonPV null-window (`alpha + 1 == beta`), node not in
+check, no excluded move, rootDepth > 0, main thread, not inside a shadow probe,
+safe environment (`Threads == 1` in options and pool), fixed-depth or fixed-node
+limits with no clock/movetime/infinite, dataset armed and caps open, live stop
+not raised. Decision rows are written synchronously at the live node by the
+research hook (`Research::on_internal_node_counterfactual`) after all replays;
+endpoint non-mutation is asserted in research builds (live pos key, worker node
+counter, base TT bytes).
+
+Common fields: `schema`, `type:"decision"`, `root_key`, `pos_key` (internal
+`Position::key()` of the decision node), `fen`, `ply`, `depth` (remaining depth
+at the node), `root_depth`, `alpha`, `beta`, `static_eval` (null when the live
+node had no static eval), `improving`, `tt_hit`, `tt_move` (null when none),
+`cut_node`, `rule50`, `fullmove`, `sample_seed` (root deterministic sampling
+seed), `sample_rate`, `selection` (`"probe_all"` | `"topK_plus_hash_sample"`),
+`n_candidates`, `node_budget` (finite per-replay budget applied to this node).
+
+### baseline
+```json
+{"nodes":<u64>,"completed":<bool>,"stop":"none|budget|user",
+ "budget_hit":<bool>,"value":<int|null>,"forced_slot1":false,
+ "fail_high":<bool|null>}
+```
+Unforced whole-node replay of the same node (measurement-B reference). `value`
+null iff the replay was censored or stopped; `fail_high` null under the same
+conditions (value ≥ beta on return ⇒ fail-high).
+
+### candidates
+Full legal denominator in exact MovePicker emission order, ordinal = search-
+visible slot index (0-based; illegal emissions skipped without counting):
+```json
+{"move":"<uci>","ordinal":<int>,"stage":"tt|good_capture|bad_capture|good_quiet|bad_quiet",
+ "stage_score":<int>,"main_hist":<int>,"capture_hist":<int|null>,"pawn_hist":<int|null>,
+ "cont_hist":<int|null>,"low_ply_hist":<int|null>,"see_score":<int>,"check":<bool>,
+ "capture":<bool>,"tt_move":<bool>,"prob":<double>,"selected":<bool>}
+```
+Features mirror the picker's inputs read raw at node entry (see
+`architecture-inventory.md`); nulls mark features not defined for that emission
+class (captures never carry pawn/continuation/low-ply history). `prob` is the
+selection probability recorded for the whole candidate set (1.0 for probe-all /
+top-K members; marginal 2/(N-K) for hash-sampled members; 0.0 for unselected).
+
+### probes
+One entry per executed replay (baseline excluded), in selection order:
+```json
+{"move":"<uci>","prob":<double>,"nodes":<u64>,"completed":<bool>,
+ "stop":"none|budget|user","budget_hit":<bool>,
+ "value":<int|null>,"forced_slot1":<bool>,"fail_high":<bool|null>}
+```
+`forced_slot1` is true iff the replay consumed the force-next arm: the 
+thread-local consumed-counter delta captured before the shadow search is
+non-zero, i.e. the replay reached the main move loop and emitted the forced move
+as slot 1. Rows whose every probe has `forced_slot1 == false` are degenerate
+(replay returned before the move loop) and are dropped, never written.
+
+## Selection probabilities and determinism
+
+The sample sub-hash is SplitMix64-style mixing of the documented root sampling
+seed with the candidate ordinal (`ds_subhash(seed, ordinal)`); the two marginal
+candidates are the lowest two sub-hash indices of the non-top-K rest. No mutable
+RNG anywhere; identical runs select identical sets. `2 <= N <= 8` probes all at
+probability 1; `N > 8` probes `K = min(TopK or 4, N-1)` top emissions at
+probability 1 plus two marginal candidates at `2/(N-K)`.
+
+## Validation rules (decoder/tests)
+
+- Line 1 `run_start`, line 2 `root_start`, last line `root_end`; type sequence
+  otherwise free, all rows carry `schema == "internal-counterfactual/1"`.
+- `root_end.rows` equals the number of `decision` rows in the file;
+  `root_end.overflow`/`io_failed` consistent with row presence and diagnostics.
+- Every decision row: candidates non-empty, ordinals `0..n-1` contiguous and
+  matching emission order, exactly the legal-move count of the recorded FEN at
+  the recorded side to move; selected/probed candidates have `prob > 0`; probes
+  reference candidate moves; every kept row has at least one `forced_slot1`.
+- Censored probes (incomplete/stopped) carry `value == null` and
+  `fail_high == null`; completed probes carry integer `value` and boolean
+  `fail_high`.
