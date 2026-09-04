@@ -37,6 +37,7 @@
 #ifdef POLICY_RESEARCH
 #include "misc.h"
 #include "policy_research/research_log.h"
+#include "policy_research/tt_overlay.h"
 #endif
 #include "memory.h"
 #include "movegen.h"
@@ -166,6 +167,13 @@ void UCIEngine::loop() {
             engine.trace_eval();
         else if (token == "compiler")
             sync_cout << compiler_info() << sync_endl;
+#ifdef POLICY_RESEARCH
+        else if (token == "policy_research_test_overlay")
+        {
+            bool ok = run_overlay_unit_tests();
+            sync_cout << (ok ? "OVERLAY_TEST_OK" : "OVERLAY_TEST_FAIL") << sync_endl;
+        }
+#endif
         else if (token == "export_net")
         {
             std::optional<std::filesystem::path> file;
