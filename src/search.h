@@ -354,13 +354,25 @@ class Worker {
     void undo_null_move(Position& pos);
 
     // This is the main search function, for both PV and non-PV nodes
+    template<NodeType nodeType, typename TTAccess = TranspositionTable>
+    Value
+    search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, const bool cutNode,
+           TTAccess& ttAccess);
+
     template<NodeType nodeType>
     Value
-    search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, const bool cutNode);
+    search(Position& pos, Stack* ss, Value alpha, Value beta, Depth depth, const bool cutNode) {
+        return search<nodeType, TranspositionTable>(pos, ss, alpha, beta, depth, cutNode, tt);
+    }
 
     // Quiescence search function, which is called by the main search
+    template<NodeType nodeType, typename TTAccess = TranspositionTable>
+    Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta, TTAccess& ttAccess);
+
     template<NodeType nodeType>
-    Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta);
+    Value qsearch(Position& pos, Stack* ss, Value alpha, Value beta) {
+        return qsearch<nodeType, TranspositionTable>(pos, ss, alpha, beta, tt);
+    }
 
     int reduction(bool i, Depth d, int mn, int delta) const;
 
