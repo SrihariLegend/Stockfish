@@ -53,46 +53,6 @@ namespace Stockfish {
 //
 // Pv, bound and generation are packed in a single byte.
 
-static constexpr u8 GENERATION_BITS = 5;
-static constexpr u8 GENERATION_MASK = (1 << GENERATION_BITS) - 1;
-static constexpr u8 BOUND_SHIFT     = GENERATION_BITS;
-static constexpr u8 BOUND_MASK      = 0b11 << BOUND_SHIFT;
-static constexpr u8 PV_SHIFT        = BOUND_SHIFT + 2;
-static constexpr u8 PV_MASK         = 1 << PV_SHIFT;
-
-struct TTEntry {
-
-    // Extract data from the TT entry. We have to convert TT internal bitfields
-    // to external types.
-    TTData read() const {
-        return TTData{Move(move16),
-                      Value(value16),
-                      Value(eval16),
-                      Depth(DEPTH_NONE + depth8),
-                      Bound((genBound8 & BOUND_MASK) >> BOUND_SHIFT),
-                      bool(genBound8 & PV_MASK)};
-    }
-
-    // Check if the TT entry is occupied
-    bool is_occupied() const { return bool(depth8); }
-
-    // Insert data in the TT entry
-    void save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev, u8 curr_generation);
-
-    // Return TT entry age
-    u8 relative_age(const u8 curr_generation) const;
-
-   private:
-    friend class TranspositionTable;
-    friend struct TTWriter;
-
-    RelaxedAtomic<u16>  key16;
-    RelaxedAtomic<u8>   depth8;
-    RelaxedAtomic<u8>   genBound8;
-    RelaxedAtomic<Move> move16;
-    RelaxedAtomic<i16>  value16;
-    RelaxedAtomic<i16>  eval16;
-};
 
 
 // Populates the TTEntry with a new node's data, possibly overwriting an old
@@ -165,14 +125,26 @@ void TTWriter::penalize(int penalty) {
 // divide the size of a cache line for best performance, as the cacheline is
 // prefetched when possible.
 
-static constexpr int ClusterSize = 3;
+// Looks up a key inside a cluster or selects the best replacement candidate.
+// Returns a pair of:
+//   1) cluster entry index (0 <= idx < ClusterSize)
+//   2) whether the entry is an exact 16-bit key hit
+std::pair<int, bool> probe_cluster(const Cluster& cluster, u16 key16, u8 generation8) {
+    const TTEntry* const tte = &cluster.entry[0];
 
-struct Cluster {
-    TTEntry entry[ClusterSize];
-    char    padding[2];  // Pad to 32 bytes
-};
+    for (int i = 0; i < ClusterSize; ++i)
+        if (tte[i].key16 == key16)
+            return {i, true};
 
-static_assert(sizeof(Cluster) == 32, "Suboptimal Cluster size");
+    // Find an entry to be replaced according to the replacement strategy
+    int replace_idx = 0;
+    for (int i = 1; i < ClusterSize; ++i)
+        if (tte[replace_idx].depth8 - 8 * tte[replace_idx].relative_age(generation8)
+            > tte[i].depth8 - 8 * tte[i].relative_age(generation8))
+            replace_idx = i;
+
+    return {replace_idx, false};
+}
 
 
 // Sets the size of the transposition table, measured in megabytes.
@@ -269,24 +241,20 @@ u8 TranspositionTable::generation() const { return generation8; }
 // its relative age.
 std::tuple<bool, TTData, TTWriter> TranspositionTable::probe(const Key key) const {
 
-    TTEntry* const tte   = first_entry(key);
+    const usize    c_idx = mul_hi64(key, clusterCount);
+    Cluster* const c_ptr = &table[c_idx];
     const u16      key16 = u16(key);  // Use the low 16 bits as key inside the cluster
 
-    for (int i = 0; i < ClusterSize; ++i)
-        if (tte[i].key16 == key16)
-            // This gap is the main place for read races.
-            // After `read()` completes that copy is final, but may be self-inconsistent.
-            return {tte[i].is_occupied(), tte[i].read(), TTWriter(&tte[i])};
+    auto [entry_idx, hit] = probe_cluster(*c_ptr, key16, generation8);
+    TTEntry* const tte    = &c_ptr->entry[entry_idx];
 
-    // Find an entry to be replaced according to the replacement strategy
-    TTEntry* replace = tte;
-    for (int i = 1; i < ClusterSize; ++i)
-        if (replace->depth8 - 8 * replace->relative_age(generation8)
-            > tte[i].depth8 - 8 * tte[i].relative_age(generation8))
-            replace = &tte[i];
+    if (hit)
+        // This gap is the main place for read races.
+        // After `read()` completes that copy is final, but may be self-inconsistent.
+        return {tte->is_occupied(), tte->read(), TTWriter(tte)};
 
     return {false, TTData{Move::none(), VALUE_NONE, VALUE_NONE, DEPTH_NONE, BOUND_NONE, false},
-            TTWriter(replace)};
+            TTWriter(tte)};
 }
 
 

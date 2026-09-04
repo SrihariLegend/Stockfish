@@ -28,8 +28,8 @@
 namespace Stockfish {
 
 class ThreadPool;
-struct TTEntry;
 struct Cluster;
+struct TTWriter;
 
 // There is only one global hash table for the engine and all its threads.
 // For chess in particular, we even allow racy updates between threads to and
@@ -64,6 +64,54 @@ struct TTData {
     // clang-format on
 };
 
+static constexpr u8 GENERATION_BITS = 5;
+static constexpr u8 GENERATION_MASK = (1 << GENERATION_BITS) - 1;
+static constexpr u8 BOUND_SHIFT     = GENERATION_BITS;
+static constexpr u8 BOUND_MASK      = 0b11 << BOUND_SHIFT;
+static constexpr u8 PV_SHIFT        = BOUND_SHIFT + 2;
+static constexpr u8 PV_MASK         = 1 << PV_SHIFT;
+
+static constexpr int ClusterSize = 3;
+
+struct TTEntry {
+    TTData read() const {
+        return TTData{Move(move16),
+                      Value(value16),
+                      Value(eval16),
+                      Depth(DEPTH_NONE + depth8),
+                      Bound((genBound8 & BOUND_MASK) >> BOUND_SHIFT),
+                      bool(genBound8 & PV_MASK)};
+    }
+
+    bool is_occupied() const { return bool(depth8); }
+    void save(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev, u8 curr_generation);
+    u8   relative_age(const u8 curr_generation) const;
+
+   private:
+    friend class TranspositionTable;
+    friend struct TTWriter;
+    friend struct Cluster;
+    friend std::pair<int, bool> probe_cluster(const Cluster& cluster, u16 key16, u8 generation8);
+#ifdef POLICY_RESEARCH
+    friend class ResearchTTOverlay;
+#endif
+
+    RelaxedAtomic<u16>  key16;
+    RelaxedAtomic<u8>   depth8;
+    RelaxedAtomic<u8>   genBound8;
+    RelaxedAtomic<Move> move16;
+    RelaxedAtomic<i16>  value16;
+    RelaxedAtomic<i16>  eval16;
+};
+
+struct Cluster {
+    TTEntry entry[ClusterSize];
+    char    padding[2];  // Pad to 32 bytes
+};
+
+static_assert(sizeof(Cluster) == 32, "Suboptimal Cluster size");
+
+std::pair<int, bool> probe_cluster(const Cluster& cluster, u16 key16, u8 generation8);
 
 // This is used to make racy, non-atomic writes to the global TT. Writes are
 // not "guaranteed": for chess reasons, we may decide the new data is less
@@ -73,10 +121,13 @@ struct TTWriter {
     void write(Key k, Value v, bool pv, Bound b, Depth d, Move m, Value ev, u8 generation8);
     void penalize(int penalty);  // decrement stored depth by the penalty
 
+    TTWriter(TTEntry* tte);
    private:
     friend class TranspositionTable;
+#ifdef POLICY_RESEARCH
+    friend class ResearchTTOverlay;
+#endif
     TTEntry* entry;
-    TTWriter(TTEntry* tte);
 };
 
 
@@ -110,6 +161,14 @@ class TranspositionTable {
 
     // The hash function; its only external use is memory prefetching
     TTEntry* first_entry(const Key key) const;
+
+#ifdef POLICY_RESEARCH
+    usize cluster_index(const Key key) const { return mul_hi64(key, clusterCount); }
+    const Cluster& get_cluster(usize idx) const { return table[idx]; }
+    usize cluster_count() const { return clusterCount; }
+    const Cluster* cluster_data() const { return table; }
+    usize byte_size() const { return clusterCount * sizeof(Cluster); }
+#endif
 
    private:
     friend struct TTEntry;
