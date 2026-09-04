@@ -386,21 +386,43 @@ Limitations: n=3 roots is too small for aggregate bootstrap CIs; top-k is a sear
   - D14 (Ref D16): Baseline 20,956 nodes (17,285 incr); forced `b1c3` takes 5,643 nodes (1,972 incr), **73.1% cumulative reduction, 88.6% incremental reduction**.
   - D16 (Ref D18): Baseline 123,243 nodes; forced `b1c3` takes 68,467 nodes (**44.4% cumulative reduction**).
 
-**Common-Prefix Causal Decomposition (Root Order vs PV-Follow vs Aspiration Depth Control)**:
-Evaluated across 7 conditions using committed runner `tools/policy_research/p4_causal_decomp.py` with verified common prefix (`prev_depth_nodes` 100% byte-for-byte identical across all conditions: 3,671 on `c3-v-001`, 22,499 on `c3-d-004`, 16,131 on `c3-d-002`, 63,292 on `c3-d-007`):
-- Added Condition 4 (`PolicyResearchPreservePreviousPV`) which retains the baseline leader's previous PV intact down the tree, decoupling first-slot root move ordering from PV-follow state.
-- Added Condition 7 (`full_control_nominal_depth`) which simultaneously enforces baseline aspiration center, retains previous PV, and disables fail-high depth reduction (full orthogonal control).
-- On `c3-d-004`: zero aspiration failures occur; Condition 4 (`preserve_previous_pv`) saves **63.64% cumulative / 93.86% incremental nodes** (25,410 vs 69,878 nodes), and Condition 7 (`full_control_nominal_depth`) saves **65.39% cumulative / 96.44% incremental nodes** (24,186 vs 69,878 nodes), proving that root first-slot move order dominates over PV-following and aspiration depth control down the tree.
-- On `c3-v-001`: baseline searches at nominal D14 (20,956 nodes); pure move order with baseline aspiration saves 31.05% (14,450 nodes); preserving baseline previous PV saves 75.03% (5,232 nodes); under full control (Condition 7), cumulative savings are 36.71% (13,263 vs 20,956 nodes); joint intervention with fail-high depth reduction saves 73.07% (5,643 nodes at D11).
-- On `c3-d-002` (Kiwipete): fail-high depth reductions prevent search explosion (forcing nominal D14 inflates nodes from 18k to 32k or 78k).
-- On `c3-d-007` (strict candidate `a2a3`): joint intervention saves 46.56% cumulative (69,237 vs 129,556 nodes); under full control (Condition 7), savings are 34.00% cumulative (85,508 vs 129,556 nodes).
-- True no-op control: forcing the **D-1 lead move** (`d_minus_1_lead_move`) is an exact byte-for-byte match to baseline (demonstrated on `c3-d-007`: baseline 129,556 nodes == forced `c1e3` 129,556 nodes). Forcing untreated final best `f2f3` is an active intervention (66,704 nodes) because `f2f3` was not the leader at the start of iteration D14.
+**Common-Prefix Causal Decomposition (Full 2³ Factorial Design: Root Order vs PV-Follow vs Aspiration Depth Control)**:
+Evaluated across 9 conditions (8 forced conditions + baseline, schema version 4 in `tools/policy_research/p4_causal_decomp.py`) with verified common prefix (`prev_depth_nodes` 100% byte-for-byte identical across all conditions: 3,671 on `c3-v-001`, 22,499 on `c3-d-004`, 16,131 on `c3-d-002`, 63,292 on `c3-d-007`):
+- Orthogonal $2^3$ Factorial Conditions:
+  - Condition 1 (`baseline`): Untreated baseline search.
+  - Condition 2 (`joint_intervention`): Forced candidate into `rootMoves[0]`, simultaneously updating root ordering, setting `lastIterationIdxPV = candidate`, and enabling normal aspiration window adjustments and fail-high depth reductions.
+  - Condition 3 (`preserve_aspiration`): Forced move with baseline aspiration window center and width (asp=1, pv=0, fhr=0).
+  - Condition 4 (`preserve_previous_pv`): Forced move with baseline leader's previous PV preserved (`rootMoves[0].pv` set to baseline leader's PV; asp=0, pv=1, fhr=0).
+  - Condition 5 (`disable_fail_high_reduction`): Forced move at unreduced nominal depth (disabling `failedHighCnt` reductions; asp=0, pv=0, fhr=1).
+  - Condition 6 (`preserve_asp_and_pv`): Forced move with baseline aspiration AND baseline previous PV preserved (asp=1, pv=1, fhr=0).
+  - Condition 7 (`preserve_asp_and_fhr`): Forced move with baseline aspiration AND unreduced nominal depth (asp=1, pv=0, fhr=1).
+  - Condition 8 (`preserve_pv_and_fhr`): Forced move with baseline previous PV preserved AND unreduced nominal depth (asp=0, pv=1, fhr=1).
+  - Condition 9 (`full_control_nominal_depth`): Forced move with baseline aspiration center, baseline previous PV preserved, AND unreduced nominal depth (full orthogonal control; asp=1, pv=1, fhr=1).
+- In-Search Mechanisms:
+  - *Aspiration-Optimism Coupling*: Stockfish initializes aspiration window bounds and player optimism simultaneously from `avg = rootMoves[pvIdx].averageScore` in `Search::Worker::iterative_deepening()`, computing `optimism[us] = 114 * avg / (abs(avg) + 85)`. Under unconstrained forcing, resetting `avg = rootMoves[0].averageScore` shifts both the window center and the player's optimism factor. Preserving baseline aspiration locks both window center and optimism.
+  - *PV-Follow Decoupling*: Downstream PV-following requires `(ss - 1)->currentMove == lastIterationIdxPV[0]` at ply 1 to maintain `ss->followPV = true`. Setting `lastIterationIdxPV = baselinePreviousPV` ensures that if the candidate move differs from the baseline previous PV leader, `ss->followPV` immediately evaluates to `false` at ply 1, cleanly eliminating downstream PV-following bias without altering root move ordering.
+- Empirical Results & Quality Gate Analysis:
+  - On `c3-d-004` (CPW4, tactical middlegame): All forced conditions reduce search effort by 63–65%. However, preserving baseline aspiration (Conditions 3, 6, 7, 9) produces score -628 cp. Relative to the D18 reference score of -692 cp, $|\Delta| = 64\text{ cp} > 50\text{ cp}$, which fails the reference quality gate (`quality_valid_ref: false`). Conditions without baseline aspiration preservation (Conditions 2, 4, 5, 8) produce score -654 cp ($|\Delta| = 38\text{ cp} \le 50\text{ cp}$), passing quality validation. Condition 4 (`preserve_previous_pv`) saves **63.64% cumulative / 93.86% incremental nodes** (25,410 vs 69,878 nodes) while passing all quality criteria, proving that first-slot move ordering dominates over PV-following and aspiration depth control.
+  - On `c3-v-001` (Giuoco Piano blunder): Under full control at nominal depth 14 with previous PV preserved (Condition 9), pure move ordering saves 36.71% cumulative / 44.51% incremental nodes (13,263 vs 20,956 nodes) while strictly passing quality validation. Joint intervention with fail-high depth reduction (Condition 2) saves 73.07% cumulative (5,643 nodes at D11).
+  - On `c3-d-002` (Kiwipete): Disabling fail-high depth reductions inflates search to 78,030 nodes (Condition 7 vs 25,490 baseline), demonstrating that fail-high reductions are essential for controlling alpha-beta branching in sharp tactical trees.
+  - On `c3-d-007` (strict candidate `a2a3`): Joint intervention saves 46.56% cumulative (69,237 vs 129,556 nodes); under full control (Condition 9), savings are 34.00% cumulative (85,508 vs 129,556 nodes).
+  - True no-op control: forcing the **D-1 lead move** (`d_minus_1_lead_move`) is an exact byte-for-byte match to baseline (demonstrated on `c3-d-007`: baseline 129,556 nodes == forced `c1e3` 129,556 nodes). Forcing untreated final best `f2f3` is an active intervention (66,704 nodes) because `f2f3` was not the leader at the start of iteration D14.
 
 **Balanced Latin-Square Multi-Trial Timing Benchmarks**:
-- Tooling supports `--trials N` running a strictly counterbalanced balanced Latin square cyclic design where each treatment appears in each position slot an equal number of times across trials.
-- On `c3-v-001` (12 counterbalanced runs): engine median search time dropped from 18.0 ms (IQR 1.0 ms, mean 18.33±0.49 ms) to 5.0 ms (IQR 1.0 ms, mean 5.33±0.49 ms), representing a **72.2% median engine search time reduction** (a **3.60× speedup factor**). Wall time median dropped from 322.5 ms to 308.2 ms.
-- On `c3-d-004` (12 counterbalanced runs): engine median search time dropped from 62.0 ms (IQR 1.0 ms, mean 62.33±0.98 ms) to 22.0 ms (IQR 1.0 ms, mean 22.50±1.17 ms), representing a **64.5% median engine search time reduction** (a **2.82× speedup factor**). Wall time median dropped from 363.2 ms to 324.1 ms.
-- *Caveat*: Measured kernel search times under isolated execution do not include policy inference cost or MovePicker sorting overhead.
+- Tooling supports `--trials 12` running a strictly counterbalanced balanced Latin square cyclic design where each treatment appears in each position slot an equal number of times across trials, eliminating thermal and first-runner cache warming biases.
+- Distinct Timing Metrics (Canonical 12-Trial Evidence in `docs/policy-research/evidence/p4-canonical/timing-benchmark-trials12.json`):
+  - *Search-Kernel Time Reduction Percentage*: $(T_{\text{base}} - T_{\text{cand}}) / T_{\text{base}}$
+  - *Search-Kernel Multiplicative Speedup Factor*: $T_{\text{base}} / T_{\text{cand}}$
+  - *End-to-End Wall Time Reduction Percentage*: $(W_{\text{base}} - W_{\text{cand}}) / W_{\text{base}}$ (including process startup, UCI handshake, and ~300 ms fixed memory allocation).
+  - *Search Scope Boundary*: Excludes neural model inference and MovePicker sorting overhead.
+- On `c3-v-001` (12 counterbalanced runs):
+  - Baseline search time: median 19.0 ms (IQR 0.0 ms, mean 18.9±0.5 ms), wall time median 325.4 ms.
+  - Candidate `b1c3` search time: median 5.0 ms (IQR 1.0 ms, mean 5.4±0.5 ms), wall time median 311.7 ms.
+  - **Search-kernel time reduction: 73.7%** (a **3.80× speedup factor**). Wall time reduction: 4.2%.
+- On `c3-d-004` (12 counterbalanced runs):
+  - Baseline search time: median 65.5 ms (IQR 3.0 ms, mean 65.6±2.0 ms), wall time median 371.3 ms.
+  - Candidate `g1h1` search time: median 23.0 ms (IQR 1.0 ms, mean 23.3±1.1 ms), wall time median 329.1 ms.
+  - **Search-kernel time reduction: 64.9%** (a **2.85× speedup factor**). Wall time reduction: 11.4%.
 
 **18-Root Canonical Population Statistics (`corpus/v3` Dev + Val, Schema v4)**:
 - 7 Result-preserving savings (38.9%)

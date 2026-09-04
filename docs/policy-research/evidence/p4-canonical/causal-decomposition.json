@@ -1,0 +1,1873 @@
+{
+  "schema": "policy-research-causal-decomposition/4",
+  "provenance": {
+    "generator_script": "tools/policy_research/p4_causal_decomp.py",
+    "command_line": "tools/policy_research/p4_causal_decomp.py --engine src/stockfish --corpus tools/policy_research/corpora/corpus-v3.json --depth 14 --ref-depth 18 --out docs/policy-research/evidence/p4-canonical/causal-decomposition.json",
+    "engine_path": "/home/tom/dev/work/Stockfish/src/stockfish",
+    "engine_banner": "Stockfish dev-20260904-3d2e669c",
+    "engine_sha256": "df062e82d1f13decc8aa00404d9a7931e39e2ca78aefc26759b1e4b31aaf60ab",
+    "engine_embedded_commit": "3d2e669c",
+    "tool_commit": "3d2e669cfacb",
+    "tool_dirty": false,
+    "tool_dirty_file_count": 0,
+    "corpus_path": "/home/tom/dev/work/Stockfish/tools/policy_research/corpora/corpus-v3.json",
+    "corpus_sha256": "c7c7d47c558f8d23b6d3a726ebda886a98633f39d5d9749b153e052259a5b944",
+    "corpus_schema": "corpus/v3",
+    "timestamp_utc": "2026-09-04T12:14:54.927041+00:00",
+    "python_version": "3.13.5",
+    "platform": "Linux-6.18.33.1-microsoft-standard-WSL2-x86_64-with-glibc2.41"
+  },
+  "depth": 14,
+  "ref_depth": 18,
+  "score_tolerance_cp": 50,
+  "roots": {
+    "c3-v-001": {
+      "optimal_move": "b1c3",
+      "reference": {
+        "depth": 18,
+        "best": "d4c5",
+        "score_val": 642,
+        "score_type": "cp"
+      },
+      "conditions": {
+        "1_baseline": {
+          "nodes": 20956,
+          "prev_depth_nodes": 3671,
+          "incremental_nodes": 17285,
+          "cum_reduction_pct": 0.0,
+          "incr_reduction_pct": 0.0,
+          "best": "d4c5",
+          "score_val": 654,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 1888,
+              "result": "exact",
+              "alpha": 1539,
+              "beta": 2255,
+              "attempt_nodes": 17285
+            }
+          ]
+        },
+        "2_joint_intervention": {
+          "nodes": 5643,
+          "prev_depth_nodes": 3671,
+          "incremental_nodes": 1972,
+          "cum_reduction_pct": 73.07,
+          "incr_reduction_pct": 88.59,
+          "best": "d4c5",
+          "score_val": 642,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 3,
+          "iterations": 4,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 1455,
+              "result": "high",
+              "alpha": 1114,
+              "beta": 1444,
+              "attempt_nodes": 156
+            },
+            {
+              "depth": 13,
+              "value": 1620,
+              "result": "high",
+              "alpha": 1279,
+              "beta": 1620,
+              "attempt_nodes": 189
+            },
+            {
+              "depth": 12,
+              "value": 1845,
+              "result": "high",
+              "alpha": 1395,
+              "beta": 1845,
+              "attempt_nodes": 416
+            },
+            {
+              "depth": 11,
+              "value": 1853,
+              "result": "exact",
+              "alpha": 1538,
+              "beta": 2152,
+              "attempt_nodes": 1211
+            }
+          ]
+        },
+        "3_preserve_aspiration": {
+          "nodes": 14450,
+          "prev_depth_nodes": 3671,
+          "incremental_nodes": 10779,
+          "cum_reduction_pct": 31.05,
+          "incr_reduction_pct": 37.64,
+          "best": "d4c5",
+          "score_val": 667,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 1925,
+              "result": "exact",
+              "alpha": 1539,
+              "beta": 2255,
+              "attempt_nodes": 10779
+            }
+          ]
+        },
+        "4_preserve_previous_pv": {
+          "nodes": 5232,
+          "prev_depth_nodes": 3671,
+          "incremental_nodes": 1561,
+          "cum_reduction_pct": 75.03,
+          "incr_reduction_pct": 90.97,
+          "best": "d4c5",
+          "score_val": 688,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 3,
+          "iterations": 4,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 1444,
+              "result": "high",
+              "alpha": 1114,
+              "beta": 1444,
+              "attempt_nodes": 198
+            },
+            {
+              "depth": 13,
+              "value": 1609,
+              "result": "high",
+              "alpha": 1279,
+              "beta": 1609,
+              "attempt_nodes": 84
+            },
+            {
+              "depth": 12,
+              "value": 1834,
+              "result": "high",
+              "alpha": 1384,
+              "beta": 1834,
+              "attempt_nodes": 467
+            },
+            {
+              "depth": 11,
+              "value": 1987,
+              "result": "exact",
+              "alpha": 1527,
+              "beta": 2141,
+              "attempt_nodes": 812
+            }
+          ]
+        },
+        "5_disable_fail_high_reduction": {
+          "nodes": 9293,
+          "prev_depth_nodes": 3671,
+          "incremental_nodes": 5622,
+          "cum_reduction_pct": 55.65,
+          "incr_reduction_pct": 67.47,
+          "best": "d4c5",
+          "score_val": 637,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 3,
+          "iterations": 4,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 1455,
+              "result": "high",
+              "alpha": 1114,
+              "beta": 1444,
+              "attempt_nodes": 156
+            },
+            {
+              "depth": 14,
+              "value": 1627,
+              "result": "high",
+              "alpha": 1279,
+              "beta": 1620,
+              "attempt_nodes": 261
+            },
+            {
+              "depth": 14,
+              "value": 1852,
+              "result": "high",
+              "alpha": 1395,
+              "beta": 1852,
+              "attempt_nodes": 542
+            },
+            {
+              "depth": 14,
+              "value": 1840,
+              "result": "exact",
+              "alpha": 1545,
+              "beta": 2159,
+              "attempt_nodes": 4663
+            }
+          ]
+        },
+        "6_preserve_asp_and_pv": {
+          "nodes": 13263,
+          "prev_depth_nodes": 3671,
+          "incremental_nodes": 9592,
+          "cum_reduction_pct": 36.71,
+          "incr_reduction_pct": 44.51,
+          "best": "d4c5",
+          "score_val": 651,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 1879,
+              "result": "exact",
+              "alpha": 1539,
+              "beta": 2255,
+              "attempt_nodes": 9592
+            }
+          ]
+        },
+        "7_preserve_asp_and_fhr": {
+          "nodes": 14450,
+          "prev_depth_nodes": 3671,
+          "incremental_nodes": 10779,
+          "cum_reduction_pct": 31.05,
+          "incr_reduction_pct": 37.64,
+          "best": "d4c5",
+          "score_val": 667,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 1925,
+              "result": "exact",
+              "alpha": 1539,
+              "beta": 2255,
+              "attempt_nodes": 10779
+            }
+          ]
+        },
+        "8_preserve_pv_and_fhr": {
+          "nodes": 11667,
+          "prev_depth_nodes": 3671,
+          "incremental_nodes": 7996,
+          "cum_reduction_pct": 44.33,
+          "incr_reduction_pct": 53.74,
+          "best": "d4c5",
+          "score_val": 679,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 3,
+          "iterations": 4,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 1444,
+              "result": "high",
+              "alpha": 1114,
+              "beta": 1444,
+              "attempt_nodes": 198
+            },
+            {
+              "depth": 14,
+              "value": 1609,
+              "result": "high",
+              "alpha": 1279,
+              "beta": 1609,
+              "attempt_nodes": 115
+            },
+            {
+              "depth": 14,
+              "value": 1834,
+              "result": "high",
+              "alpha": 1384,
+              "beta": 1834,
+              "attempt_nodes": 1024
+            },
+            {
+              "depth": 14,
+              "value": 1959,
+              "result": "exact",
+              "alpha": 1527,
+              "beta": 2141,
+              "attempt_nodes": 6659
+            }
+          ]
+        },
+        "9_full_control_nominal_depth": {
+          "nodes": 13263,
+          "prev_depth_nodes": 3671,
+          "incremental_nodes": 9592,
+          "cum_reduction_pct": 36.71,
+          "incr_reduction_pct": 44.51,
+          "best": "d4c5",
+          "score_val": 651,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 1879,
+              "result": "exact",
+              "alpha": 1539,
+              "beta": 2255,
+              "attempt_nodes": 9592
+            }
+          ]
+        }
+      }
+    },
+    "c3-d-004": {
+      "optimal_move": "g1h1",
+      "reference": {
+        "depth": 18,
+        "best": "c4c5",
+        "score_val": -692,
+        "score_type": "cp"
+      },
+      "conditions": {
+        "1_baseline": {
+          "nodes": 69878,
+          "prev_depth_nodes": 22499,
+          "incremental_nodes": 47379,
+          "cum_reduction_pct": 0.0,
+          "incr_reduction_pct": 0.0,
+          "best": "c4c5",
+          "score_val": -647,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -1845,
+              "result": "exact",
+              "alpha": -2042,
+              "beta": -1438,
+              "attempt_nodes": 47379
+            }
+          ]
+        },
+        "2_joint_intervention": {
+          "nodes": 24972,
+          "prev_depth_nodes": 22499,
+          "incremental_nodes": 2473,
+          "cum_reduction_pct": 64.26,
+          "incr_reduction_pct": 94.78,
+          "best": "c4c5",
+          "score_val": -654,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -1865,
+              "result": "exact",
+              "alpha": -2039,
+              "beta": -1435,
+              "attempt_nodes": 2473
+            }
+          ]
+        },
+        "3_preserve_aspiration": {
+          "nodes": 24596,
+          "prev_depth_nodes": 22499,
+          "incremental_nodes": 2097,
+          "cum_reduction_pct": 64.8,
+          "incr_reduction_pct": 95.57,
+          "best": "c4c5",
+          "score_val": -628,
+          "score_type": "cp",
+          "quality_valid_ref": false,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -1790,
+              "result": "exact",
+              "alpha": -2042,
+              "beta": -1438,
+              "attempt_nodes": 2097
+            }
+          ]
+        },
+        "4_preserve_previous_pv": {
+          "nodes": 25410,
+          "prev_depth_nodes": 22499,
+          "incremental_nodes": 2911,
+          "cum_reduction_pct": 63.64,
+          "incr_reduction_pct": 93.86,
+          "best": "c4c5",
+          "score_val": -654,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -1865,
+              "result": "exact",
+              "alpha": -2039,
+              "beta": -1435,
+              "attempt_nodes": 2911
+            }
+          ]
+        },
+        "5_disable_fail_high_reduction": {
+          "nodes": 24972,
+          "prev_depth_nodes": 22499,
+          "incremental_nodes": 2473,
+          "cum_reduction_pct": 64.26,
+          "incr_reduction_pct": 94.78,
+          "best": "c4c5",
+          "score_val": -654,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -1865,
+              "result": "exact",
+              "alpha": -2039,
+              "beta": -1435,
+              "attempt_nodes": 2473
+            }
+          ]
+        },
+        "6_preserve_asp_and_pv": {
+          "nodes": 24186,
+          "prev_depth_nodes": 22499,
+          "incremental_nodes": 1687,
+          "cum_reduction_pct": 65.39,
+          "incr_reduction_pct": 96.44,
+          "best": "c4c5",
+          "score_val": -628,
+          "score_type": "cp",
+          "quality_valid_ref": false,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -1790,
+              "result": "exact",
+              "alpha": -2042,
+              "beta": -1438,
+              "attempt_nodes": 1687
+            }
+          ]
+        },
+        "7_preserve_asp_and_fhr": {
+          "nodes": 24596,
+          "prev_depth_nodes": 22499,
+          "incremental_nodes": 2097,
+          "cum_reduction_pct": 64.8,
+          "incr_reduction_pct": 95.57,
+          "best": "c4c5",
+          "score_val": -628,
+          "score_type": "cp",
+          "quality_valid_ref": false,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -1790,
+              "result": "exact",
+              "alpha": -2042,
+              "beta": -1438,
+              "attempt_nodes": 2097
+            }
+          ]
+        },
+        "8_preserve_pv_and_fhr": {
+          "nodes": 25410,
+          "prev_depth_nodes": 22499,
+          "incremental_nodes": 2911,
+          "cum_reduction_pct": 63.64,
+          "incr_reduction_pct": 93.86,
+          "best": "c4c5",
+          "score_val": -654,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -1865,
+              "result": "exact",
+              "alpha": -2039,
+              "beta": -1435,
+              "attempt_nodes": 2911
+            }
+          ]
+        },
+        "9_full_control_nominal_depth": {
+          "nodes": 24186,
+          "prev_depth_nodes": 22499,
+          "incremental_nodes": 1687,
+          "cum_reduction_pct": 65.39,
+          "incr_reduction_pct": 96.44,
+          "best": "c4c5",
+          "score_val": -628,
+          "score_type": "cp",
+          "quality_valid_ref": false,
+          "fail_low": 0,
+          "fail_high": 0,
+          "iterations": 1,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -1790,
+              "result": "exact",
+              "alpha": -2042,
+              "beta": -1438,
+              "attempt_nodes": 1687
+            }
+          ]
+        }
+      }
+    },
+    "c3-d-002": {
+      "optimal_move": "e1g1",
+      "reference": {
+        "depth": 18,
+        "best": "e2a6",
+        "score_val": -89,
+        "score_type": "cp"
+      },
+      "conditions": {
+        "1_baseline": {
+          "nodes": 25490,
+          "prev_depth_nodes": 16131,
+          "incremental_nodes": 9359,
+          "cum_reduction_pct": 0.0,
+          "incr_reduction_pct": 0.0,
+          "best": "e2a6",
+          "score_val": -43,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 6,
+          "iterations": 7,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -217,
+              "result": "high",
+              "alpha": -237,
+              "beta": -217,
+              "attempt_nodes": 2759
+            },
+            {
+              "depth": 13,
+              "value": -207,
+              "result": "high",
+              "alpha": -227,
+              "beta": -207,
+              "attempt_nodes": 2047
+            },
+            {
+              "depth": 12,
+              "value": -194,
+              "result": "high",
+              "alpha": -220,
+              "beta": -194,
+              "attempt_nodes": 1460
+            },
+            {
+              "depth": 11,
+              "value": -177,
+              "result": "high",
+              "alpha": -211,
+              "beta": -177,
+              "attempt_nodes": 1221
+            },
+            {
+              "depth": 10,
+              "value": -154,
+              "result": "high",
+              "alpha": -200,
+              "beta": -154,
+              "attempt_nodes": 1073
+            },
+            {
+              "depth": 9,
+              "value": -123,
+              "result": "high",
+              "alpha": -185,
+              "beta": -123,
+              "attempt_nodes": 695
+            },
+            {
+              "depth": 8,
+              "value": -122,
+              "result": "exact",
+              "alpha": -165,
+              "beta": -81,
+              "attempt_nodes": 104
+            }
+          ]
+        },
+        "2_joint_intervention": {
+          "nodes": 18176,
+          "prev_depth_nodes": 16131,
+          "incremental_nodes": 2045,
+          "cum_reduction_pct": 28.69,
+          "incr_reduction_pct": 78.15,
+          "best": "e2a6",
+          "score_val": -87,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 4,
+          "iterations": 5,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -426,
+              "result": "high",
+              "alpha": -476,
+              "beta": -426,
+              "attempt_nodes": 125
+            },
+            {
+              "depth": 13,
+              "value": -378,
+              "result": "high",
+              "alpha": -451,
+              "beta": -401,
+              "attempt_nodes": 13
+            },
+            {
+              "depth": 12,
+              "value": -344,
+              "result": "high",
+              "alpha": -435,
+              "beta": -344,
+              "attempt_nodes": 904
+            },
+            {
+              "depth": 11,
+              "value": -298,
+              "result": "high",
+              "alpha": -390,
+              "beta": -298,
+              "attempt_nodes": 427
+            },
+            {
+              "depth": 10,
+              "value": -248,
+              "result": "exact",
+              "alpha": -360,
+              "beta": -236,
+              "attempt_nodes": 576
+            }
+          ]
+        },
+        "3_preserve_aspiration": {
+          "nodes": 26456,
+          "prev_depth_nodes": 16131,
+          "incremental_nodes": 10325,
+          "cum_reduction_pct": -3.79,
+          "incr_reduction_pct": -10.32,
+          "best": "e2a6",
+          "score_val": -54,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 5,
+          "iterations": 6,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -217,
+              "result": "high",
+              "alpha": -237,
+              "beta": -217,
+              "attempt_nodes": 5587
+            },
+            {
+              "depth": 13,
+              "value": -207,
+              "result": "high",
+              "alpha": -227,
+              "beta": -207,
+              "attempt_nodes": 1419
+            },
+            {
+              "depth": 12,
+              "value": -194,
+              "result": "high",
+              "alpha": -220,
+              "beta": -194,
+              "attempt_nodes": 1031
+            },
+            {
+              "depth": 11,
+              "value": -177,
+              "result": "high",
+              "alpha": -211,
+              "beta": -177,
+              "attempt_nodes": 1235
+            },
+            {
+              "depth": 10,
+              "value": -154,
+              "result": "high",
+              "alpha": -200,
+              "beta": -154,
+              "attempt_nodes": 953
+            },
+            {
+              "depth": 9,
+              "value": -154,
+              "result": "exact",
+              "alpha": -185,
+              "beta": -123,
+              "attempt_nodes": 100
+            }
+          ]
+        },
+        "4_preserve_previous_pv": {
+          "nodes": 18634,
+          "prev_depth_nodes": 16131,
+          "incremental_nodes": 2503,
+          "cum_reduction_pct": 26.9,
+          "incr_reduction_pct": 73.26,
+          "best": "e2a6",
+          "score_val": -60,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 5,
+          "iterations": 6,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -426,
+              "result": "high",
+              "alpha": -476,
+              "beta": -426,
+              "attempt_nodes": 154
+            },
+            {
+              "depth": 13,
+              "value": -378,
+              "result": "high",
+              "alpha": -451,
+              "beta": -401,
+              "attempt_nodes": 42
+            },
+            {
+              "depth": 12,
+              "value": -344,
+              "result": "high",
+              "alpha": -435,
+              "beta": -344,
+              "attempt_nodes": 1104
+            },
+            {
+              "depth": 11,
+              "value": -298,
+              "result": "high",
+              "alpha": -390,
+              "beta": -298,
+              "attempt_nodes": 448
+            },
+            {
+              "depth": 10,
+              "value": -236,
+              "result": "high",
+              "alpha": -360,
+              "beta": -236,
+              "attempt_nodes": 386
+            },
+            {
+              "depth": 9,
+              "value": -171,
+              "result": "exact",
+              "alpha": -320,
+              "beta": -152,
+              "attempt_nodes": 369
+            }
+          ]
+        },
+        "5_disable_fail_high_reduction": {
+          "nodes": 32602,
+          "prev_depth_nodes": 16131,
+          "incremental_nodes": 16471,
+          "cum_reduction_pct": -27.9,
+          "incr_reduction_pct": -75.99,
+          "best": "e2a6",
+          "score_val": -21,
+          "score_type": "cp",
+          "quality_valid_ref": false,
+          "fail_low": 0,
+          "fail_high": 6,
+          "iterations": 7,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -426,
+              "result": "high",
+              "alpha": -476,
+              "beta": -426,
+              "attempt_nodes": 125
+            },
+            {
+              "depth": 14,
+              "value": -378,
+              "result": "high",
+              "alpha": -451,
+              "beta": -401,
+              "attempt_nodes": 13
+            },
+            {
+              "depth": 14,
+              "value": -344,
+              "result": "high",
+              "alpha": -435,
+              "beta": -344,
+              "attempt_nodes": 1465
+            },
+            {
+              "depth": 14,
+              "value": -298,
+              "result": "high",
+              "alpha": -390,
+              "beta": -298,
+              "attempt_nodes": 1955
+            },
+            {
+              "depth": 14,
+              "value": -236,
+              "result": "high",
+              "alpha": -360,
+              "beta": -236,
+              "attempt_nodes": 2653
+            },
+            {
+              "depth": 14,
+              "value": -152,
+              "result": "high",
+              "alpha": -320,
+              "beta": -152,
+              "attempt_nodes": 2689
+            },
+            {
+              "depth": 14,
+              "value": -61,
+              "result": "exact",
+              "alpha": -266,
+              "beta": -38,
+              "attempt_nodes": 7571
+            }
+          ]
+        },
+        "6_preserve_asp_and_pv": {
+          "nodes": 37666,
+          "prev_depth_nodes": 16131,
+          "incremental_nodes": 21535,
+          "cum_reduction_pct": -47.77,
+          "incr_reduction_pct": -130.1,
+          "best": "e2a6",
+          "score_val": -56,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 1,
+          "fail_high": 6,
+          "iterations": 8,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -217,
+              "result": "high",
+              "alpha": -237,
+              "beta": -217,
+              "attempt_nodes": 5697
+            },
+            {
+              "depth": 13,
+              "value": -227,
+              "result": "low",
+              "alpha": -227,
+              "beta": -207,
+              "attempt_nodes": 3700
+            },
+            {
+              "depth": 14,
+              "value": -227,
+              "result": "high",
+              "alpha": -240,
+              "beta": -227,
+              "attempt_nodes": 2865
+            },
+            {
+              "depth": 13,
+              "value": -210,
+              "result": "high",
+              "alpha": -240,
+              "beta": -210,
+              "attempt_nodes": 2385
+            },
+            {
+              "depth": 12,
+              "value": -187,
+              "result": "high",
+              "alpha": -233,
+              "beta": -187,
+              "attempt_nodes": 1557
+            },
+            {
+              "depth": 11,
+              "value": -156,
+              "result": "high",
+              "alpha": -218,
+              "beta": -156,
+              "attempt_nodes": 1707
+            },
+            {
+              "depth": 10,
+              "value": -114,
+              "result": "high",
+              "alpha": -198,
+              "beta": -114,
+              "attempt_nodes": 1744
+            },
+            {
+              "depth": 9,
+              "value": -159,
+              "result": "exact",
+              "alpha": -171,
+              "beta": -57,
+              "attempt_nodes": 1880
+            }
+          ]
+        },
+        "7_preserve_asp_and_fhr": {
+          "nodes": 78030,
+          "prev_depth_nodes": 16131,
+          "incremental_nodes": 61899,
+          "cum_reduction_pct": -206.12,
+          "incr_reduction_pct": -561.38,
+          "best": "e2a6",
+          "score_val": -56,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 1,
+          "fail_high": 7,
+          "iterations": 9,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -217,
+              "result": "high",
+              "alpha": -237,
+              "beta": -217,
+              "attempt_nodes": 5587
+            },
+            {
+              "depth": 14,
+              "value": -207,
+              "result": "high",
+              "alpha": -227,
+              "beta": -207,
+              "attempt_nodes": 1753
+            },
+            {
+              "depth": 14,
+              "value": -194,
+              "result": "high",
+              "alpha": -220,
+              "beta": -194,
+              "attempt_nodes": 1830
+            },
+            {
+              "depth": 14,
+              "value": -177,
+              "result": "high",
+              "alpha": -211,
+              "beta": -177,
+              "attempt_nodes": 2367
+            },
+            {
+              "depth": 14,
+              "value": -154,
+              "result": "high",
+              "alpha": -200,
+              "beta": -154,
+              "attempt_nodes": 4147
+            },
+            {
+              "depth": 14,
+              "value": -123,
+              "result": "high",
+              "alpha": -185,
+              "beta": -123,
+              "attempt_nodes": 6850
+            },
+            {
+              "depth": 14,
+              "value": -165,
+              "result": "low",
+              "alpha": -165,
+              "beta": -81,
+              "attempt_nodes": 14693
+            },
+            {
+              "depth": 14,
+              "value": -165,
+              "result": "high",
+              "alpha": -222,
+              "beta": -165,
+              "attempt_nodes": 12938
+            },
+            {
+              "depth": 14,
+              "value": -161,
+              "result": "exact",
+              "alpha": -222,
+              "beta": -88,
+              "attempt_nodes": 11734
+            }
+          ]
+        },
+        "8_preserve_pv_and_fhr": {
+          "nodes": 25659,
+          "prev_depth_nodes": 16131,
+          "incremental_nodes": 9528,
+          "cum_reduction_pct": -0.66,
+          "incr_reduction_pct": -1.81,
+          "best": "e2a6",
+          "score_val": -56,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 5,
+          "iterations": 6,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -426,
+              "result": "high",
+              "alpha": -476,
+              "beta": -426,
+              "attempt_nodes": 154
+            },
+            {
+              "depth": 14,
+              "value": -378,
+              "result": "high",
+              "alpha": -451,
+              "beta": -401,
+              "attempt_nodes": 42
+            },
+            {
+              "depth": 14,
+              "value": -344,
+              "result": "high",
+              "alpha": -435,
+              "beta": -344,
+              "attempt_nodes": 1696
+            },
+            {
+              "depth": 14,
+              "value": -298,
+              "result": "high",
+              "alpha": -390,
+              "beta": -298,
+              "attempt_nodes": 2086
+            },
+            {
+              "depth": 14,
+              "value": -236,
+              "result": "high",
+              "alpha": -360,
+              "beta": -236,
+              "attempt_nodes": 1958
+            },
+            {
+              "depth": 14,
+              "value": -159,
+              "result": "exact",
+              "alpha": -320,
+              "beta": -152,
+              "attempt_nodes": 3592
+            }
+          ]
+        },
+        "9_full_control_nominal_depth": {
+          "nodes": 74594,
+          "prev_depth_nodes": 16131,
+          "incremental_nodes": 58463,
+          "cum_reduction_pct": -192.64,
+          "incr_reduction_pct": -524.67,
+          "best": "e2a6",
+          "score_val": -63,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 1,
+          "fail_high": 7,
+          "iterations": 9,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": -217,
+              "result": "high",
+              "alpha": -237,
+              "beta": -217,
+              "attempt_nodes": 5697
+            },
+            {
+              "depth": 14,
+              "value": -207,
+              "result": "high",
+              "alpha": -227,
+              "beta": -207,
+              "attempt_nodes": 2400
+            },
+            {
+              "depth": 14,
+              "value": -194,
+              "result": "high",
+              "alpha": -220,
+              "beta": -194,
+              "attempt_nodes": 2932
+            },
+            {
+              "depth": 14,
+              "value": -177,
+              "result": "high",
+              "alpha": -211,
+              "beta": -177,
+              "attempt_nodes": 3531
+            },
+            {
+              "depth": 14,
+              "value": -154,
+              "result": "high",
+              "alpha": -200,
+              "beta": -154,
+              "attempt_nodes": 11996
+            },
+            {
+              "depth": 14,
+              "value": -123,
+              "result": "high",
+              "alpha": -185,
+              "beta": -123,
+              "attempt_nodes": 8157
+            },
+            {
+              "depth": 14,
+              "value": -165,
+              "result": "low",
+              "alpha": -165,
+              "beta": -81,
+              "attempt_nodes": 12205
+            },
+            {
+              "depth": 14,
+              "value": -165,
+              "result": "high",
+              "alpha": -222,
+              "beta": -165,
+              "attempt_nodes": 5352
+            },
+            {
+              "depth": 14,
+              "value": -180,
+              "result": "exact",
+              "alpha": -222,
+              "beta": -88,
+              "attempt_nodes": 6193
+            }
+          ]
+        }
+      }
+    },
+    "c3-d-007": {
+      "optimal_move": "a2a3",
+      "reference": {
+        "depth": 18,
+        "best": "c1e3",
+        "score_val": 33,
+        "score_type": "cp"
+      },
+      "conditions": {
+        "1_baseline": {
+          "nodes": 129556,
+          "prev_depth_nodes": 63292,
+          "incremental_nodes": 66264,
+          "cum_reduction_pct": 0.0,
+          "incr_reduction_pct": 0.0,
+          "best": "f2f3",
+          "score_val": 21,
+          "score_type": "cp",
+          "quality_valid_ref": false,
+          "fail_low": 5,
+          "fail_high": 1,
+          "iterations": 7,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 135,
+              "result": "high",
+              "alpha": 123,
+              "beta": 135,
+              "attempt_nodes": 1654
+            },
+            {
+              "depth": 13,
+              "value": 129,
+              "result": "low",
+              "alpha": 129,
+              "beta": 141,
+              "attempt_nodes": 9542
+            },
+            {
+              "depth": 14,
+              "value": 121,
+              "result": "low",
+              "alpha": 121,
+              "beta": 129,
+              "attempt_nodes": 5191
+            },
+            {
+              "depth": 14,
+              "value": 111,
+              "result": "low",
+              "alpha": 111,
+              "beta": 121,
+              "attempt_nodes": 8049
+            },
+            {
+              "depth": 14,
+              "value": 98,
+              "result": "low",
+              "alpha": 98,
+              "beta": 111,
+              "attempt_nodes": 2741
+            },
+            {
+              "depth": 14,
+              "value": 81,
+              "result": "low",
+              "alpha": 81,
+              "beta": 98,
+              "attempt_nodes": 12300
+            },
+            {
+              "depth": 14,
+              "value": 59,
+              "result": "exact",
+              "alpha": 58,
+              "beta": 81,
+              "attempt_nodes": 26787
+            }
+          ]
+        },
+        "2_joint_intervention": {
+          "nodes": 69237,
+          "prev_depth_nodes": 63292,
+          "incremental_nodes": 5945,
+          "cum_reduction_pct": 46.56,
+          "incr_reduction_pct": 91.03,
+          "best": "c1e3",
+          "score_val": 37,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 7,
+          "iterations": 8,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 69,
+              "result": "high",
+              "alpha": 59,
+              "beta": 69,
+              "attempt_nodes": 3520
+            },
+            {
+              "depth": 13,
+              "value": 74,
+              "result": "high",
+              "alpha": 64,
+              "beta": 74,
+              "attempt_nodes": 339
+            },
+            {
+              "depth": 12,
+              "value": 80,
+              "result": "high",
+              "alpha": 68,
+              "beta": 80,
+              "attempt_nodes": 550
+            },
+            {
+              "depth": 11,
+              "value": 88,
+              "result": "high",
+              "alpha": 72,
+              "beta": 88,
+              "attempt_nodes": 256
+            },
+            {
+              "depth": 10,
+              "value": 98,
+              "result": "high",
+              "alpha": 78,
+              "beta": 98,
+              "attempt_nodes": 223
+            },
+            {
+              "depth": 9,
+              "value": 111,
+              "result": "high",
+              "alpha": 85,
+              "beta": 111,
+              "attempt_nodes": 403
+            },
+            {
+              "depth": 8,
+              "value": 128,
+              "result": "high",
+              "alpha": 94,
+              "beta": 128,
+              "attempt_nodes": 387
+            },
+            {
+              "depth": 7,
+              "value": 107,
+              "result": "exact",
+              "alpha": 105,
+              "beta": 151,
+              "attempt_nodes": 267
+            }
+          ]
+        },
+        "3_preserve_aspiration": {
+          "nodes": 105409,
+          "prev_depth_nodes": 63292,
+          "incremental_nodes": 42117,
+          "cum_reduction_pct": 18.64,
+          "incr_reduction_pct": 36.44,
+          "best": "c1e3",
+          "score_val": 37,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 3,
+          "fail_high": 0,
+          "iterations": 4,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 123,
+              "result": "low",
+              "alpha": 123,
+              "beta": 135,
+              "attempt_nodes": 12744
+            },
+            {
+              "depth": 14,
+              "value": 117,
+              "result": "low",
+              "alpha": 117,
+              "beta": 123,
+              "attempt_nodes": 10834
+            },
+            {
+              "depth": 14,
+              "value": 109,
+              "result": "low",
+              "alpha": 109,
+              "beta": 117,
+              "attempt_nodes": 8219
+            },
+            {
+              "depth": 14,
+              "value": 106,
+              "result": "exact",
+              "alpha": 99,
+              "beta": 109,
+              "attempt_nodes": 10320
+            }
+          ]
+        },
+        "4_preserve_previous_pv": {
+          "nodes": 70346,
+          "prev_depth_nodes": 63292,
+          "incremental_nodes": 7054,
+          "cum_reduction_pct": 45.7,
+          "incr_reduction_pct": 89.35,
+          "best": "c1e3",
+          "score_val": 52,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 7,
+          "iterations": 8,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 69,
+              "result": "high",
+              "alpha": 59,
+              "beta": 69,
+              "attempt_nodes": 3587
+            },
+            {
+              "depth": 13,
+              "value": 74,
+              "result": "high",
+              "alpha": 64,
+              "beta": 74,
+              "attempt_nodes": 539
+            },
+            {
+              "depth": 12,
+              "value": 80,
+              "result": "high",
+              "alpha": 68,
+              "beta": 80,
+              "attempt_nodes": 920
+            },
+            {
+              "depth": 11,
+              "value": 88,
+              "result": "high",
+              "alpha": 72,
+              "beta": 88,
+              "attempt_nodes": 537
+            },
+            {
+              "depth": 10,
+              "value": 98,
+              "result": "high",
+              "alpha": 78,
+              "beta": 98,
+              "attempt_nodes": 391
+            },
+            {
+              "depth": 9,
+              "value": 111,
+              "result": "high",
+              "alpha": 85,
+              "beta": 111,
+              "attempt_nodes": 689
+            },
+            {
+              "depth": 8,
+              "value": 128,
+              "result": "high",
+              "alpha": 94,
+              "beta": 128,
+              "attempt_nodes": 237
+            },
+            {
+              "depth": 7,
+              "value": 148,
+              "result": "exact",
+              "alpha": 105,
+              "beta": 151,
+              "attempt_nodes": 154
+            }
+          ]
+        },
+        "5_disable_fail_high_reduction": {
+          "nodes": 84044,
+          "prev_depth_nodes": 63292,
+          "incremental_nodes": 20752,
+          "cum_reduction_pct": 35.13,
+          "incr_reduction_pct": 68.68,
+          "best": "c1e3",
+          "score_val": 50,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 0,
+          "fail_high": 7,
+          "iterations": 8,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 69,
+              "result": "high",
+              "alpha": 59,
+              "beta": 69,
+              "attempt_nodes": 3520
+            },
+            {
+              "depth": 14,
+              "value": 74,
+              "result": "high",
+              "alpha": 64,
+              "beta": 74,
+              "attempt_nodes": 692
+            },
+            {
+              "depth": 14,
+              "value": 80,
+              "result": "high",
+              "alpha": 68,
+              "beta": 80,
+              "attempt_nodes": 1215
+            },
+            {
+              "depth": 14,
+              "value": 88,
+              "result": "high",
+              "alpha": 72,
+              "beta": 88,
+              "attempt_nodes": 913
+            },
+            {
+              "depth": 14,
+              "value": 98,
+              "result": "high",
+              "alpha": 78,
+              "beta": 98,
+              "attempt_nodes": 1179
+            },
+            {
+              "depth": 14,
+              "value": 111,
+              "result": "high",
+              "alpha": 85,
+              "beta": 111,
+              "attempt_nodes": 3377
+            },
+            {
+              "depth": 14,
+              "value": 128,
+              "result": "high",
+              "alpha": 94,
+              "beta": 128,
+              "attempt_nodes": 1373
+            },
+            {
+              "depth": 14,
+              "value": 143,
+              "result": "exact",
+              "alpha": 105,
+              "beta": 151,
+              "attempt_nodes": 8483
+            }
+          ]
+        },
+        "6_preserve_asp_and_pv": {
+          "nodes": 104537,
+          "prev_depth_nodes": 63292,
+          "incremental_nodes": 41245,
+          "cum_reduction_pct": 19.31,
+          "incr_reduction_pct": 37.76,
+          "best": "c1g5",
+          "score_val": 38,
+          "score_type": "cp",
+          "quality_valid_ref": false,
+          "fail_low": 3,
+          "fail_high": 1,
+          "iterations": 5,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 123,
+              "result": "low",
+              "alpha": 123,
+              "beta": 135,
+              "attempt_nodes": 10806
+            },
+            {
+              "depth": 14,
+              "value": 117,
+              "result": "low",
+              "alpha": 117,
+              "beta": 123,
+              "attempt_nodes": 3107
+            },
+            {
+              "depth": 14,
+              "value": 117,
+              "result": "high",
+              "alpha": 109,
+              "beta": 117,
+              "attempt_nodes": 3555
+            },
+            {
+              "depth": 13,
+              "value": 109,
+              "result": "low",
+              "alpha": 109,
+              "beta": 127,
+              "attempt_nodes": 4753
+            },
+            {
+              "depth": 14,
+              "value": 108,
+              "result": "exact",
+              "alpha": 96,
+              "beta": 109,
+              "attempt_nodes": 19024
+            }
+          ]
+        },
+        "7_preserve_asp_and_fhr": {
+          "nodes": 105409,
+          "prev_depth_nodes": 63292,
+          "incremental_nodes": 42117,
+          "cum_reduction_pct": 18.64,
+          "incr_reduction_pct": 36.44,
+          "best": "c1e3",
+          "score_val": 37,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 3,
+          "fail_high": 0,
+          "iterations": 4,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 123,
+              "result": "low",
+              "alpha": 123,
+              "beta": 135,
+              "attempt_nodes": 12744
+            },
+            {
+              "depth": 14,
+              "value": 117,
+              "result": "low",
+              "alpha": 117,
+              "beta": 123,
+              "attempt_nodes": 10834
+            },
+            {
+              "depth": 14,
+              "value": 109,
+              "result": "low",
+              "alpha": 109,
+              "beta": 117,
+              "attempt_nodes": 8219
+            },
+            {
+              "depth": 14,
+              "value": 106,
+              "result": "exact",
+              "alpha": 99,
+              "beta": 109,
+              "attempt_nodes": 10320
+            }
+          ]
+        },
+        "8_preserve_pv_and_fhr": {
+          "nodes": 93111,
+          "prev_depth_nodes": 63292,
+          "incremental_nodes": 29819,
+          "cum_reduction_pct": 28.13,
+          "incr_reduction_pct": 55.0,
+          "best": "f1c4",
+          "score_val": 38,
+          "score_type": "cp",
+          "quality_valid_ref": false,
+          "fail_low": 0,
+          "fail_high": 7,
+          "iterations": 8,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 69,
+              "result": "high",
+              "alpha": 59,
+              "beta": 69,
+              "attempt_nodes": 3587
+            },
+            {
+              "depth": 14,
+              "value": 74,
+              "result": "high",
+              "alpha": 64,
+              "beta": 74,
+              "attempt_nodes": 806
+            },
+            {
+              "depth": 14,
+              "value": 80,
+              "result": "high",
+              "alpha": 68,
+              "beta": 80,
+              "attempt_nodes": 756
+            },
+            {
+              "depth": 14,
+              "value": 88,
+              "result": "high",
+              "alpha": 72,
+              "beta": 88,
+              "attempt_nodes": 1028
+            },
+            {
+              "depth": 14,
+              "value": 98,
+              "result": "high",
+              "alpha": 78,
+              "beta": 98,
+              "attempt_nodes": 1918
+            },
+            {
+              "depth": 14,
+              "value": 111,
+              "result": "high",
+              "alpha": 85,
+              "beta": 111,
+              "attempt_nodes": 1899
+            },
+            {
+              "depth": 14,
+              "value": 128,
+              "result": "high",
+              "alpha": 94,
+              "beta": 128,
+              "attempt_nodes": 2130
+            },
+            {
+              "depth": 14,
+              "value": 109,
+              "result": "exact",
+              "alpha": 105,
+              "beta": 151,
+              "attempt_nodes": 17695
+            }
+          ]
+        },
+        "9_full_control_nominal_depth": {
+          "nodes": 85508,
+          "prev_depth_nodes": 63292,
+          "incremental_nodes": 22216,
+          "cum_reduction_pct": 34.0,
+          "incr_reduction_pct": 66.47,
+          "best": "c1e3",
+          "score_val": 38,
+          "score_type": "cp",
+          "quality_valid_ref": true,
+          "fail_low": 2,
+          "fail_high": 1,
+          "iterations": 4,
+          "root_overhead_nodes": 0,
+          "attempts": [
+            {
+              "depth": 14,
+              "value": 123,
+              "result": "low",
+              "alpha": 123,
+              "beta": 135,
+              "attempt_nodes": 10806
+            },
+            {
+              "depth": 14,
+              "value": 117,
+              "result": "low",
+              "alpha": 117,
+              "beta": 123,
+              "attempt_nodes": 3107
+            },
+            {
+              "depth": 14,
+              "value": 117,
+              "result": "high",
+              "alpha": 109,
+              "beta": 117,
+              "attempt_nodes": 3555
+            },
+            {
+              "depth": 14,
+              "value": 110,
+              "result": "exact",
+              "alpha": 109,
+              "beta": 127,
+              "attempt_nodes": 4748
+            }
+          ]
+        }
+      }
+    }
+  }
+}

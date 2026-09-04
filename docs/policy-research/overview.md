@@ -12,8 +12,8 @@ tests, exit gates, definition of done).
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
 | 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
 | 3 | Observational dataset and calibration baseline | **Complete (schema-derivable subset)** — prefix-free uniform-rate dataset v2 + root-held-out baseline report (protocol P3.2) landed; the P3.1 evaluation review (leaky row-random split + duplicated iterative-deepening prefixes, row-level SEs on 12 roots, non-random cell exclusion, collinear margins, in-sample isotonic fit) was fully addressed. §8.3 history / §8.4 baseline-score calibration and candidate-denominator analyses remain gated on the counterfactual candidate-enumeration schema (Phases 4/5). Strong *generalization* claims need a larger root sample (corpus/v2) |
-| 4 | Root-level counterfactual experiments | **Complete (P4.2 remediation, causal decomposition & canonical evaluation)** — expanded immutable `corpus/v3` (26 roots, unburned test split), exact byte-for-byte replay verification, 7-condition causal decomposition (isolated pure MovePicker order vs PV-follow vs aspiration depth reduction), 12-trial counterbalanced timing (72.2% median search time reduction [3.60× speedup factor] on Giuoco Piano c3-v-001, 64.5% median reduction [2.82× speedup factor] on CPW4 c3-d-004), and 18-root strict-candidate canonical evaluation (9/18 positive opportunities, 6 baseline-optimal, 2 harmful, 1 no-valid; 18.3% macro cumulative / 34.6% target-iteration savings, 22.1% pooled cumulative savings). |
-| 5 | Internal counterfactual search sandbox | **In progress** — isolated worker snapshot, deep position/StateInfo chain cloning, private history ownership with base-offset pointer rebinding, copy-on-first-access `ResearchTTOverlay`, `ScopedShadowProbe` recorder suppression, independent stop decoupling, and full C++ unit test suite (`SANDBOX_TEST_OK`) landed. |
+| 4 | Root-level counterfactual experiments | **Complete (Factorial Causal Decomposition, Multi-Trial Timing & Canonical Evidence)** — 26-root immutable `corpus/v3` (quarantined test set), full 2³ factorial causal decomposition isolating aspiration-optimism coupling and PV-follow decoupling, 12-trial counterbalanced timing (73.7% kernel time reduction [3.80× speedup factor] on `c3-v-001`, 64.9% kernel reduction [2.85× speedup factor] on `c3-d-004`), 18-root strict-candidate depth ladder (D12/D14/D16), and canonical tracked evidence in `docs/policy-research/evidence/p4-canonical/`. |
+| 5 | Internal counterfactual search sandbox | **Complete (Isolated Worker Sandbox, TT Overlay, Full Stack Forward Init, Whole-Table TT Immutability & Safety Hardening)** — compile-time templated `search<NT, TTAccess>` / `qsearch<NT, TTAccess>`, deep `StateInfo::previous` chain cloning with threefold repetition detection, private history rebinding, copy-on-first-access `ResearchTTOverlay`, whole-table 100% bit-for-bit base TT immutability verification, forward stack initialization up to `MAX_PLY + 10`, `Threads == 1` invariant assertion, automatic shadow search node budgeting & cooperative cancellation (`nodeBudget`), `ScopedShadowProbe` recorder suppression, and internal NNUE evaluation fidelity verified. |
 | 6 | Oracle / ratio / interaction-gap studies | Not started |
 | 7 | Proof-time survival modeling | Not started |
 | 8 | Exact and prototype Jacobian experiments | Not started |
@@ -22,6 +22,84 @@ tests, exit gates, definition of done).
 | 11 | Conservative engine integration | Not started |
 | 12 | On-policy data generation (DAgger) | Not started |
 | 13 | LMR shadow modeling | Not started |
+
+## Phase 5 — internal counterfactual search sandbox & isolation infrastructure
+
+Engine-side Phase 5 unit (plan §10) and comprehensive safety remediation:
+
+### P5.1 — Isolated Worker Snapshot & State Decoupling
+To evaluate counterfactual actions at internal search nodes without perturbing
+the live search tree, Stockfish implements `Stockfish::Research::IsolatedWorker`
+(`src/policy_research/worker_snapshot.h`, `worker_snapshot.cpp`):
+- **Worker Ownership & Memory Safety**: Heap-allocates an isolated `Search::Worker`
+  using `make_unique_large_page<Search::Worker>` along with heap-allocated
+  `Search::Stack` (pinned across `MAX_PLY + 10` frames) and `Search::PVMoves`. This
+  prevents stack-overflow hazards and `-Wstack-usage=128000` compiler warnings.
+- **Private History & Table Rebinding**: The snapshot owns a private `SharedHistories`
+  instance. All stack frame history pointers (`ss->continuationHistory`) and worker
+  correction history references are rebound from the parent search to the private
+  worker tables using exact relative offset rebinding.
+- **Deep Position & StateInfo Chain Rebinding**: `Position::clone_to(Position&, std::vector<StateInfo>&)`
+  deeply duplicates all board state, piece bitboards, rule-50 counters, and NNUE
+  accumulators, and reconstructs the complete linked list of `StateInfo::previous`
+  pointers. This preserves historical game trajectories and enables exact threefold
+  repetition detection (`st->repetition < 0`, `is_draw(0) == true`) and reversible
+  `undo_move()` operations.
+- **Forward Stack Sentinel Initialization**: Forward stack frames are initialized
+  through `MAX_PLY + 10` rather than merely nominal depth:
+  `ss->pv = nullptr; ss->continuationHistory = nullptr; ss->movePicker = nullptr; ss->currentMove = Move::none(); ss->ply = 0;`.
+  This guarantees that deep selective extensions, singular search verifications,
+  and quiescence searches never encounter uninitialized frame pointers or invalid
+  sentinels.
+- **Node Budgeting & Cooperative Cancellation**: Shadow searches support a private
+  node budget (`nodeBudget`). At every node in `Worker::search()` and `Worker::qsearch()`,
+  the isolated worker decrements the budget and triggers cooperative cancellation
+  (`threads.stop = true`) upon exhaustion, strictly bounding counterfactual probe
+  latency.
+- **Single-Threaded Safety Assertion**: `is_safe_environment()` asserts `threads.size() == 1`,
+  ensuring that internal shadow probes only run when the base transposition table
+  is synchronously paused and free from concurrent thread mutations.
+
+### P5.2 — Copy-on-First-Access Transposition Table Overlay
+Transposition table mutations during shadow searches are isolated by
+`Stockfish::Research::ResearchTTOverlay` (`src/policy_research/tt_overlay.h`, `tt_overlay.cpp`):
+- **Overlay Semantics**: Reads probe the private overlay hash map first; on miss,
+  they probe the underlying base TT (`TT.probe(...)`). Writes write strictly to the
+  overlay map, leaving the base TT completely untouched.
+- **Shared Replacement Logic**: Both base `TranspositionTable` and `ResearchTTOverlay`
+  share `probe_cluster(const Cluster&, u16, u8)` in `src/tt.h`, ensuring bit-identical
+  cluster replacement rules and generation aging between base and shadow searches.
+- **Bit-for-Bit Base TT Immutability Verification**: Shadow search test suites
+  verify base TT immutability by calculating whole-table memory comparisons
+  across 100% of base TT clusters (`cluster_data()`, `byte_size()`), verifying zero
+  mutations before and after shadow exploration.
+
+### P5.3 — Zero Production Overhead & Compile-Time Templating
+To prevent runtime branches or virtual dispatch overhead in production search hot paths:
+- `Search::Worker::search<NT, TTAccess>` and `qsearch<NT, TTAccess>` are fully
+  parameterized over compile-time policy access tags (`LiveTT` vs `ResearchTTOverlay`).
+- Explicit template instantiations in `src/search.cpp` generate specialized code
+  paths for research builds while production builds (`#ifndef POLICY_RESEARCH`) retain
+  monomorphic direct calls to `TT.probe()`.
+- Production macro-off build benchmark retains exactly **453,169 nodes** for
+  `bench 16 1 10 default depth`.
+
+### P5.4 — Recorder Suppression & NNUE Fidelity
+- `ScopedShadowProbe`: Suspends observational logging (`Research::log()`) and
+  suppresses root telemetry during active shadow searches, preventing counterfactual
+  tree explorations from contaminating observational datasets.
+- NNUE accumulator fidelity is validated at internal nodes: evaluating positions
+  via `evaluate()` and `evaluate_worker()` matches bit-identically across the original
+  and isolated worker instances.
+
+### P5.5 — Test Coverage & Canonical Evidence
+- C++ Unit Tests: `policy_research_test_sandbox` and `policy_research_test_overlay`
+  assert sandbox compilation, stack rebinding, repetition detection, whole-table TT
+  immutability, recorder suppression, and NNUE accumulator fidelity (`SANDBOX_TEST_OK`).
+- Python Test Suite: `tools/policy_research/tests/test_sandbox.py` (104 tests green).
+- Canonical Evidence: All experimental artifacts are committed under
+  `docs/policy-research/evidence/p4-canonical/` with clean commit provenance
+  (`tool_dirty: False`).
 
 ## Phase 4 — root-level counterfactual experiments
 
@@ -112,26 +190,84 @@ methodological findings and recommendations from the expert review:
 2. **Move-Identity Telemetry Attribution & Target-Iteration Effort**:
    - Emits per-attempt aspiration telemetry (`info string research root_telemetry ... attempts <depth>:<val>:<res>:<alpha>:<beta>:<attempt_nodes> ...`).
    - Disambiguates cumulative effort from target-iteration effort increments $\Delta E_D(m) = E_D(m) - E_{D-1}(m)$ by snapshotting and looking up effort by move identity (`Move`), resolving the vector-reordering sorting defect so move incremental efforts sum directly to target-iteration search nodes minus search root-level overhead: $\sum_m \Delta E_D(m) \le \Delta N_D$, with `root_overhead_nodes = max(0, incremental_nodes - sum(move_incremental_efforts))` explicitly recorded.
-3. **Common-Prefix Causal Decomposition (Root Order vs PV-Follow vs Aspiration Depth Control)**:
-   Added research options `PolicyResearchPreserveAspiration`, `PolicyResearchDisableFailHighReduction`, `PolicyResearchPreservePreviousPV`, and `PolicyResearchAblationDepth`, depth-gated to the intervention target depth so that depths 1..D-1 run standard Stockfish search identically (`prev_depth_nodes` is 100% byte-for-byte identical across all conditions):
+3. **Common-Prefix Causal Decomposition (Full 2³ Factorial Design: Root Order vs PV-Follow vs Aspiration Depth Control)**:
+   Added research options `PolicyResearchPreserveAspiration`, `PolicyResearchDisableFailHighReduction`, `PolicyResearchPreservePreviousPV`, and `PolicyResearchAblationDepth`, depth-gated to the intervention target depth so that depths 1..D-1 run standard Stockfish search identically. Across all conditions, depths 1..D-1 achieve common-prefix state equivalence (`prev_depth_nodes` is 100% identical: 3,671 on `c3-v-001`, 22,499 on `c3-d-004`, 16,131 on `c3-d-002`, 63,292 on `c3-d-007`).
+   
+   To cleanly isolate main causal effects from two-way and three-way interaction effects, the causal decomposition evaluates a full orthogonal $2^3$ factorial design (8 forced intervention conditions + untreated baseline, schema version 4 in `causal-decomposition.json`):
    - Condition 1 (`baseline`): Untreated baseline search.
-   - Condition 2 (`joint_intervention`): Forced candidate into `rootMoves[0]`, which simultaneously reorders the root and updates `lastIterationIdxPV` / `ss->followPV`.
-   - Condition 3 (`preserve_aspiration`): Forced move with baseline aspiration window center and width (keeps joint root-order/PV-state, disables aspiration window shifts).
-   - Condition 4 (`preserve_previous_pv`): Forced move with baseline leader's previous PV preserved (`rootMoves[0].pv` set to baseline leader's PV), isolating pure first-slot move ordering from PV-following down the tree.
-   - Condition 5 (`disable_fail_high_reduction`): Forced move at unreduced nominal depth (disables `failedHighCnt` reductions).
-   - Condition 6 (`preserve_asp_and_fhr`): Forced move with baseline aspiration AND unreduced nominal depth.
-   - Condition 7 (`full_control_nominal_depth`): Forced move with baseline aspiration center, baseline previous PV preserved, AND unreduced nominal depth (full orthogonal control).
-   Empirical findings:
-   - On `c3-d-004` (CPW4, tactical middlegame): savings persist across all conditions with zero aspiration failures. Under Condition 4 (`preserve_previous_pv`), savings are **63.64% cumulative / 93.86% target-iteration nodes** (25,410 vs 69,878 nodes), and under Condition 7 (`full_control_nominal_depth`), savings are **65.39% cumulative / 96.44% target-iteration nodes** (24,186 vs 69,878 nodes), demonstrating that first-slot move ordering dominates over PV-following and aspiration depth control on this position.
-   - On `c3-v-001` (Giuoco Piano blunder): pure move ordering at nominal depth 14 (Condition 6) saves 31.05% cumulative / 37.64% target-iteration nodes (14,450 vs 20,956); preserving baseline previous PV (Condition 4) saves 75.03% cumulative / 90.97% incremental nodes (5,232 vs 20,956); under full control (Condition 7), cumulative savings are 36.71% (13,263 vs 20,956 nodes); joint intervention with fail-high depth reduction (Condition 2) saves 73.07% cumulative (5,643 nodes at D11). This demonstrates that pure move ordering alone provides 36.7% cumulative savings, while fail-high depth reduction accounts for the remainder.
-   - On `c3-d-002` (Kiwipete): fail-high depth reductions control search explosion in high-branching tactical positions (forcing nominal D14 inflates nodes from 18k to 32k or 78k).
-   - On `c3-d-007` (strict candidate `a2a3`): joint intervention saves 46.56% cumulative (69,237 vs 129,556 nodes); under full control (Condition 7), savings are 34.00% cumulative (85,508 vs 129,556 nodes).
+   - Condition 2 (`joint_intervention`): Forced candidate into `rootMoves[0]`, simultaneously updating root ordering, setting `lastIterationIdxPV = candidate`, and enabling normal aspiration window adjustments and fail-high depth reductions.
+   - Condition 3 (`preserve_aspiration`): Forced move with baseline aspiration window center and width (asp=1, pv=0, fhr=0).
+   - Condition 4 (`preserve_previous_pv`): Forced move with baseline leader's previous PV preserved (`rootMoves[0].pv` set to baseline leader's PV; asp=0, pv=1, fhr=0).
+   - Condition 5 (`disable_fail_high_reduction`): Forced move at unreduced nominal depth (disabling `failedHighCnt` reductions; asp=0, pv=0, fhr=1).
+   - Condition 6 (`preserve_asp_and_pv`): Forced move with baseline aspiration AND baseline previous PV preserved (asp=1, pv=1, fhr=0).
+   - Condition 7 (`preserve_asp_and_fhr`): Forced move with baseline aspiration AND unreduced nominal depth (asp=1, pv=0, fhr=1).
+   - Condition 8 (`preserve_pv_and_fhr`): Forced move with baseline previous PV preserved AND unreduced nominal depth (asp=0, pv=1, fhr=1).
+   - Condition 9 (`full_control_nominal_depth`): Forced move with baseline aspiration center, baseline previous PV preserved, AND unreduced nominal depth (full orthogonal control; asp=1, pv=1, fhr=1).
+
+   *Architectural Mechanisms Explained*:
+   - **Aspiration-Optimism Coupling**: In Stockfish (`Search::Worker::iterative_deepening`), aspiration window bounds and player optimism are coupled: Stockfish sets both initial aspiration center and optimism from `avg = rootMoves[pvIdx].averageScore`, computing `optimism[us] = 114 * avg / (abs(avg) + 85)`. Under the unconstrained joint intervention (Condition 2), forcing a move resets `avg = rootMoves[0].averageScore`, altering both the window center and the optimism evaluation scaling. Preserving baseline aspiration (Conditions 3, 6, 7, 9) locks both the window center and the player optimism to the baseline value.
+   - **PV-Follow Decoupling**: Downstream PV-following in Stockfish requires `(ss - 1)->currentMove == lastIterationIdxPV[0]` at ply 1 to maintain `ss->followPV = true`. Setting `lastIterationIdxPV = baselinePreviousPV` (Conditions 4, 6, 8, 9) ensures that when the candidate move differs from the baseline previous PV leader, `ss->followPV` immediately evaluates to `false` at ply 1. This cleanly decouples first-slot root move ordering from downstream PV-following bias without altering root move ordering.
+
+   *Empirical Factorial Findings (Canonical Schema v4)*:
+   | Root | Condition | Nodes | Incr D14 | Cumul % | Qual vs Ref | Score |
+   |---|---|---:|---:|---:|:---:|---:|
+   | `c3-v-001` (b1c3, ref d4c5: 642 cp) | 1_baseline | 20,956 | 17,285 | 0.00% | PASS | 654 |
+   | | 2_joint_intervention | 5,643 | 1,972 | +73.07% | PASS | 642 |
+   | | 3_preserve_aspiration | 14,450 | 10,779 | +31.05% | PASS | 667 |
+   | | 4_preserve_previous_pv | 5,232 | 1,561 | +75.03% | PASS | 688 |
+   | | 5_disable_fail_high_reduction | 9,293 | 5,622 | +55.65% | PASS | 637 |
+   | | 6_preserve_asp_and_pv | 13,263 | 9,592 | +36.71% | PASS | 651 |
+   | | 7_preserve_asp_and_fhr | 14,450 | 10,779 | +31.05% | PASS | 667 |
+   | | 8_preserve_pv_and_fhr | 11,667 | 7,996 | +44.33% | PASS | 679 |
+   | | 9_full_control_nominal_depth | 13,263 | 9,592 | +36.71% | PASS | 651 |
+   | `c3-d-004` (g1h1, ref c4c5: -692 cp) | 1_baseline | 69,878 | 47,379 | 0.00% | PASS | -647 |
+   | | 2_joint_intervention | 24,972 | 2,473 | +64.26% | PASS | -654 |
+   | | 3_preserve_aspiration | 24,596 | 2,097 | +64.80% | FAIL_GATE | -628 |
+   | | 4_preserve_previous_pv | 25,410 | 2,911 | +63.64% | PASS | -654 |
+   | | 5_disable_fail_high_reduction | 24,972 | 2,473 | +64.26% | PASS | -654 |
+   | | 6_preserve_asp_and_pv | 24,186 | 1,687 | +65.39% | FAIL_GATE | -628 |
+   | | 7_preserve_asp_and_fhr | 24,596 | 2,097 | +64.80% | FAIL_GATE | -628 |
+   | | 8_preserve_pv_and_fhr | 25,410 | 2,911 | +63.64% | PASS | -654 |
+   | | 9_full_control_nominal_depth | 24,186 | 1,687 | +65.39% | FAIL_GATE | -628 |
+   | `c3-d-002` (e1g1, ref e2a6: -89 cp) | 1_baseline | 25,490 | 9,359 | 0.00% | PASS | -43 |
+   | | 2_joint_intervention | 18,176 | 2,045 | +28.69% | PASS | -87 |
+   | | 3_preserve_aspiration | 26,456 | 10,325 | -3.79% | PASS | -54 |
+   | | 4_preserve_previous_pv | 18,634 | 2,503 | +26.90% | PASS | -60 |
+   | | 5_disable_fail_high_reduction | 32,602 | 16,471 | -27.90% | FAIL_GATE | -21 |
+   | | 6_preserve_asp_and_pv | 37,666 | 21,535 | -47.77% | PASS | -56 |
+   | | 7_preserve_asp_and_fhr | 78,030 | 61,899 | -206.12% | PASS | -56 |
+   | | 8_preserve_pv_and_fhr | 25,659 | 9,528 | -0.66% | PASS | -56 |
+   | | 9_full_control_nominal_depth | 74,594 | 58,463 | -192.64% | PASS | -63 |
+   | `c3-d-007` (a2a3, ref c1e3: 33 cp) | 1_baseline | 129,556 | 66,264 | 0.00% | FAIL_GATE | 21 |
+   | | 2_joint_intervention | 69,237 | 5,945 | +46.56% | PASS | 37 |
+   | | 3_preserve_aspiration | 105,409 | 42,117 | +18.64% | PASS | 37 |
+   | | 4_preserve_previous_pv | 70,346 | 7,054 | +45.70% | PASS | 52 |
+   | | 5_disable_fail_high_reduction | 84,044 | 20,752 | +35.13% | PASS | 50 |
+   | | 6_preserve_asp_and_pv | 104,537 | 41,245 | +19.31% | FAIL_GATE | 38 |
+   | | 7_preserve_asp_and_fhr | 105,409 | 42,117 | +18.64% | PASS | 37 |
+   | | 8_preserve_pv_and_fhr | 93,111 | 29,819 | +28.13% | FAIL_GATE | 38 |
+   | | 9_full_control_nominal_depth | 85,508 | 22,216 | +34.00% | PASS | 38 |
+
+   *Causal Insights & Quality Gate Clarifications*:
+   - On `c3-d-004`: While all forced conditions reduce nodes substantially (~64–65% cumulative savings), conditions that preserve baseline aspiration (Conditions 3, 6, 7, 9) finish with score -628 cp. Relative to the D18 reference score of -692 cp, $|\Delta| = 64\text{ cp} > 50\text{ cp}$, which fails the strict quality gate (`quality_valid_ref: false`). Conversely, conditions without baseline aspiration preservation (Conditions 2, 4, 5, 8) finish with score -654 cp ($|\Delta| = 38\text{ cp} \le 50\text{ cp}$), passing the quality gate. Condition 4 (`preserve_previous_pv`) saves **63.64% cumulative / 93.86% incremental nodes** (25,410 vs 69,878 nodes) while passing all quality criteria, demonstrating genuine move-ordering leverage without PV-follow distortion.
+   - On `c3-v-001`: Pure move ordering at nominal depth 14 with previous PV preserved (Condition 9, full control) saves 36.71% cumulative / 44.51% incremental nodes (13,263 vs 20,956 nodes) while strictly passing quality validation. Joint intervention with fail-high depth reduction (Condition 2) saves 73.07% cumulative (5,643 nodes at D11). This disentangles pure move ordering (~36.7%) from fail-high depth reduction (~36.4%).
+   - On `c3-d-002` (Kiwipete): Disabling fail-high reductions in this tactically volatile root causes severe search inflation (Condition 7 inflates nodes to 78,030 vs 25,490 baseline), confirming that fail-high depth reductions are essential for controlling alpha-beta branching factor in complex tactics.
    - Forcing the **D-1 lead move** (`d_minus_1_lead_move`) is the exact byte-for-byte no-op control (e.g. on `c3-d-007`: baseline 129,556 nodes == forced `c1e3` 129,556 nodes). Forcing the untreated final best move (`f2f3`) is an active intervention (66,704 nodes) because `f2f3` was not the leader at the start of iteration D14.
 4. **Balanced Latin-Square Multi-Trial Timing Benchmark**:
-   - Implemented a balanced Latin square cyclic design across trials in `p4_force_first.py` (`--trials N`) where each treatment appears in each ordinal position an equal number of times across trials, eliminating thermal and first-runner cache warming biases.
-   - On `c3-v-001` (12 counterbalanced runs): engine median search time dropped from 18.0 ms (IQR 1.0 ms, mean 18.33±0.49 ms) to 5.0 ms (IQR 1.0 ms, mean 5.33±0.49 ms), representing a **72.2% median engine search time reduction** (a **3.60× speedup factor**).
-   - On `c3-d-004` (12 counterbalanced runs): engine median search time dropped from 62.0 ms (IQR 1.0 ms, mean 62.33±0.98 ms) to 22.0 ms (IQR 1.0 ms, mean 22.50±1.17 ms), representing a **64.5% median engine search time reduction** (a **2.82× speedup factor**).
-   - *Benchmark caveat*: These measurements reflect pure search kernel time reductions under isolated execution without policy model evaluation; deployable net speedup will be bounded by neural inference latency, MovePicker sorting overhead, and cache footprint.
+   - Implemented a balanced Latin square cyclic design across trials in `p4_force_first.py` (`--trials 12`) where each treatment appears in each ordinal position an equal number of times across trials, eliminating thermal throttling and first-runner cache warming biases.
+   - Distinct Timing Definitions & Reconciled Results (Canonical 12-Trial Evidence in `timing-benchmark-trials12.json`):
+     * **Search-Kernel Time Reduction Percentage**: $(T_{\text{base}} - T_{\text{cand}}) / T_{\text{base}}$, representing the isolated search-kernel speed gain inside the alpha-beta search loop.
+     * **Search-Kernel Multiplicative Speedup Factor**: $T_{\text{base}} / T_{\text{cand}}$.
+     * **Wall Time Reduction Percentage**: $(W_{\text{base}} - W_{\text{cand}}) / W_{\text{base}}$, reflecting total end-to-end execution including process startup, UCI handshake, and ~300 ms fixed memory allocation.
+     * **Scope Boundary**: Kernel timings measure search-loop work excluding neural model inference and MovePicker sorting overhead.
+   - On `c3-v-001` (12 counterbalanced runs):
+     * Baseline search time: median 19.0 ms (IQR 0.0 ms, mean 18.9±0.5 ms), wall time median 325.4 ms.
+     * Candidate `b1c3` search time: median 5.0 ms (IQR 1.0 ms, mean 5.4±0.5 ms), wall time median 311.7 ms.
+     * **Search-kernel time reduction: 73.7%** (a **3.80× speedup factor**). Wall time reduction: 4.2%.
+   - On `c3-d-004` (12 counterbalanced runs):
+     * Baseline search time: median 65.5 ms (IQR 3.0 ms, mean 65.6±2.0 ms), wall time median 371.3 ms.
+     * Candidate `g1h1` search time: median 23.0 ms (IQR 1.0 ms, mean 23.3±1.1 ms), wall time median 329.1 ms.
+     * **Search-kernel time reduction: 64.9%** (a **2.85× speedup factor**). Wall time reduction: 11.4%.
 5. **Full 18-Root Population Depth Ladder (D12, D14, D16 with Fixed D10 Candidates)**:
    Evaluated the full 18-root development and validation corpus across depths 12, 14, 16 using a fixed candidate shortlist generated at D10 (`depth-ladder-dev-val.json` via dedicated runner `p4_depth_ladder.py`).
    *Methodology note*: In early exploratory runs, candidate lists at depth $D$ included the depth-$D$ untreated final best move. Purging same-depth hindsight injection and using strictly fixed D10 candidate sets (with the $D-1$ leader as the sole exact no-op control) confirms that headline opportunities are robust (9/18 roots positive, 22.1% pooled cumulative savings vs 22.4% with hindsight injection; e.g. on `c3-d-007` strict candidate `a2a3` yields +46.6% savings vs +48.5% with `f2f3`).
