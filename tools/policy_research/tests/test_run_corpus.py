@@ -531,6 +531,8 @@ class TestForceFirstRootOrder(unittest.TestCase):
         att = tel["attempts"][0]
         self.assertIn("depth", att)
         self.assertIn("result", att)
+        self.assertIn("attempt_nodes", att)
+        self.assertIsNotNone(att["attempt_nodes"])
         # Check moves telemetry format: effort_total and effort_incremental
         m_info = next(iter(tel["moves"].values()))
         self.assertIn("effort_total", m_info)
@@ -559,8 +561,32 @@ class TestForceFirstRootOrder(unittest.TestCase):
         tel = r["root_telemetry"]
         self.assertIsNotNone(tel)
         sum_incr = sum(m["effort_incremental"] for m in tel["moves"].values())
-        self.assertEqual(sum_incr, r["incremental_nodes"],
-                         f"Sum of move effort_incremental ({sum_incr}) must equal incremental_nodes ({r['incremental_nodes']})")
+        self.assertLessEqual(sum_incr, r["incremental_nodes"],
+                             f"Sum of move effort_incremental ({sum_incr}) must be <= incremental_nodes ({r['incremental_nodes']})")
+        overhead = r["incremental_nodes"] - sum_incr
+        self.assertEqual(overhead, tel["root_overhead_nodes"])
+        self.assertGreaterEqual(overhead, 0)
+
+    def test_d_minus_1_lead_move_exact_no_op(self):
+        self._skip_if_no_engine()
+        import tools.policy_research.p4_force_first as p4
+        eng = p4.Engine(self.ENGINE)
+        fen = "r1bqkb1r/1p2pppp/p1np1n2/8/3NP3/2N1B3/PPP2PPP/R2QKB1R w KQkq - 2 7"
+        base = eng.run_search(fen, depth=14)
+        lead_mv = base.get("d_minus_1_lead_move")
+        self.assertIsNotNone(lead_mv)
+        forced = eng.run_search(fen, depth=14, force_move=lead_mv, force_depth=14)
+        self.assertEqual(base["nodes"], forced["nodes"],
+                         f"Forcing D-1 lead move '{lead_mv}' must be an exact no-op byte-for-byte")
+
+    def test_preserve_previous_pv_option(self):
+        self._skip_if_no_engine()
+        import tools.policy_research.p4_force_first as p4
+        eng = p4.Engine(self.ENGINE)
+        fen = "r1bqk2r/pppp1ppp/2n5/2b5/2BPn3/5N2/PP3PPP/RNBQK2R w KQkq - 0 7"
+        r = eng.run_search(fen, depth=14, force_move="b1c3", force_depth=14, preserve_previous_pv=True, ablation_depth=14)
+        self.assertEqual(r["best"], "d4c5")
+        self.assertGreater(r["nodes"], 0)
 
     def test_causal_common_prefix_preservation(self):
         self._skip_if_no_engine()

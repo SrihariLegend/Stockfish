@@ -252,6 +252,11 @@ class EngineSession:
         except Exception:
             pass
         try:
+            if self.proc.stdout is not None:
+                self.proc.stdout.close()
+        except Exception:
+            pass
+        try:
             self.proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             self.proc.kill()

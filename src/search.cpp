@@ -374,6 +374,7 @@ bool Search::Worker::iterative_deepening() {
 #ifdef POLICY_RESEARCH
         Value baselineAvgScore = rootMoves.empty() ? VALUE_ZERO : rootMoves[0].averageScore;
         i64   baselineMssScore = rootMoves.empty() ? 0 : rootMoves[0].meanSquaredScore;
+        RootPVMoves baselinePreviousPV = rootMoves.empty() ? RootPVMoves{} : rootMoves[0].previousPV;
 #endif
 
 #ifdef POLICY_RESEARCH
@@ -462,6 +463,20 @@ bool Search::Worker::iterative_deepening() {
             }
 
             lastIterationIdxPV = rootMoves[pvIdx].previousPV;
+#ifdef POLICY_RESEARCH
+            const int targetAblationDepth = Research::config().ablationDepth > 0
+                                          ? Research::config().ablationDepth
+                                          : Research::config().forceFirstDepth;
+            const bool ablationActive = (targetAblationDepth == 0 || rootDepth == targetAblationDepth);
+
+            if (pvIdx == 0 && is_mainthread() && multiPV == 1 && Research::enabled()
+                && Research::config().mode == Research::Mode::RootCounterfactual
+                && Research::config().preservePreviousPV
+                && ablationActive)
+            {
+                lastIterationIdxPV = baselinePreviousPV;
+            }
+#endif
 
             // Reset UCI info selDepth for each depth and each PV line
             selDepth = 0;
@@ -473,7 +488,7 @@ bool Search::Worker::iterative_deepening() {
             if (is_mainthread() && multiPV == 1 && Research::enabled()
                 && Research::config().mode == Research::Mode::RootCounterfactual
                 && Research::config().preserveAspiration
-                && (Research::config().forceFirstDepth == 0 || rootDepth == Research::config().forceFirstDepth))
+                && ablationActive)
             {
                 avg   = baselineAvgScore;
                 delta = 5 + threadIdx % 8 + std::abs(baselineMssScore) / 10193;
@@ -492,6 +507,8 @@ bool Search::Worker::iterative_deepening() {
             if (!pvIdx)
                 failHighRecovery = std::max(0, failHighRecovery - 2);
 #ifdef POLICY_RESEARCH
+            const bool doRootTelemetry = is_mainthread() && multiPV == 1 && Research::enabled()
+                                      && Research::config().mode == Research::Mode::RootCounterfactual;
             int aspirationFailLow = 0;
             int aspirationFailHigh = 0;
             int aspirationIterations = 0;
@@ -500,13 +517,17 @@ bool Search::Worker::iterative_deepening() {
                 int alpha;
                 int beta;
                 int value;
+                u64 attemptNodes;
                 std::string result;
             };
             std::vector<AspAttempt> aspAttempts;
             std::vector<std::pair<Move, u64>> depthStartEffort;
-            depthStartEffort.reserve(rootMoves.size());
-            for (size_t i = 0; i < rootMoves.size(); ++i)
-                depthStartEffort.emplace_back(rootMoves[i].pv[0], rootMoves[i].effort);
+            if (doRootTelemetry)
+            {
+                depthStartEffort.reserve(rootMoves.size());
+                for (size_t i = 0; i < rootMoves.size(); ++i)
+                    depthStartEffort.emplace_back(rootMoves[i].pv[0], rootMoves[i].effort);
+            }
 #endif
             while (true)
             {
@@ -515,31 +536,34 @@ bool Search::Worker::iterative_deepening() {
                 Depth adjustedDepth = std::max(1, rootDepth - failedHighCnt - failHighRecovery
                                                     - 3 * (searchAgainCounter + 1) / 4);
 #ifdef POLICY_RESEARCH
-                if (is_mainthread() && multiPV == 1 && Research::enabled()
-                    && Research::config().mode == Research::Mode::RootCounterfactual
-                    && Research::config().disableFailHighReduction
-                    && (Research::config().forceFirstDepth == 0 || rootDepth == Research::config().forceFirstDepth))
+                if (doRootTelemetry && Research::config().disableFailHighReduction && ablationActive)
                 {
                     adjustedDepth = std::max(1, rootDepth - 3 * (searchAgainCounter + 1) / 4);
                 }
-                aspirationIterations++;
+                if (doRootTelemetry)
+                    aspirationIterations++;
+                u64 attemptStartNodes = nodes;
 #endif
                 rootDelta           = beta - alpha;
                 bestValue           = search<Root>(rootPos, ss, alpha, beta, adjustedDepth, false);
 
 #ifdef POLICY_RESEARCH
-                AspAttempt att;
-                att.depth = int(adjustedDepth);
-                att.alpha = int(alpha);
-                att.beta  = int(beta);
-                att.value = int(bestValue);
-                if (bestValue <= alpha)
-                    att.result = "low";
-                else if (bestValue >= beta)
-                    att.result = "high";
-                else
-                    att.result = "exact";
-                aspAttempts.push_back(att);
+                if (doRootTelemetry)
+                {
+                    AspAttempt att;
+                    att.depth = int(adjustedDepth);
+                    att.alpha = int(alpha);
+                    att.beta  = int(beta);
+                    att.value = int(bestValue);
+                    att.attemptNodes = (nodes >= attemptStartNodes) ? (nodes - attemptStartNodes) : 0;
+                    if (bestValue <= alpha)
+                        att.result = "low";
+                    else if (bestValue >= beta)
+                        att.result = "high";
+                    else
+                        att.result = "exact";
+                    aspAttempts.push_back(att);
+                }
 #endif
 
                 // Bring the best move to the front. It is critical that sorting
@@ -602,7 +626,7 @@ bool Search::Worker::iterative_deepening() {
                 && Research::config().mode == Research::Mode::RootCounterfactual)
             {
                 std::stringstream ss_tel;
-                ss_tel << "info string research root_telemetry depth " << int(rootDepth)
+                ss_tel << " info string research root_telemetry depth " << int(rootDepth)
                        << " fail_low " << aspirationFailLow
                        << " fail_high " << aspirationFailHigh
                        << " iterations " << aspirationIterations
@@ -610,7 +634,7 @@ bool Search::Worker::iterative_deepening() {
                 for (const auto& a : aspAttempts)
                 {
                     ss_tel << " " << a.depth << ":" << a.value << ":" << a.result
-                           << ":" << a.alpha << ":" << a.beta;
+                           << ":" << a.alpha << ":" << a.beta << ":" << a.attemptNodes;
                 }
                 ss_tel << " moves";
                 for (size_t i = 0; i < rootMoves.size(); ++i)

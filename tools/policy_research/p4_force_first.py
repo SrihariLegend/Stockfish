@@ -83,6 +83,7 @@ def parse_root_telemetry_line(line: str):
                     "result": parts[2],
                     "alpha": int(parts[3]) if len(parts) >= 5 else None,
                     "beta": int(parts[4]) if len(parts) >= 5 else None,
+                    "attempt_nodes": int(parts[5]) if len(parts) >= 6 else None,
                 })
 
     moves_map = {}
@@ -276,6 +277,8 @@ class Engine:
                     if info.get("depth") == target_depth - 1:
                         res["prev_depth_nodes"] = info.get("nodes", 0)
                         res["prev_depth_time_ms"] = info.get("time_ms", 0)
+                        if info.get("pv"):
+                            res["d_minus_1_lead_move"] = info.get("pv").split()[0]
                     elif info.get("depth") == target_depth:
                         res.update(info)
                 if line.startswith("bestmove"):
@@ -308,7 +311,13 @@ class Engine:
             )
         res["incremental_nodes"] = max(0, res["nodes"] - (res["prev_depth_nodes"] or 0))
         res["incremental_time_ms"] = max(0, (res["time_ms"] or 0) - (res["prev_depth_time_ms"] or 0))
-        res["root_telemetry"] = res["telemetry"].get(target_depth)
+        if target_depth in res["telemetry"]:
+            tel = res["telemetry"][target_depth]
+            sum_eff = sum(m.get("effort_incremental", 0) for m in tel.get("moves", {}).values())
+            tel["root_overhead_nodes"] = max(0, res["incremental_nodes"] - sum_eff)
+            res["root_telemetry"] = tel
+        else:
+            res["root_telemetry"] = None
         return res
 
     def top_k(self, fen: str, depth: int, k: int):
@@ -364,6 +373,8 @@ class Engine:
         force_depth: int = 0,
         preserve_aspiration: bool = False,
         disable_fail_high_reduction: bool = False,
+        ablation_depth: int = 0,
+        preserve_previous_pv: bool = False,
     ):
         cmds = [
             "setoption name PolicyResearch value on",
@@ -372,10 +383,14 @@ class Engine:
         if force_move:
             cmds.append(f"setoption name PolicyResearchForceFirstMove value {force_move}")
             cmds.append(f"setoption name PolicyResearchForceFirstDepth value {force_depth}")
+        if ablation_depth > 0:
+            cmds.append(f"setoption name PolicyResearchAblationDepth value {ablation_depth}")
         if preserve_aspiration:
             cmds.append("setoption name PolicyResearchPreserveAspiration value on")
         if disable_fail_high_reduction:
             cmds.append("setoption name PolicyResearchDisableFailHighReduction value on")
+        if preserve_previous_pv:
+            cmds.append("setoption name PolicyResearchPreservePreviousPV value on")
         cmds.extend(["isready", f"position fen {fen}", f"go depth {depth}"])
         return self._talk(cmds, depth)
 
@@ -393,10 +408,17 @@ def evaluate_root(
     trials: int = 1,
     preserve_aspiration: bool = False,
     disable_fail_high_reduction: bool = False,
+    preserve_previous_pv: bool = False,
+    ablation_depth: int = 0,
+    fixed_candidates: list[str] | None = None,
 ):
     fen = root_info["fen"]
     root_set = root_info["set"]
     is_burned = root_id == "c1-t-001"
+
+    abl_depth = ablation_depth if ablation_depth > 0 else (
+        depth if (preserve_aspiration or disable_fail_high_reduction or preserve_previous_pv) else 0
+    )
 
     # 1. Baseline search at depth D
     base = eng.run_search(
@@ -404,6 +426,8 @@ def evaluate_root(
         depth,
         preserve_aspiration=preserve_aspiration,
         disable_fail_high_reduction=disable_fail_high_reduction,
+        ablation_depth=abl_depth,
+        preserve_previous_pv=preserve_previous_pv,
     )
 
     # 2. Reference search at ref_depth (clean baseline, no override)
@@ -425,7 +449,10 @@ def evaluate_root(
         base_score_agrees_ref = False
 
     # 3. Candidate shortlist from depth candidate_depth MultiPV
-    candidates = eng.top_k(fen, candidate_depth, k)
+    if fixed_candidates is not None:
+        candidates = list(fixed_candidates)
+    else:
+        candidates = eng.top_k(fen, candidate_depth, k)
     if base["best"] not in candidates:
         candidates.insert(0, base["best"])
 
@@ -439,6 +466,8 @@ def evaluate_root(
             force_depth=force_depth,
             preserve_aspiration=preserve_aspiration,
             disable_fail_high_reduction=disable_fail_high_reduction,
+            ablation_depth=abl_depth,
+            preserve_previous_pv=preserve_previous_pv,
         )
 
         # Quality evaluation (plan 9.4)
@@ -517,6 +546,8 @@ def evaluate_root(
         rec = {
             "move": mv,
             "is_baseline_best": (mv == base["best"]),
+            "is_untreated_final_best": (mv == base["best"]),
+            "is_d_minus_1_lead_move": (mv == base.get("d_minus_1_lead_move")),
             "nodes": r["nodes"],
             "incremental_nodes": inc_nodes,
             "prev_depth_nodes": r["prev_depth_nodes"],
@@ -725,6 +756,8 @@ def evaluate_root(
         "depth_mode": depth_mode,
         "preserve_aspiration": preserve_aspiration,
         "disable_fail_high_reduction": disable_fail_high_reduction,
+        "preserve_previous_pv": preserve_previous_pv,
+        "ablation_depth": abl_depth,
         "base": {
             "nodes": base["nodes"],
             "incremental_nodes": base["incremental_nodes"],
@@ -735,6 +768,7 @@ def evaluate_root(
             "score_val": base["score_val"],
             "score_bound": base["score_bound"],
             "best": base["best"],
+            "d_minus_1_lead_move": base.get("d_minus_1_lead_move"),
             "pv": base["pv"],
             "root_telemetry": base.get("root_telemetry"),
         },
@@ -899,6 +933,17 @@ def main():
         action="store_true",
         help="Causal ablation: disable failedHighCnt depth reduction (force searches at nominal depth).",
     )
+    ap.add_argument(
+        "--preserve-previous-pv",
+        action="store_true",
+        help="Causal ablation: keep baseline leader's previousPV (isolate pure first-slot ordering without PV-follow changes).",
+    )
+    ap.add_argument(
+        "--ablation-depth",
+        type=int,
+        default=0,
+        help="Depth at which causal ablations apply (default: target depth).",
+    )
     ap.add_argument("--ids", default=None, help="Comma-separated root IDs (default: all dev and val roots).")
     ap.add_argument("--corpus", default=None, help="Path to corpus JSON (default: corpora/corpus-v3.json).")
     ap.add_argument("--out", default=None, help="Output JSON path.")
@@ -945,6 +990,8 @@ def main():
             trials=args.trials,
             preserve_aspiration=args.preserve_aspiration,
             disable_fail_high_reduction=args.disable_fail_high_reduction,
+            preserve_previous_pv=args.preserve_previous_pv,
+            ablation_depth=args.ablation_depth,
         )
         all_results.append(res)
         print_root_report(res)
