@@ -978,37 +978,56 @@ Do not choose a universal pass threshold in code. Report:
 
 ---
 
-**Status — P4.1 kickoff landed (engine work `b5ab17f7`, docs round follows).**
-§9.1's override exists as a research-only unit:
-`PolicyResearchForceFirstMove` (UCI string, default empty; honored only with
-`PolicyResearch` on + mode `RootCounterfactual`, main thread, `multiPV == 1`;
-hook at the per-iteration start in `Worker::iterative_deepening()`,
-`#ifdef POLICY_RESEARCH`-gated). It rotates the named legal root move to the
-front of `rootMoves` before the PV loop each root iteration — searched first
-at the new depth, all remaining moves in their relative baseline order, no
-`searchmoves` restriction — and is deliberately inert in `Observational`
-mode and when the master switch is off. Illegal root moves are ignored with
-an `info string` diagnostic (search identical to no override).
+**Status — P4.1 review remediation landed (engine work + enhanced tooling).**
+§9.1's override exists as a research-only unit with two distinct experimental
+modes addressing the review findings:
+1. `PolicyResearchForceFirstMove` (UCI string, default empty): named legal root
+   move to search first; inert when empty or in Observational mode.
+2. `PolicyResearchForceFirstDepth` (UCI spin, 0..256, default 0):
+   - `0`: persistent schedule (Experiment A), overriding at every root iteration.
+   - `> 0`: isolated target depth (Experiment B), overriding ONLY when
+     `rootDepth == PolicyResearchForceFirstDepth`. Depths 1..D-1 run under
+     standard baseline conditions, giving every candidate intervention identical
+     TT and history state at the decision boundary. Forcing the baseline's own
+     best move at depth D is an exact no-op (100% parity across nodes, time, score).
+3. MovePicker root semantics: Stockfish sets `ttData.move = rootMoves[0]` and
+   passes it to `MovePicker`, which emits it first in `MAIN_TT`. All subsequent
+   root moves are generated and ordered by `MovePicker`'s normal stage progression
+   (captures, quiets scored by history).
+4. Tablebase safety: overrides check `rootMoves[i].tbRank == rootMoves[0].tbRank`
+   to preserve Syzygy contiguous rank grouping (`pvFirst`..`pvLast`).
 
-Verified on the research build (`dev-20260904-b5ab17f7`):
+Tooling & quality evaluation (`tools/policy_research/p4_force_first.py`):
+- Verifies engine banner and research option presence at startup (fails fast
+  if run against macro-off binaries).
+- Explicitly sets `Threads 1`, `Hash 16`, `MultiPV 1`.
+- Token-based UCI parsing with depth-reached assertion; records wall time (ms),
+  nodes, score (cp/mate and bound), bestmove, and PV.
+- Reference search at D16 (plan §9.4): evaluates best-move agreement and score
+  tolerance (<= 50 cp) against deeper reference. Distinguishes unconstrained
+  `R_norm (all)` from quality-valid `R_norm (valid)`.
 
-- Repeat runs are deterministic for baseline and forced-first searches;
-  forcing a non-best move changes node cost at fixed depth (startpos depth 8:
-  2 712 → 8 466 nodes) while the final best move is unchanged.
-- Observational-mode and master-off runs are node-identical to baseline;
-  macro-off `bench 16 1 10 default depth` = 453 169 nodes (standing gate
-  unchanged).
-- 5 engine-gated integration tests (`TestForceFirstRootOrder`, engine 90-test
-  suite green).
+Pilot comparison (depth 14, candidate shortlist = depth 10 MultiPV top 4):
+- **Isolated Mode (Experiment B)**:
+  - `c1-d-001` (startpos): baseline best `e2e4` is an exact no-op (43,275 nodes,
+    35 ms, score cp 27). Other candidates cost more (+0.5% to +5.9%).
+    `R_norm (valid) = +0.000`.
+  - `c1-v-001` (validation): baseline `d4c5` = 20,956 nodes, 18 ms. Forcing
+    `b1c3` first = 5,643 nodes, 5 ms, score cp 642 (agrees within 3 cp of D16
+    reference 645 cp). All candidates agree with reference best `d4c5`.
+    Quality-valid savings: **73.1% in nodes (`R_norm = +0.731`), 72.2% in wall time**.
+  - `c1-t-001` (burned test root): baseline `f1e2` = 26,292 nodes, 19 ms.
+    Cheaper runs (`f1g2`, `f3d1`) fail score tolerance vs D16 reference
+    (evaluation collapse). `R_norm (valid) = +0.000`.
+- **Persistent Mode (Experiment A)**:
+  - `c1-d-001`: `c2c4` = 21,146 nodes (`R_norm = +0.511`) due to iterative
+    trajectory churn.
+  - `c1-v-001`: `b1c3` = 1,600 nodes, but score drifted by +74 cp (fails quality).
+  - `c1-t-001`: `f3d1` exploded to 320,781 nodes (+1120%) with score 0 cp.
 
-Smoke pilot (`tools/policy_research/p4_force_first.py`, depth 14, candidates
-= engine top-4 MultiPV at depth 10, fresh process per intervention):
-R_norm = min_m C(r|m first) gap over C_base of **0.511 (c1-d-001), 0.924
-(c1-v-001), 0.055 (c1-t-001)**; final best move agreed with baseline in every
-forced run. Caveats: fixed-depth node cost only (no wall-time/reference
-measurements of §9.3–9.5), candidate set is self-referential, 3 roots cannot
-support the §9.6 CI claims. P4.2 must add the §9.3 measurement set, a §9.4
-reference result, and a larger root sample.
+Test root note: `c1-t-001` is marked burned/exploratory; corpus/v2 with
+untouched game-diverse roots is required before aggregate claims. 7 engine-gated
+integration tests (`TestForceFirstRootOrder`, full suite 92 tests green).
 
 ---
 

@@ -283,19 +283,24 @@ class _Engine:
             except BrokenPipeError:
                 pass
             try:
-                p.stdout.close()
-            except OSError:
-                pass
+                if p.stdin: p.stdin.close()
+            except OSError: pass
+            try:
+                if p.stdout: p.stdout.close()
+            except OSError: pass
             p.wait()
         self.has_force_option = (
-            "option name PolicyResearchForceFirstMove" in out)
+            "option name PolicyResearchForceFirstMove" in out
+            and "option name PolicyResearchForceFirstDepth" in out)
 
     def search(self, fen, depth, mode="root_counterfactual", force="",
-               master="on", hash_mb=16):
+               force_depth=0, master="on", hash_mb=16):
         p = subprocess.Popen([self.path], stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, text=True, bufsize=1)
         try:
             p.stdin.write("uci\n")
+            p.stdin.write("setoption name Threads value 1\n")
+            p.stdin.write("setoption name MultiPV value 1\n")
             p.stdin.write("setoption name Hash value %d\n" % hash_mb)
             p.stdin.write("setoption name PolicyResearch value %s\n" % master)
             if master == "on":
@@ -305,6 +310,9 @@ class _Engine:
                     p.stdin.write(
                         "setoption name PolicyResearchForceFirstMove "
                         "value %s\n" % force)
+                    p.stdin.write(
+                        "setoption name PolicyResearchForceFirstDepth "
+                        "value %d\n" % force_depth)
             p.stdin.write("isready\n")
             p.stdin.write("position fen %s\n" % fen)
             p.stdin.write("go depth %d\n" % depth)
@@ -332,9 +340,11 @@ class _Engine:
             except BrokenPipeError:
                 pass
             try:
-                p.stdout.close()
-            except OSError:
-                pass
+                if p.stdin: p.stdin.close()
+            except OSError: pass
+            try:
+                if p.stdout: p.stdout.close()
+            except OSError: pass
             p.wait()
         return {"nodes": nodes_at_depth, "best": best, "info": infos}
 
@@ -366,9 +376,11 @@ class _Engine:
             except BrokenPipeError:
                 pass
             try:
-                p.stdout.close()
-            except OSError:
-                pass
+                if p.stdin: p.stdin.close()
+            except OSError: pass
+            try:
+                if p.stdout: p.stdout.close()
+            except OSError: pass
             p.wait()
         return seen
 
@@ -441,6 +453,22 @@ class TestForceFirstRootOrder(unittest.TestCase):
         base = self._base()
         r = self.driver.search(STARTPOS, 8, master="off", force="d2d4")
         self.assertEqual(r["nodes"], base["nodes"])
+
+    def test_isolated_depth_override_best_move_is_exact_noop(self):
+        self._skip_if_no_engine()
+        base = self._base(depth=8)
+        # Forcing the baseline's own best move only at target depth 8 is an exact no-op
+        r = self.driver.search(STARTPOS, depth=8, force=base["best"], force_depth=8)
+        self.assertEqual(r["nodes"], base["nodes"])
+        self.assertEqual(r["best"], base["best"])
+
+    def test_isolated_depth_override_other_depth_is_noop(self):
+        self._skip_if_no_engine()
+        base = self._base(depth=8)
+        # Forcing a move at depth 9 during a depth-8 search does not trigger
+        r = self.driver.search(STARTPOS, depth=8, force="d2d4", force_depth=9)
+        self.assertEqual(r["nodes"], base["nodes"])
+        self.assertEqual(r["best"], base["best"])
 
 
 # ---------------------------------------------------------------------------

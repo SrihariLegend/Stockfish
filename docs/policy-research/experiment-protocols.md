@@ -269,54 +269,71 @@ change, `src/stockfish` stayed macro-off.
    artifacts are regenerated after the tooling commit so the recorded tool
    commit is clean and matches the committed reporter.
 
-## Protocol P4.1 (executed 2026-09-04) — root force-first smoke pilot
+## Protocol P4.1 (executed 2026-09-04, remediated) — root force-first override and counterfactual evaluation
 
 Purpose: verify the §9.1 research-only root-order override mechanism
-(determinism, parity, diagnostic) and take a first, honestly-framed look at
-the magnitude of fixed-depth node-cost ordering sensitivity before committing
-to the full §9.3–9.6 oracle-gap study.
+(determinism, parity, diagnostic) and conduct both isolated and persistent
+evaluations addressing the expert review findings:
 
-Engine build: `make research-build ARCH=x86-64-avx2` on commit `b5ab17f7`;
-banner `dev-20260904-b5ab17f7` (clean worktree). Tool:
-`tools/policy_research/p4_force_first.py`. Common state per intervention:
-fresh engine process, same FEN, Hash 16, Threads 1, MultiPV 1, fixed depth,
-no time limit (plan §9.2). Candidate set: engine's own top-4 MultiPV listing
-at depth 10 (self-referential — an upper bound on ordering opportunity).
+1. **MovePicker root mechanics**: documented that Stockfish sets
+   `ttData.move = rootMoves[0]` and passes it to MovePicker, which emits it
+   first in `MAIN_TT`. Subsequent moves follow MovePicker's normal stage
+   progression (captures, quiets scored by history).
+2. **Separation of Experiment A vs B**:
+   - `PolicyResearchForceFirstDepth == 0`: persistent schedule (Experiment A),
+     overriding at every root depth 1..D.
+   - `PolicyResearchForceFirstDepth > 0`: isolated target depth (Experiment B),
+     overriding ONLY at target depth D. Depths 1..D-1 run identical to baseline,
+     so TT and history state at the decision boundary are identical across all
+     candidate interventions.
+3. **Tablebase rank safety**: overrides verify
+   `rootMoves[i].tbRank == rootMoves[0].tbRank` before rotation.
+4. **Tool robustness**: `tools/policy_research/p4_force_first.py` verifies engine
+   banner and option presence at startup (fails fast on macro-off builds);
+   enforces `Threads 1`, `Hash 16`, `MultiPV 1`; token-based UCI parsing asserts
+   target depth was reached; parses wall time (ms), nodes, score (cp/mate and bound),
+   bestmove, and PV.
+5. **Plan §9.4 reference-quality gate**: runs a deeper reference search (D16)
+   and verifies that a candidate agrees with reference best move and score
+   tolerance (<= 50 cp) before being declared quality-valid.
+6. **Test root reservation**: `c1-t-001` was inspected and is marked burned/exploratory.
 
-Verification results:
+Engine build: `make research-build ARCH=x86-64-avx2`. Full test suite: 92 tests
+green (7 engine-gated in `TestForceFirstRootOrder`). Standing zero-regression
+gate: macro-off `bench 16 1 10 default depth` = **453 169 nodes**.
 
-1. **Determinism**: baseline and forced-first repeat runs are node/bestmove
-   identical (startpos depth 8 baseline 2 712 nodes; forced `d2d4` first
-   8 466, both repeated exactly).
-2. **Effect**: forcing a non-best first move changes fixed-depth node cost;
-   forcing the baseline best first does *not* reproduce baseline cost
-   (startpos depth 14: 25 317 vs 43 275) because the always-first semantics
-   removes baseline's best-move-switch churn.
-3. **Parity gates**: observational-mode runs and master-switch-off runs with
-   the option set are node-identical to baseline; an illegal force move
-   (`e2e5` from startpos) leaves the search unchanged and emits exactly one
-   `info string` diagnostic; macro-off `bench 16 1 10 default depth` =
-   453 169 nodes (standing zero-regression gate unchanged).
-4. **Fixed-depth-14 node costs** (forced-first candidates; the final best
-   move matched baseline in every run):
+### Empirical Results (depth 14, reference depth 16, candidate depth 10, k=4)
 
-   | root | C_base (best) | forced-first nodes | R_norm |
-   |---|---|---|---|
-   | c1-d-001 | 43 275 (e2e4) | e2e4 25 317, d2d4 49 065, g1f3 38 603, c2c4 21 146 | 0.511 |
-   | c1-v-001 | 20 956 (d4c5) | d4c5 29 994, c4f7 2 233, e1g1 2 482, b1c3 1 600 | 0.924 |
-   | c1-t-001 | 26 292 (f1e2) | f1e2 24 839, f1g2 31 976, f3d1 320 781 | 0.055 |
+**Experiment B: Isolated Target-Depth Override (Pure Counterfactual at Depth 14)**
+- `c1-d-001` (development, startpos):
+  - Baseline: 43 275 nodes, 35 ms, score cp 27 (exact), best e2e4.
+  - Ref @ D16: 75 655 nodes, 60 ms, score cp 39, best e2e4.
+  - Forced `e2e4` (best): 43 275 nodes, 35 ms, score cp 27 (**exact 100% no-op parity**).
+  - Forced `d2d4`: 45 375 nodes (+4.8% isolated regret), score cp 30.
+  - Forced `g1f3`: 45 831 nodes (+5.9% isolated regret), score cp 28.
+  - Forced `c2c4`: 43 481 nodes (+0.5% isolated regret), score cp 26.
+  - All candidates quality-valid. Baseline best was already optimal: `R_norm (valid) = +0.000`.
+- `c1-v-001` (validation, tactical):
+  - Baseline: 20 956 nodes, 18 ms, score cp 654 (exact), best d4c5.
+  - Ref @ D16: 123 243 nodes, 102 ms, score cp 645, best d4c5.
+  - Forced `d4c5` (best): 20 956 nodes, 18 ms, score cp 654 (**exact 100% no-op parity**).
+  - Forced `b1c3`: **5 643 nodes, 5 ms**, score cp 642 (within 3 cp of D16 ref 645), best d4c5.
+  - Forced `e1g1`: 5 752 nodes, 5 ms, score cp 610, best d4c5.
+  - Forced `c4f7`: 6 187 nodes, 6 ms, score cp 683, best d4c5.
+  - All candidates pass quality gates. Realizable ordering opportunity is genuine:
+    **`R_norm (nodes) = +0.731` (−73.1% nodes), `R_norm (time) = +0.722` (−72.2% wall time)**.
+- `c1-t-001` (test, burned):
+  - Baseline: 26 292 nodes, 18 ms, score cp 133, best f1e2.
+  - Ref @ D16: 128 139 nodes, 98 ms, score cp 168, best f1e2.
+  - Forced `f1e2` (best): 26 292 nodes, 19 ms, score cp 133 (**exact 100% no-op parity**).
+  - Forced `f1g2`: 21 802 nodes, score cp 115 (fails score tolerance vs 168 cp).
+  - Forced `f3d1`: 20 229 nodes, score cp 57 (fails score tolerance vs 168 cp; evaluation collapse).
+  - Cheaper candidates failed quality; only baseline best was valid: `R_norm (valid) = +0.000`.
 
-   Read: at these roots a different first move can be ~10× cheaper (c1-v-001)
-   or ~12× more expensive (c1-t-001 `f3d1`) than the baseline ordering at
-   the same depth; the baseline's own best move is not always the cheapest
-   first move (c1-d-001, c1-v-001), and where the baseline lead move is
-   already cheapest the gap is small (c1-t-001).
+**Experiment A: Persistent Schedule (Overriding at Depths 1..14)**
+- Demonstrates iterative-deepening trajectory churn:
+  - On `c1-d-001`: forcing `e2e4` drops nodes to 25 317 (−41.5%) because always-first suppresses best-move switches across depths.
+  - On `c1-v-001`: `b1c3` took 1 600 nodes, but score drifted to cp 719 (+74 cp vs reference) and fails quality.
+  - On `c1-t-001`: `f3d1` exploded to 320 781 nodes (+1120%) and score collapsed to 0 cp.
 
-Limitations (no over-claiming): fixed-depth node cost only — no wall-time
-measurement, no §9.4 reference-quality confirmation (depth-14 results could
-be re-checked by deeper or reduced-selectivity reference before any run is
-called oracle), 3 roots cannot support the §9.6 bootstrap-CI aggregates, and
-the candidate set is engine-self-referential. Integration tests
-(`TestForceFirstRootOrder`, 5 cases, engine-gated) keep the mechanism
-regression-covered. P4.2 must add the §9.3 measurement set (alpha raise,
-re-search, wall time), a §9.4 reference result, and a larger root sample.
+Limitations: n=3 roots is too small for aggregate bootstrap CIs; top-k is a search-informed empirical shortlist; `c1-t-001` is burned. P4.2 must scale to corpus/v2.

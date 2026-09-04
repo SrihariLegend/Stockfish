@@ -12,7 +12,7 @@ tests, exit gates, definition of done).
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
 | 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
 | 3 | Observational dataset and calibration baseline | **Complete (schema-derivable subset)** — prefix-free uniform-rate dataset v2 + root-held-out baseline report (protocol P3.2) landed; the P3.1 evaluation review (leaky row-random split + duplicated iterative-deepening prefixes, row-level SEs on 12 roots, non-random cell exclusion, collinear margins, in-sample isotonic fit) was fully addressed. §8.3 history / §8.4 baseline-score calibration and candidate-denominator analyses remain gated on the counterfactual candidate-enumeration schema (Phases 4/5). Strong *generalization* claims need a larger root sample (corpus/v2) |
-| 4 | Root-level counterfactual experiments | **In progress (P4.1 kickoff)** — research-only root force-first override landed (commit `b5ab17f7`), determinism + parity verified, smoke-pilot oracle gap measured on 3 roots (R_norm 0.055–0.924 at fixed depth 14) |
+| 4 | Root-level counterfactual experiments | **In progress (P4.1 review remediation)** — research-only root override enhanced with target-depth gating (`PolicyResearchForceFirstDepth`), tablebase safety, and robust reference-quality evaluation; isolated counterfactuals show exact baseline-best parity (0.0% regret) and quality-valid savings of 73.1% on `c1-v-001` (tactical root) vs 0.0% on startpos |
 | 5 | Internal counterfactual search sandbox | Not started |
 | 6 | Oracle / ratio / interaction-gap studies | Not started |
 | 7 | Proof-time survival modeling | Not started |
@@ -25,58 +25,64 @@ tests, exit gates, definition of done).
 
 ## Phase 4 — root-level counterfactual experiments
 
-### P4.1 kickoff — research-only root force-first override (`b5ab17f7`)
+### P4.1 — research-only root force-first override & review remediation
 
-First engine-side Phase 4 unit (plan §9.1). Research build only; macro-off
-engine source untouched.
+Engine-side Phase 4 unit (plan §9.1) and follow-up review remediation:
 
-- New UCI option `PolicyResearchForceFirstMove` (string, default empty),
-  honored only when the research master switch is on with mode
-  `RootCounterfactual`:
-  - the named legal root move is rotated to the front of the root move order
-    at the start of every root iteration on the main thread (searched first
-    at the new depth);
-  - all remaining root moves keep their relative baseline order and ordinary
-    root/PVS semantics stay intact — this is an explicit order override,
-    never a `searchmoves`-style restriction (plan §9.1);
-  - inactive in `Observational` mode (corpus labels stay baseline-policy
-    conditioned) and when the master switch is off; default option is a
-    strict no-op;
-  - an illegal root move is ignored with a one-time `info string`
-    diagnostic and the search is identical to the no-override search.
-- Hook: `Search::Worker::iterative_deepening()` in `src/search.cpp`
-  (research-gated), main thread only, `multiPV == 1`.
-- 5 engine-gated integration tests (`TestForceFirstRootOrder`): repeat-run
-  determinism of baseline and forced-first searches, node-cost change under
-  a non-best forced first move, illegal-move parity + diagnostic,
-  observational-mode and master-off parity with baseline.
-- Standing zero-regression gate re-verified: macro-off `bench 16 1 10 default
-  depth` = **453 169 nodes** (identical to prior commits); the override code
-  is fully `#ifdef POLICY_RESEARCH`-gated.
+- Research UCI options (honored only with `PolicyResearch` on and mode
+  `RootCounterfactual` on the main thread with `multiPV == 1`):
+  - `PolicyResearchForceFirstMove` (string, default empty): named legal root
+    move to force first; inert in Observational mode and when master switch
+    is off.
+  - `PolicyResearchForceFirstDepth` (spin, 0..256, default 0):
+    - `0`: persistent schedule (Experiment A), overriding at every root depth.
+    - `> 0`: isolated target depth (Experiment B), overriding ONLY when
+      `rootDepth == forceFirstDepth`. Depths 1..D-1 run under standard
+      baseline conditions, guaranteeing identical TT and history state at the
+      decision boundary. Forcing the baseline's own best move at depth D is
+      an exact bit-for-bit no-op (100% parity across nodes, time, score).
+- Hook & semantics: `Search::Worker::iterative_deepening()` in `src/search.cpp`.
+  At the root, Stockfish sets `ttData.move = rootMoves[0]` and emits it in
+  `MovePicker`'s `MAIN_TT` stage. The former index-0 move drops into its
+  natural MovePicker stage (captures, quiets scored by history); all other
+  moves keep their relative MovePicker order.
+- Tablebase safety: overrides check `rootMoves[i].tbRank == rootMoves[0].tbRank`
+  to prevent disrupting Syzygy contiguous rank grouping (`pvFirst`..`pvLast`).
+- Zero regression: macro-off `bench 16 1 10 default depth` = **453 169 nodes**
+  (standing gate unchanged). Full test suite: 92 tests (7 engine-gated in
+  `TestForceFirstRootOrder`).
 
-Smoke pilot (research build `dev-20260904-b5ab17f7`, fresh process per
-intervention, fixed depth 14, Hash 16, Threads 1; candidates = engine top-4
-MultiPV at depth 10):
+Tooling & quality validation (`tools/policy_research/p4_force_first.py`):
+- Fails fast at startup if the binary is missing research options.
+- Enforces `Threads 1`, `Hash 16`, `MultiPV 1`; token-based UCI parsing with
+  depth-reached assertions; records wall time (ms), nodes, score (cp/bound),
+  bestmove, and PV.
+- Deeper reference search (D16) evaluates plan §9.4 reference agreement: checks
+  best-move agreement with reference and score tolerance (<= 50 cp) before
+  calling a candidate quality-valid.
+- Candidate set framing: depth-10 MultiPV top-k is a search-informed empirical
+  shortlist (upper bound for realizable cheap policy, lower bound for all-legal
+  oracle).
+- Root reservation: `c1-t-001` was inspected and is marked burned/exploratory.
 
-| root | C_base | forced-first nodes (best move unchanged vs baseline in every run) | min | R_norm |
-|---|---|---|---|---|
-| c1-d-001 | 43 275 | e2e4 25 317, d2d4 49 065, g1f3 38 603, c2c4 21 146 | 21 146 | 0.511 |
-| c1-v-001 | 20 956 | d4c5 29 994, c4f7 2 233, e1g1 2 482, b1c3 1 600 | 1 600 | 0.924 |
-| c1-t-001 | 26 292 | f1e2 24 839, f1g2 31 976, f3d1 320 781 | 24 839 | 0.055 |
+Pilot results at depth 14 (reference depth 16, candidate depth 10, k=4):
 
-Honest framing (no over-claiming): this is a **necessary-mechanism and
-magnitude smoke check**, not the plan-§9.3–9.6 oracle-gap report. It compares
-fixed-depth node cost only (no wall time, no §9.4 reference-quality
-confirmation at depth), the candidate set is the engine's own top-k at a
-shallower depth (self-referential — an upper bound on ordering opportunity),
-and 3 roots cannot carry bootstrap confidence intervals. Notably, forcing the
-baseline's own best move first does *not* reproduce baseline cost (e.g.
-c1-d-001: 25 317 vs 43 275): the always-first semantics removes the
-best-move-switch churn the baseline pays for, which is itself an ordering
-cost worth quantifying later. Next increments: P4.2 reference-result study
-(§9.3/§9.4 measurements incl. wall time and deeper/reduced-selectivity
-reference), then a larger root sample before oracle-gap claims
-(`tools/policy_research/p4_force_first.py` reproduces the pilot table).
+**Experiment B: Isolated Target-Depth Override (Pure Counterfactual at Depth 14)**
+| root | set | C_base (best) | Ref @ D16 (best) | Quality-valid candidates | R_norm (nodes) | R_norm (time) |
+|---|---|---|---|---|---|---|
+| c1-d-001 | development | 43 275 / 35ms (e2e4, cp 27) | 75 655 (e2e4, cp 39) | e2e4 (43 275, cp 27) | **+0.000** | +0.029 |
+| c1-v-001 | validation | 20 956 / 18ms (d4c5, cp 654) | 123 243 (d4c5, cp 645) | b1c3 (5 643, cp 642) | **+0.731** | **+0.722** |
+| c1-t-001 | test (burned) | 26 292 / 18ms (f1e2, cp 133) | 128 139 (f1e2, cp 168) | f1e2 (26 292, cp 133) | **+0.000** | −0.056 |
+
+*Notes on isolated mode:*
+- On `c1-d-001` (startpos): baseline best `e2e4` is an exact no-op (43 275 nodes, 35 ms). Other candidates cost more (+0.5% to +5.9%). Baseline was already optimal.
+- On `c1-v-001` (tactical root): forcing `b1c3` first takes 5 643 nodes and 5 ms (score cp 642, within 3 cp of D16 reference). All candidates agree with D16 reference best `d4c5`. Realizable ordering savings is genuine: **73.1% in nodes and 72.2% in wall time**.
+- On `c1-t-001`: cheaper runs (`f1g2`, `f3d1`) fail score tolerance vs D16 reference (evaluation collapse; cp 57 vs 168). Filtered out by quality gate. `R_norm (valid) = +0.000`.
+
+**Experiment A: Persistent Schedule (Overriding at Depths 1..14)**
+- Demonstrates massive trajectory churn: on `c1-d-001`, forcing `e2e4` drops nodes to 25 317 (−41.5%) because always-first prevents best-move switches. On `c1-v-001`, `b1c3` appears to take 1 600 nodes, but its score drifted to cp 719 (+74 cp vs reference) and fails quality. On `c1-t-001`, forcing `f3d1` causes a 12.2x explosion to 320 781 nodes and collapses score to 0 cp.
+
+Next increment (P4.2): scale to larger corpus (corpus/v2), evaluate across multiple depths, and compute bootstrap confidence intervals.
 
 ## Phase 3 — observational dataset and calibration baseline
 

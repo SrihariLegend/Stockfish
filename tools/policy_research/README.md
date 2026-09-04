@@ -234,19 +234,30 @@ STOCKFISH_ENGINE=$PWD/src/stockfish \
 The decoder tests are engine-free (synthetic logs); the full `verify-research`
 gate doubles as the end-to-end engine test for Phase 2.
 
-## Phase 4 root force-first pilot (`p4_force_first.py`)
+## Phase 4 root force-first tool (`p4_force_first.py`)
 
-Requires a `POLICY_RESEARCH` build (option `PolicyResearchForceFirstMove` only
-exists there). Runs each candidate in its own fresh process with the research
-master switch on, mode `root_counterfactual`, fixed depth, Hash 16,
-Threads 1, and reports baseline vs forced-first node cost plus best-move
-agreement (plan §9.2 common state).
+Requires a `POLICY_RESEARCH` build (options `PolicyResearchForceFirstMove` and
+`PolicyResearchForceFirstDepth`). Evaluates root move counterfactuals with
+common initial state per intervention (plan §9.2), full UCI token parsing,
+and deeper reference search verification (plan §9.4).
 
 ```bash
 make -C src research-build ARCH=x86-64-avx2
 STOCKFISH_ENGINE=$PWD/src/stockfish \
   python3 tools/policy_research/p4_force_first.py \
-    --depth 14 --k 4 --ids c1-d-001,c1-v-001,c1-t-001 --out /tmp/p4kickoff.json
+    --depth 14 --reference-depth 16 --depth-mode isolated \
+    --k 4 --ids c1-d-001,c1-v-001,c1-t-001 --out /tmp/p4_isolated.json
+```
+
+Key options:
+- `--depth-mode isolated`: (default, Experiment B) forces candidate move ONLY at
+  target depth (`PolicyResearchForceFirstDepth <depth>`); depths 1..D-1 run
+  identically to baseline, giving every candidate intervention identical TT and
+  history state at the decision boundary. Forcing baseline best is an exact no-op.
+- `--depth-mode persistent`: (Experiment A) forces candidate at all depths
+  1..D (`PolicyResearchForceFirstDepth 0`), measuring cumulative trajectory churn.
+- `--reference-depth <depth>`: runs a deeper search (default depth + 2) to check
+  best-move agreement and score tolerance before declaring a candidate quality-valid.
 ```
 
 Pilot semantics and limits are documented in `overview.md` (P4.1) and

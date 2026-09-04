@@ -374,35 +374,68 @@ bool Search::Worker::iterative_deepening() {
         // Phase 4 (root-level counterfactual experiments, plan.md section 9.1):
         // research-only root-order override. With the research master switch on,
         // mode RootCounterfactual and PolicyResearchForceFirstMove set, the named
-        // move is rotated to the front of the root move order at the start of
-        // every root iteration on the main thread, so it is searched first at the
-        // new depth while every remaining move keeps its relative baseline order
-        // and ordinary root/PVS semantics are intact (no searchmoves-style
-        // restriction). The option is deliberately *not* available in
-        // Observational mode, where corpus labels must stay baseline-policy
-        // conditioned. The default (empty) option is a strict no-op.
+        // move is rotated to the front of rootMoves on the main thread.
+        //
+        // Depth gating:
+        // - PolicyResearchForceFirstDepth == 0 (default): persistent schedule
+        //   (Experiment A), applying at every root iteration depth >= 1.
+        // - PolicyResearchForceFirstDepth > 0: isolated target depth (Experiment B),
+        //   applying ONLY when rootDepth == forceFirstDepth. Depths 1..D-1 run
+        //   with standard baseline ordering, so TT and history state at the start
+        //   of depth D are identical across all candidate interventions.
+        //
+        // Root move-picker semantics (plan 9.1 engineering note):
+        // At the root, Stockfish sets ttData.move = rootMoves[pvIdx].pv[0] and
+        // passes it to MovePicker. MovePicker emits ttData.move first (in
+        // MAIN_TT stage). All remaining root moves are subsequently generated and
+        // ordered by MovePicker's normal stage progression (captures, quiets
+        // scored by history/SEE). Rotating forceMove to index 0 makes it the
+        // ttData.move; the former index-0 move drops into its natural MovePicker
+        // stage, and all other moves keep their relative MovePicker order.
+        //
+        // Safety:
+        // - Tablebase rank safety: do not rotate across different tbRank groups,
+        //   which would alter pvFirst/pvLast tablebase grouping.
+        // - Inactive in Observational mode and when the master switch is off.
         if (is_mainthread() && multiPV == 1 && Research::enabled()
             && Research::config().mode == Research::Mode::RootCounterfactual
             && !Research::config().forceFirstUci.empty())
         {
-            Move forceMove =
-              UCIEngine::to_move(rootPos, Research::config().forceFirstUci);
-            if (forceMove != Move::none())
+            const int targetDepth = Research::config().forceFirstDepth;
+            if (targetDepth == 0 || rootDepth == targetDepth)
             {
-                for (usize i = 1; i < rootMoves.size(); ++i)
-                    if (rootMoves[i] == forceMove)
-                    {
-                        std::rotate(rootMoves.begin(), rootMoves.begin() + i,
-                                    rootMoves.begin() + i + 1);
-                        break;
-                    }
+                Move forceMove =
+                  UCIEngine::to_move(rootPos, Research::config().forceFirstUci);
+                if (forceMove != Move::none())
+                {
+                    for (usize i = 1; i < rootMoves.size(); ++i)
+                        if (rootMoves[i] == forceMove)
+                        {
+                            if (rootMoves[i].tbRank == rootMoves[0].tbRank)
+                            {
+                                std::rotate(rootMoves.begin(), rootMoves.begin() + i,
+                                            rootMoves.begin() + i + 1);
+                            }
+                            else if (rootDepth == 1 || rootDepth == targetDepth)
+                            {
+                                sync_cout
+                                  << "info string research: PolicyResearchForceFirstMove '"
+                                  << Research::config().forceFirstUci
+                                  << "' has different tbRank (" << int(rootMoves[i].tbRank)
+                                  << " vs " << int(rootMoves[0].tbRank)
+                                  << "); no override applied."
+                                  << sync_endl;
+                            }
+                            break;
+                        }
+                }
+                else if (rootDepth == 1 || rootDepth == targetDepth)
+                    sync_cout
+                      << "info string research: PolicyResearchForceFirstMove '"
+                      << Research::config().forceFirstUci
+                      << "' is not a legal move at the root; no override applied."
+                      << sync_endl;
             }
-            else if (rootDepth == 1)
-                sync_cout
-                  << "info string research: PolicyResearchForceFirstMove '"
-                  << Research::config().forceFirstUci
-                  << "' is not a legal move at the root; no override applied."
-                  << sync_endl;
         }
 #endif
 
