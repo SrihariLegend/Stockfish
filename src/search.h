@@ -54,6 +54,12 @@ class TranspositionTable;
 class ThreadPool;
 class OptionsMap;
 
+#ifdef POLICY_RESEARCH
+namespace Research {
+class IsolatedWorker;
+}
+#endif
+
 namespace Eval::NNUE {
 class Network;
 }
@@ -328,6 +334,10 @@ class Worker {
 
     void ensure_network_replicated();
 
+#ifdef POLICY_RESEARCH
+    u64 get_nodes() const { return nodes.load(std::memory_order_relaxed); }
+#endif
+
     // Public because they need to be updatable by the stats
     ButterflyHistory mainHistory;
     LowPlyHistory    lowPlyHistory;
@@ -425,6 +435,9 @@ class Worker {
 
     friend class Stockfish::ThreadPool;
     friend class SearchManager;
+#ifdef POLICY_RESEARCH
+    friend class Stockfish::Research::IsolatedWorker;
+#endif
 };
 
 struct ConthistBonus {

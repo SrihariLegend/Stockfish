@@ -185,6 +185,12 @@ class Position {
 
     StateInfo* state() const;
 
+#ifdef POLICY_RESEARCH
+    // Deep-clones this Position and its complete StateInfo chain up to the root into dstPos and dstStates.
+    // dstPos.st will point to &dstStates[0] (or nullptr if empty).
+    void clone_to(Position& dstPos, std::vector<StateInfo>& dstStates) const;
+#endif
+
     void put_piece(Piece pc, Square s, DirtyThreats* const dts = nullptr);
     void remove_piece(Square s, DirtyThreats* const dts = nullptr);
     void swap_piece(Square s, Piece pc, DirtyThreats* const dts = nullptr);

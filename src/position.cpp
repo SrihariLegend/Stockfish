@@ -1671,4 +1671,40 @@ bool Position::pos_is_ok() const {
     return true;
 }
 
+#ifdef POLICY_RESEARCH
+void Position::clone_to(Position& dst, std::vector<StateInfo>& dstStates) const {
+    size_t count = 0;
+    for (const StateInfo* curr = st; curr != nullptr; curr = curr->previous)
+        ++count;
+
+    dstStates.clear();
+    dstStates.resize(count);
+
+    const StateInfo* curr = st;
+    for (size_t i = 0; i < count; ++i, curr = curr->previous)
+    {
+        dstStates[i] = *curr;
+        dstStates[i].previous = (i + 1 < count) ? &dstStates[i + 1] : nullptr;
+    }
+
+    dst.board = board;
+    dst.byTypeBB = byTypeBB;
+    dst.byColorBB = byColorBB;
+    for (int pc = 0; pc < PIECE_NB; ++pc)
+        dst.pieceCount[pc] = pieceCount[pc];
+    for (int sq = 0; sq < SQUARE_NB; ++sq)
+        dst.castlingRightsMask[sq] = castlingRightsMask[sq];
+    for (int cr = 0; cr < CASTLING_RIGHT_NB; ++cr)
+    {
+        dst.castlingRookSquare[cr] = castlingRookSquare[cr];
+        dst.castlingPath[cr] = castlingPath[cr];
+    }
+    dst.st = count > 0 ? &dstStates[0] : nullptr;
+    dst.gamePly = gamePly;
+    dst.sideToMove = sideToMove;
+    dst.chess960 = chess960;
+    dst.scratchDirties = scratchDirties;
+}
+#endif
+
 }  // namespace Stockfish

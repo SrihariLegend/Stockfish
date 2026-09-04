@@ -117,6 +117,12 @@ class Engine {
     std::string                          thread_allocation_information_as_string() const;
     std::string                          thread_binding_information_as_string() const;
 
+#ifdef POLICY_RESEARCH
+    Search::Worker* main_worker() { return threads.main_thread() ? threads.main_thread()->worker.get() : nullptr; }
+    TranspositionTable& get_tt() { return tt; }
+    ThreadPool& get_threads() { return threads; }
+#endif
+
    private:
     const std::filesystem::path binaryDirectory;
 

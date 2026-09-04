@@ -38,6 +38,7 @@
 #include "misc.h"
 #include "policy_research/research_log.h"
 #include "policy_research/tt_overlay.h"
+#include "policy_research/worker_snapshot.h"
 #endif
 #include "memory.h"
 #include "movegen.h"
@@ -172,6 +173,11 @@ void UCIEngine::loop() {
         {
             bool ok = run_overlay_unit_tests();
             sync_cout << (ok ? "OVERLAY_TEST_OK" : "OVERLAY_TEST_FAIL") << sync_endl;
+        }
+        else if (token == "policy_research_test_sandbox")
+        {
+            bool ok = Research::run_sandbox_unit_tests(engine);
+            sync_cout << (ok ? "SANDBOX_TEST_OK" : "SANDBOX_TEST_FAIL") << sync_endl;
         }
 #endif
         else if (token == "export_net")

@@ -40,6 +40,7 @@
 #ifdef POLICY_RESEARCH
 #include "policy_research/research_log.h"
 #include "policy_research/research_options.h"
+#include "policy_research/tt_overlay.h"
 #endif
 #include "misc.h"
 #include "movegen.h"
@@ -2660,5 +2661,18 @@ bool RootMove::extract_ponder_from_tt(const TranspositionTable& tt, Position& po
     return pv.size() > 1;
 }
 
+#ifdef POLICY_RESEARCH
+// Explicit template instantiations for isolated research search with ResearchTTOverlay
+template Value Search::Worker::search<NonPV, ResearchTTOverlay>(
+    Position&, Stack*, Value, Value, Depth, bool, ResearchTTOverlay&);
+template Value Search::Worker::search<PV, ResearchTTOverlay>(
+    Position&, Stack*, Value, Value, Depth, bool, ResearchTTOverlay&);
+template Value Search::Worker::search<Root, ResearchTTOverlay>(
+    Position&, Stack*, Value, Value, Depth, bool, ResearchTTOverlay&);
+template Value Search::Worker::qsearch<NonPV, ResearchTTOverlay>(
+    Position&, Stack*, Value, Value, ResearchTTOverlay&);
+template Value Search::Worker::qsearch<PV, ResearchTTOverlay>(
+    Position&, Stack*, Value, Value, ResearchTTOverlay&);
+#endif
 
 }  // namespace Stockfish

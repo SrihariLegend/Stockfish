@@ -82,7 +82,7 @@ SRCS = attacks.cpp benchmark.cpp bitboard.cpp evaluate.cpp main.cpp \
 	nnue/nnue_accumulator.cpp nnue/nnue_misc.cpp nnue/network.cpp \
 	nnue/features/half_ka_v2_hm.cpp nnue/features/full_threats.cpp nnue/features/pp_3wide.cpp \
 	engine.cpp score.cpp memory.cpp policy_research/research_log.cpp \
-	policy_research/tt_overlay.cpp
+	policy_research/tt_overlay.cpp policy_research/worker_snapshot.cpp
 
 OTHER_SRCS = universal/entry_x86.cpp universal/entry_arm64.cpp universal/entry_riscv64.cpp universal/nnue_embed.cpp
 
@@ -94,7 +94,7 @@ HEADERS = attacks.h benchmark.h bitboard.h evaluate.h misc.h movegen.h movepick.
 		nnue/nnz_helper.h position.h search.h syzygy/tbprobe.h thread.h thread_native.h timeman.h \
 		tt.h tune.h types.h uci.h ucioption.h perft.h nnue/network.h engine.h score.h numa.h memory.h shm.h shm_unix.h \
 		policy_research/research_options.h policy_research/research_log.h \
-		policy_research/tt_overlay.h
+		policy_research/tt_overlay.h policy_research/worker_snapshot.h
 
 OBJS = $(notdir $(SRCS:.cpp=.o))
 
