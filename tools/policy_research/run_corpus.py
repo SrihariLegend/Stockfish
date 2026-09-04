@@ -54,7 +54,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import decode_research_log as dlog  # noqa: E402
 
-ALLOWED_CORPUS_SCHEMAS = ("corpus/v1", "corpus/v2")
+ALLOWED_CORPUS_SCHEMAS = ("corpus/v1", "corpus/v2", "corpus/v3")
 SCHEMA_CORPUS = "corpus/v1"
 SCHEMA_RUN = "research-run/1"
 SCHEMA_RESULT = "research-result/1"

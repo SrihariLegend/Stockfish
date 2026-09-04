@@ -64,6 +64,8 @@ struct Config {
     std::string  policyVersion;            // ResearchPolicyVersion.
     std::string  forceFirstUci;            // PolicyResearchForceFirstMove.
     int          forceFirstDepth = 0;      // PolicyResearchForceFirstDepth (0 = all depths / persistent).
+    bool         preserveAspiration = false;  // PolicyResearchPreserveAspiration (keep baseline avg/delta).
+    bool         disableFailHighReduction = false; // PolicyResearchDisableFailHighReduction (fixed nominal depth).
 };
 
 // Parsing helpers. All return an error string on invalid input; Stockfish
@@ -192,6 +194,14 @@ inline void register_options(OptionsMap& options) {
     options.add("PolicyResearchForceFirstDepth", Option(0, 0, 256, [](const Option& o) {
                     config().forceFirstDepth = static_cast<int>(o);
                     return std::nullopt;
+                }));
+
+    options.add("PolicyResearchPreserveAspiration", Option("off", [](const Option& o) {
+                    return parse_switch(std::string(o), config().preserveAspiration);
+                }));
+
+    options.add("PolicyResearchDisableFailHighReduction", Option("off", [](const Option& o) {
+                    return parse_switch(std::string(o), config().disableFailHighReduction);
                 }));
 }
 

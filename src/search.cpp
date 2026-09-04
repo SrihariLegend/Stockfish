@@ -372,6 +372,11 @@ bool Search::Worker::iterative_deepening() {
         }
 
 #ifdef POLICY_RESEARCH
+        Value baselineAvgScore = rootMoves.empty() ? VALUE_ZERO : rootMoves[0].averageScore;
+        i64   baselineMssScore = rootMoves.empty() ? 0 : rootMoves[0].meanSquaredScore;
+#endif
+
+#ifdef POLICY_RESEARCH
         // Phase 4 (root-level counterfactual experiments, plan.md section 9.1):
         // research-only root-order override. With the research master switch on,
         // mode RootCounterfactual and PolicyResearchForceFirstMove set, the named
@@ -464,6 +469,15 @@ bool Search::Worker::iterative_deepening() {
             // Reset aspiration window starting size
             delta     = 5 + threadIdx % 8 + std::abs(rootMoves[pvIdx].meanSquaredScore) / 10193;
             Value avg = rootMoves[pvIdx].averageScore;
+#ifdef POLICY_RESEARCH
+            if (is_mainthread() && multiPV == 1 && Research::enabled()
+                && Research::config().mode == Research::Mode::RootCounterfactual
+                && Research::config().preserveAspiration)
+            {
+                avg   = baselineAvgScore;
+                delta = 5 + threadIdx % 8 + std::abs(baselineMssScore) / 10193;
+            }
+#endif
             alpha     = std::max(avg - delta, -VALUE_INFINITE);
             beta      = std::min(avg + delta, VALUE_INFINITE);
 
@@ -480,18 +494,50 @@ bool Search::Worker::iterative_deepening() {
             int aspirationFailLow = 0;
             int aspirationFailHigh = 0;
             int aspirationIterations = 0;
+            struct AspAttempt {
+                int depth;
+                int alpha;
+                int beta;
+                int value;
+                std::string result;
+            };
+            std::vector<AspAttempt> aspAttempts;
+            std::vector<u64> depthStartEffort(rootMoves.size(), 0);
+            for (size_t i = 0; i < rootMoves.size(); ++i)
+                depthStartEffort[i] = rootMoves[i].effort;
 #endif
             while (true)
             {
-#ifdef POLICY_RESEARCH
-                aspirationIterations++;
-#endif
                 // Adjust the effective depth searched, but ensure at least one
                 // effective increment for every four searchAgain steps (see issue #2717).
                 Depth adjustedDepth = std::max(1, rootDepth - failedHighCnt - failHighRecovery
                                                     - 3 * (searchAgainCounter + 1) / 4);
+#ifdef POLICY_RESEARCH
+                if (is_mainthread() && multiPV == 1 && Research::enabled()
+                    && Research::config().mode == Research::Mode::RootCounterfactual
+                    && Research::config().disableFailHighReduction)
+                {
+                    adjustedDepth = std::max(1, rootDepth - 3 * (searchAgainCounter + 1) / 4);
+                }
+                aspirationIterations++;
+#endif
                 rootDelta           = beta - alpha;
                 bestValue           = search<Root>(rootPos, ss, alpha, beta, adjustedDepth, false);
+
+#ifdef POLICY_RESEARCH
+                AspAttempt att;
+                att.depth = int(adjustedDepth);
+                att.alpha = int(alpha);
+                att.beta  = int(beta);
+                att.value = int(bestValue);
+                if (bestValue <= alpha)
+                    att.result = "low";
+                else if (bestValue >= beta)
+                    att.result = "high";
+                else
+                    att.result = "exact";
+                aspAttempts.push_back(att);
+#endif
 
                 // Bring the best move to the front. It is critical that sorting
                 // is done with a stable algorithm because all the values but the
@@ -557,11 +603,21 @@ bool Search::Worker::iterative_deepening() {
                        << " fail_low " << aspirationFailLow
                        << " fail_high " << aspirationFailHigh
                        << " iterations " << aspirationIterations
-                       << " moves";
+                       << " attempts";
+                for (const auto& a : aspAttempts)
+                {
+                    ss_tel << " " << a.depth << ":" << a.value << ":" << a.result
+                           << ":" << a.alpha << ":" << a.beta;
+                }
+                ss_tel << " moves";
                 for (size_t i = 0; i < rootMoves.size(); ++i)
                 {
+                    u64 incrEff = (rootMoves[i].effort >= depthStartEffort[i])
+                                  ? (rootMoves[i].effort - depthStartEffort[i])
+                                  : rootMoves[i].effort;
                     ss_tel << " " << UCIEngine::move(rootMoves[i].pv[0], rootPos.is_chess960())
                            << ":" << rootMoves[i].effort
+                           << ":" << incrEff
                            << ":" << int(rootMoves[i].score);
                 }
                 sync_cout << ss_tel.str() << sync_endl;

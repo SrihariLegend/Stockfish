@@ -60,7 +60,7 @@ import run_corpus as rc
 
 def parse_root_telemetry_line(line: str):
     m = re.search(
-        r"root_telemetry depth (\d+) fail_low (\d+) fail_high (\d+) iterations (\d+) moves(.*)",
+        r"root_telemetry depth (\d+) fail_low (\d+) fail_high (\d+) iterations (\d+)(?: attempts (.*?))? moves (.*)",
         line,
     )
     if not m:
@@ -69,21 +69,44 @@ def parse_root_telemetry_line(line: str):
     fail_low = int(m.group(2))
     fail_high = int(m.group(3))
     iterations = int(m.group(4))
-    moves_str = m.group(5).strip()
+    attempts_str = (m.group(5) or "").strip()
+    moves_str = (m.group(6) or "").strip()
+
+    attempts = []
+    if attempts_str:
+        for item in attempts_str.split():
+            parts = item.split(":")
+            if len(parts) >= 3:
+                attempts.append({
+                    "depth": int(parts[0]),
+                    "value": int(parts[1]),
+                    "result": parts[2],
+                    "alpha": int(parts[3]) if len(parts) >= 5 else None,
+                    "beta": int(parts[4]) if len(parts) >= 5 else None,
+                })
+
     moves_map = {}
     if moves_str:
         for item in moves_str.split():
             parts = item.split(":")
-            if len(parts) >= 3:
+            if len(parts) == 3:
                 moves_map[parts[0]] = {
-                    "effort": int(parts[1]),
+                    "effort_total": int(parts[1]),
+                    "effort_incremental": int(parts[1]),
                     "score": int(parts[2]),
+                }
+            elif len(parts) >= 4:
+                moves_map[parts[0]] = {
+                    "effort_total": int(parts[1]),
+                    "effort_incremental": int(parts[2]),
+                    "score": int(parts[3]),
                 }
     return {
         "depth": d,
         "aspiration_fail_low": fail_low,
         "aspiration_fail_high": fail_high,
         "aspiration_iterations": iterations,
+        "attempts": attempts,
         "moves": moves_map,
     }
 
@@ -333,7 +356,15 @@ class Engine:
             p.wait()
         return [seen[i] for i in sorted(seen) if i in seen]
 
-    def run_search(self, fen: str, depth: int, force_move: str = "", force_depth: int = 0):
+    def run_search(
+        self,
+        fen: str,
+        depth: int,
+        force_move: str = "",
+        force_depth: int = 0,
+        preserve_aspiration: bool = False,
+        disable_fail_high_reduction: bool = False,
+    ):
         cmds = [
             "setoption name PolicyResearch value on",
             "setoption name PolicyResearchMode value root_counterfactual",
@@ -341,6 +372,10 @@ class Engine:
         if force_move:
             cmds.append(f"setoption name PolicyResearchForceFirstMove value {force_move}")
             cmds.append(f"setoption name PolicyResearchForceFirstDepth value {force_depth}")
+        if preserve_aspiration:
+            cmds.append("setoption name PolicyResearchPreserveAspiration value on")
+        if disable_fail_high_reduction:
+            cmds.append("setoption name PolicyResearchDisableFailHighReduction value on")
         cmds.extend(["isready", f"position fen {fen}", f"go depth {depth}"])
         return self._talk(cmds, depth)
 
@@ -356,13 +391,20 @@ def evaluate_root(
     depth_mode: str,
     score_tolerance_cp: int,
     trials: int = 1,
+    preserve_aspiration: bool = False,
+    disable_fail_high_reduction: bool = False,
 ):
     fen = root_info["fen"]
     root_set = root_info["set"]
     is_burned = root_id == "c1-t-001"
 
     # 1. Baseline search at depth D
-    base = eng.run_search(fen, depth)
+    base = eng.run_search(
+        fen,
+        depth,
+        preserve_aspiration=preserve_aspiration,
+        disable_fail_high_reduction=disable_fail_high_reduction,
+    )
 
     # 2. Reference search at ref_depth (clean baseline, no override)
     ref = eng.run_search(fen, ref_depth)
@@ -373,6 +415,9 @@ def evaluate_root(
         if base["score_type"] == "cp" and ref["score_type"] == "cp"
         else None
     )
+    base_score_agrees_ref = (
+        abs(base_diff_ref) <= score_tolerance_cp if base_diff_ref is not None else False
+    )
 
     # 3. Candidate shortlist from depth candidate_depth MultiPV
     candidates = eng.top_k(fen, candidate_depth, k)
@@ -382,7 +427,14 @@ def evaluate_root(
     forced_records = []
     for mv in candidates:
         force_depth = depth if depth_mode == "isolated" else 0
-        r = eng.run_search(fen, depth, force_move=mv, force_depth=force_depth)
+        r = eng.run_search(
+            fen,
+            depth,
+            force_move=mv,
+            force_depth=force_depth,
+            preserve_aspiration=preserve_aspiration,
+            disable_fail_high_reduction=disable_fail_high_reduction,
+        )
 
         # Quality evaluation (plan 9.4)
         best_agrees_base = r["best"] == base["best"]
@@ -520,64 +572,88 @@ def evaluate_root(
             "relative_gate": rel_opt,
         }
 
-    # Multi-trial timing benchmark if trials > 1 (Findings 4, 6)
+    # Multi-trial timing benchmark with counterbalanced randomized order (Findings 4, 6)
     timing_trials = None
     if trials > 1:
-        base_eng_times = [base["time_ms"]]
-        cand_eng_times = {mv: [] for mv in candidates}
-        base_wall_times = [base.get("wall_time_ms", base["time_ms"])]
-        cand_wall_times = {mv: [] for mv in candidates}
-        for rec in forced_records:
-            cand_eng_times[rec["move"]].append(rec["time_ms"])
-            cand_wall_times[rec["move"]].append(rec.get("wall_time_ms", rec["time_ms"]))
+        import random
+        # Seed PRNG deterministically per root
+        prng = random.Random(int(hashlib.md5(fen.encode()).hexdigest(), 16) & 0xFFFFFFFF)
+        actions = ["__baseline__"] + [mv for mv in candidates if mv != base["best"]]
 
-        for _ in range(2, trials + 1):
-            r_b = eng.run_search(fen, depth)
-            base_eng_times.append(r_b["time_ms"])
-            base_wall_times.append(r_b.get("wall_time_ms", r_b["time_ms"]))
+        eng_times = {a: [] for a in actions}
+        wall_times = {a: [] for a in actions}
+        execution_orders = []
 
-            for mv in candidates:
-                f_d = depth if depth_mode == "isolated" else 0
-                r_c = eng.run_search(fen, depth, force_move=mv, force_depth=f_d)
-                cand_eng_times[mv].append(r_c["time_ms"])
-                cand_wall_times[mv].append(r_c.get("wall_time_ms", r_c["time_ms"]))
+        for trial_idx in range(1, trials + 1):
+            shuffled_actions = list(actions)
+            prng.shuffle(shuffled_actions)
+            execution_orders.append(list(shuffled_actions))
+
+            for act in shuffled_actions:
+                if act == "__baseline__":
+                    r_act = eng.run_search(
+                        fen,
+                        depth,
+                        preserve_aspiration=preserve_aspiration,
+                        disable_fail_high_reduction=disable_fail_high_reduction,
+                    )
+                else:
+                    f_d = depth if depth_mode == "isolated" else 0
+                    r_act = eng.run_search(
+                        fen,
+                        depth,
+                        force_move=act,
+                        force_depth=f_d,
+                        preserve_aspiration=preserve_aspiration,
+                        disable_fail_high_reduction=disable_fail_high_reduction,
+                    )
+                eng_times[act].append(r_act["time_ms"])
+                wall_times[act].append(r_act.get("wall_time_ms", r_act["time_ms"]))
+
+        def compute_stats(vals):
+            s_vals = sorted(vals)
+            n = len(s_vals)
+            q25 = s_vals[n // 4]
+            q75 = s_vals[(3 * n) // 4]
+            return {
+                "values": vals,
+                "median": statistics.median(vals),
+                "iqr": round(q75 - q25, 2),
+                "mean": round(statistics.mean(vals), 2),
+                "std": round(statistics.stdev(vals), 2) if n > 1 else 0.0,
+            }
 
         timing_trials = {
             "trials_count": trials,
+            "randomized_orders": execution_orders,
             "baseline": {
-                "engine_times_ms": base_eng_times,
-                "engine_median_ms": statistics.median(base_eng_times),
-                "wall_times_ms": base_wall_times,
-                "wall_median_ms": statistics.median(base_wall_times),
+                "engine_stats": compute_stats(eng_times["__baseline__"]),
+                "wall_stats": compute_stats(wall_times["__baseline__"]),
             },
             "candidates": {
                 mv: {
-                    "engine_times_ms": cand_eng_times[mv],
-                    "engine_median_ms": statistics.median(cand_eng_times[mv]),
-                    "wall_times_ms": cand_wall_times[mv],
-                    "wall_median_ms": statistics.median(cand_wall_times[mv]),
+                    "engine_stats": compute_stats(eng_times[mv]),
+                    "wall_stats": compute_stats(wall_times[mv]),
                 }
-                for mv in candidates
+                for mv in actions
+                if mv != "__baseline__"
             },
         }
 
     valid_records = [c for c in forced_records if c["quality_valid"]]
-    if valid_records:
-        # Node-optimal quality-valid candidate
-        cheapest_nodes_rec = min(valid_records, key=lambda c: c["nodes"])
+    better_valid = [c for c in valid_records if c["nodes"] < base["nodes"]]
+
+    if better_valid:
+        cheapest_nodes_rec = min(better_valid, key=lambda c: c["nodes"])
         cheapest_nodes_mv = cheapest_nodes_rec["move"]
         min_nodes_valid = cheapest_nodes_rec["nodes"]
         r_norm_nodes_valid = (base["nodes"] - min_nodes_valid) / base["nodes"]
 
-        # Incremental nodes at node-optimal candidate
         base_inc = base["incremental_nodes"]
         opt_inc = cheapest_nodes_rec["incremental_nodes"]
         min_inc_nodes_valid = opt_inc
-        r_norm_inc_nodes_valid = (
-            (base_inc - opt_inc) / base_inc if base_inc > 0 else 0.0
-        )
+        r_norm_inc_nodes_valid = (base_inc - opt_inc) / base_inc if base_inc > 0 else 0.0
 
-        # Wall time at node-optimal candidate
         time_at_min_nodes = cheapest_nodes_rec["time_ms"]
         r_norm_time_at_min_nodes = (
             (base["time_ms"] - time_at_min_nodes) / base["time_ms"]
@@ -585,28 +661,32 @@ def evaluate_root(
             else None
         )
 
-        # Time-optimal candidate: only distinct if STRICTLY faster (Finding 4)
-        min_time_rec = min(valid_records, key=lambda c: c["time_ms"] if c["time_ms"] is not None else 999999)
-        min_time_val = min_time_rec["time_ms"]
-        if min_time_val is not None and time_at_min_nodes is not None and min_time_val < time_at_min_nodes:
-            cheapest_time_mv = min_time_rec["move"]
-            min_time_valid = min_time_val
-            r_norm_time_min = (base["time_ms"] - min_time_valid) / base["time_ms"] if base["time_ms"] else None
+        if base["best"] == ref["best"]:
+            outcome_category = "result_preserving_saving"
         else:
-            cheapest_time_mv = None
-            min_time_valid = time_at_min_nodes
-            r_norm_time_min = r_norm_time_at_min_nodes
+            outcome_category = "convergence_correction_saving"
+    elif valid_records:
+        # At least one candidate passed quality gate, but none beat baseline nodes
+        if base["best"] == ref["best"] and base_score_agrees_ref:
+            outcome_category = "baseline_optimal"
+        else:
+            outcome_category = "harmful_intervention"
+        cheapest_nodes_mv = base["best"]
+        min_nodes_valid = base["nodes"]
+        r_norm_nodes_valid = 0.0
+        min_inc_nodes_valid = base["incremental_nodes"]
+        r_norm_inc_nodes_valid = 0.0
+        time_at_min_nodes = base["time_ms"]
+        r_norm_time_at_min_nodes = 0.0
     else:
-        cheapest_nodes_mv = None
-        min_nodes_valid = None
-        r_norm_nodes_valid = None
-        min_inc_nodes_valid = None
-        r_norm_inc_nodes_valid = None
-        time_at_min_nodes = None
-        r_norm_time_at_min_nodes = None
-        cheapest_time_mv = None
-        min_time_valid = None
-        r_norm_time_min = None
+        outcome_category = "no_valid_candidate"
+        cheapest_nodes_mv = base["best"]
+        min_nodes_valid = base["nodes"]
+        r_norm_nodes_valid = 0.0
+        min_inc_nodes_valid = base["incremental_nodes"]
+        r_norm_inc_nodes_valid = 0.0
+        time_at_min_nodes = base["time_ms"]
+        r_norm_time_at_min_nodes = 0.0
 
     return {
         "root": root_id,
@@ -616,6 +696,8 @@ def evaluate_root(
         "reference_depth": ref_depth,
         "candidate_depth": candidate_depth,
         "depth_mode": depth_mode,
+        "preserve_aspiration": preserve_aspiration,
+        "disable_fail_high_reduction": disable_fail_high_reduction,
         "base": {
             "nodes": base["nodes"],
             "incremental_nodes": base["incremental_nodes"],
@@ -644,6 +726,7 @@ def evaluate_root(
         "summary": {
             "candidate_count": len(forced_records),
             "valid_candidate_count": len(valid_records),
+            "outcome_category": outcome_category,
             "min_nodes_all": min_nodes_all,
             "r_norm_all_nodes": r_norm_all_nodes,
             "node_optimal": {
@@ -655,15 +738,7 @@ def evaluate_root(
                 "time_ms": time_at_min_nodes,
                 "r_norm_time": r_norm_time_at_min_nodes,
             },
-            "strictly_faster_alternative": (
-                {
-                    "move": cheapest_time_mv,
-                    "time_ms": min_time_valid,
-                    "r_norm_time": r_norm_time_min,
-                }
-                if cheapest_time_mv is not None
-                else None
-            ),
+            "strictly_faster_alternative": None,
         },
     }
 
@@ -715,23 +790,34 @@ def print_root_report(res: dict):
         b_tel = b["root_telemetry"]
         print(f"Root search telemetry @ D{res['depth']}:")
         print(f"  Baseline: fail_low={b_tel['aspiration_fail_low']}, fail_high={b_tel['aspiration_fail_high']}, aspiration_iterations={b_tel['aspiration_iterations']}")
+        if b_tel.get("attempts"):
+            att_strs = [f"D{a['depth']}:{a['value']}({a['result']})" for a in b_tel["attempts"]]
+            print(f"  Baseline attempts: {' -> '.join(att_strs)}")
         opt_c = next((c for c in res["candidates"] if c["move"] == opt_node["move"]), None)
         if opt_c and opt_c.get("root_telemetry"):
             c_tel = opt_c["root_telemetry"]
             print(f"  Optimal forced move ({opt_node['move']}): fail_low={c_tel['aspiration_fail_low']}, fail_high={c_tel['aspiration_fail_high']}, aspiration_iterations={c_tel['aspiration_iterations']}")
+            if c_tel.get("attempts"):
+                att_strs = [f"D{a['depth']}:{a['value']}({a['result']})" for a in c_tel["attempts"]]
+                print(f"  Optimal attempts: {' -> '.join(att_strs)}")
 
     # Multi-trial timing printout if present
     if res.get("timing_trials"):
         tt = res["timing_trials"]
         b_tt = tt["baseline"]
-        print(f"Multi-trial timing ({tt['trials_count']} interleaved runs):")
-        print(f"  Baseline: engine median {b_tt['engine_median_ms']:.1f} ms | wall median {b_tt['wall_median_ms']:.1f} ms")
+        b_eng = b_tt["engine_stats"]
+        b_wall = b_tt["wall_stats"]
+        print(f"Randomized multi-trial timing ({tt['trials_count']} counterbalanced runs):")
+        print(f"  Baseline: engine median {b_eng['median']:.1f} ms (IQR: {b_eng['iqr']:.1f}, mean: {b_eng['mean']:.1f}±{b_eng['std']:.1f} ms) | wall median {b_wall['median']:.1f} ms")
         if opt_node["move"] and opt_node["move"] in tt["candidates"]:
             c_tt = tt["candidates"][opt_node["move"]]
-            eng_speedup = (b_tt['engine_median_ms'] - c_tt['engine_median_ms']) / b_tt['engine_median_ms'] if b_tt['engine_median_ms'] else 0.0
-            print(f"  Optimal ({opt_node['move']}): engine median {c_tt['engine_median_ms']:.1f} ms ({eng_speedup:+.1%} engine speedup) | wall median {c_tt['wall_median_ms']:.1f} ms")
+            c_eng = c_tt["engine_stats"]
+            c_wall = c_tt["wall_stats"]
+            eng_speedup = (b_eng['median'] - c_eng['median']) / b_eng['median'] if b_eng['median'] else 0.0
+            print(f"  Optimal ({opt_node['move']}): engine median {c_eng['median']:.1f} ms ({eng_speedup:+.1%} engine speedup, IQR: {c_eng['iqr']:.1f}, mean: {c_eng['mean']:.1f}±{c_eng['std']:.1f} ms) | wall median {c_wall['median']:.1f} ms")
 
-    # Tolerance sensitivity printout (Findings 2, 4)
+    # Outcome category and tolerance sensitivity printout
+    print(f"Outcome taxonomy category: {s.get('outcome_category', 'UNKNOWN').upper()}")
     print(f"Score tolerance sensitivity:")
     sens = res.get("tolerance_sensitivity", {})
     for b_str in ["25", "50", "75", "100"]:
@@ -775,9 +861,19 @@ def main():
         help="isolated: override only at target depth (Experiment B). persistent: override all depths (Experiment A).",
     )
     ap.add_argument("--score-tolerance", type=int, default=50, help="Max score cp delta vs reference.")
-    ap.add_argument("--trials", type=int, default=1, help="Number of interleaved timing trials (default: 1).")
-    ap.add_argument("--ids", default="c1-d-001,c1-v-001,c1-t-001", help="Comma-separated root IDs.")
-    ap.add_argument("--corpus", default=None, help="Path to corpus JSON (default: corpora/corpus-v1.json).")
+    ap.add_argument("--trials", type=int, default=1, help="Number of counterbalanced timing trials (default: 1).")
+    ap.add_argument(
+        "--preserve-aspiration",
+        action="store_true",
+        help="Causal ablation: keep baseline aspiration window center and width (isolate pure MovePicker ordering).",
+    )
+    ap.add_argument(
+        "--disable-fail-high-reduction",
+        action="store_true",
+        help="Causal ablation: disable failedHighCnt depth reduction (force searches at nominal depth).",
+    )
+    ap.add_argument("--ids", default=None, help="Comma-separated root IDs (default: all dev and val roots).")
+    ap.add_argument("--corpus", default=None, help="Path to corpus JSON (default: corpora/corpus-v3.json).")
     ap.add_argument("--out", default=None, help="Output JSON path.")
     args = ap.parse_args()
 
@@ -794,11 +890,15 @@ def main():
     corpus_path = (
         Path(args.corpus).resolve()
         if args.corpus
-        else Path(__file__).resolve().parents[0] / "corpora" / "corpus-v1.json"
+        else Path(__file__).resolve().parents[0] / "corpora" / "corpus-v3.json"
     )
     corpus, _ = rc.load_corpus(str(corpus_path))
     by_id = {p["id"]: p for p in corpus["positions"]}
-    ids = [i.strip() for i in args.ids.split(",") if i.strip()]
+    if args.ids:
+        ids = [i.strip() for i in args.ids.split(",") if i.strip()]
+    else:
+        # Default: all development and validation roots (quarantining test roots)
+        ids = [p["id"] for p in corpus["positions"] if p["set"] in ("development", "validation")]
 
     all_results = []
     for rid in ids:
@@ -816,9 +916,84 @@ def main():
             depth_mode=args.depth_mode,
             score_tolerance_cp=args.score_tolerance,
             trials=args.trials,
+            preserve_aspiration=args.preserve_aspiration,
+            disable_fail_high_reduction=args.disable_fail_high_reduction,
         )
         all_results.append(res)
         print_root_report(res)
+
+    # Population summary
+    pop_total = len(all_results)
+    population_summary = None
+    if pop_total > 0:
+        res_pres = sum(1 for r in all_results if r["summary"]["outcome_category"] == "result_preserving_saving")
+        conv_corr = sum(1 for r in all_results if r["summary"]["outcome_category"] == "convergence_correction_saving")
+        base_opt = sum(1 for r in all_results if r["summary"]["outcome_category"] == "baseline_optimal")
+        harmful = sum(1 for r in all_results if r["summary"]["outcome_category"] == "harmful_intervention")
+        no_val = sum(1 for r in all_results if r["summary"]["outcome_category"] == "no_valid_candidate")
+
+        oracle_cum_savings = [
+            max(0.0, r["summary"]["node_optimal"]["r_norm_cumulative_nodes"] or 0.0)
+            for r in all_results
+        ]
+        oracle_inc_savings = [
+            max(0.0, r["summary"]["node_optimal"]["r_norm_incremental_nodes"] or 0.0)
+            for r in all_results
+        ]
+
+        base_nodes_total = sum(r["base"]["nodes"] for r in all_results)
+        opt_nodes_total = sum(
+            min(r["base"]["nodes"], r["summary"]["node_optimal"]["nodes"] or r["base"]["nodes"])
+            for r in all_results
+        )
+        pooled_cum_saving = (
+            (base_nodes_total - opt_nodes_total) / base_nodes_total if base_nodes_total > 0 else 0.0
+        )
+
+        base_inc_total = sum(r["base"]["incremental_nodes"] for r in all_results)
+        opt_inc_total = sum(
+            min(r["base"]["incremental_nodes"], r["summary"]["node_optimal"]["incremental_nodes"] or r["base"]["incremental_nodes"])
+            for r in all_results
+        )
+        pooled_inc_saving = (
+            (base_inc_total - opt_inc_total) / base_inc_total if base_inc_total > 0 else 0.0
+        )
+
+        population_summary = {
+            "roots_evaluated": pop_total,
+            "result_preserving_saving_count": res_pres,
+            "result_preserving_saving_pct": round(res_pres / pop_total * 100, 1),
+            "convergence_correction_saving_count": conv_corr,
+            "convergence_correction_saving_pct": round(conv_corr / pop_total * 100, 1),
+            "total_positive_opportunity_count": res_pres + conv_corr,
+            "total_positive_opportunity_pct": round((res_pres + conv_corr) / pop_total * 100, 1),
+            "baseline_optimal_count": base_opt,
+            "baseline_optimal_pct": round(base_opt / pop_total * 100, 1),
+            "harmful_intervention_count": harmful,
+            "harmful_intervention_pct": round(harmful / pop_total * 100, 1),
+            "no_valid_candidate_count": no_val,
+            "no_valid_candidate_pct": round(no_val / pop_total * 100, 1),
+            "macro_mean_cumulative_saving": round(statistics.mean(oracle_cum_savings), 4),
+            "macro_median_cumulative_saving": round(statistics.median(oracle_cum_savings), 4),
+            "macro_mean_incremental_saving": round(statistics.mean(oracle_inc_savings), 4),
+            "macro_median_incremental_saving": round(statistics.median(oracle_inc_savings), 4),
+            "pooled_cumulative_saving": round(pooled_cum_saving, 4),
+            "pooled_incremental_saving": round(pooled_inc_saving, 4),
+        }
+
+        print("\n================================================================================")
+        print("POPULATION STATISTICS SUMMARY (18 Predeclared Dev + Val Roots):")
+        print(f"  Roots evaluated: {pop_total}")
+        print(f"  Positive opportunities: {res_pres + conv_corr}/{pop_total} ({(res_pres + conv_corr)/pop_total*100:.1f}%)")
+        print(f"    - Result-preserving savings: {res_pres}/{pop_total} ({res_pres/pop_total*100:.1f}%)")
+        print(f"    - Convergence corrections:   {conv_corr}/{pop_total} ({conv_corr/pop_total*100:.1f}%)")
+        print(f"  Baseline optimal (regret 0.0): {base_opt}/{pop_total} ({base_opt/pop_total*100:.1f}%)")
+        print(f"  Harmful interventions:         {harmful}/{pop_total} ({harmful/pop_total*100:.1f}%)")
+        print(f"  No valid candidates:           {no_val}/{pop_total} ({no_val/pop_total*100:.1f}%)")
+        print(f"  Macro Mean Savings:  Cumulative {population_summary['macro_mean_cumulative_saving']*100:.1f}% | Target-Iteration {population_summary['macro_mean_incremental_saving']*100:.1f}%")
+        print(f"  Macro Median Savings: Cumulative {population_summary['macro_median_cumulative_saving']*100:.1f}% | Target-Iteration {population_summary['macro_median_incremental_saving']*100:.1f}%")
+        print(f"  Pooled Savings:      Cumulative {population_summary['pooled_cumulative_saving']*100:.1f}% | Target-Iteration {population_summary['pooled_incremental_saving']*100:.1f}%")
+        print("================================================================================\n")
 
     git_st = rc.git_state(rc.repo_root())
     provenance = {
@@ -836,12 +1011,15 @@ def main():
         "schema": "policy-research-p4-counterfactual/3",
         "provenance": provenance,
         "depth_mode": args.depth_mode,
+        "preserve_aspiration": args.preserve_aspiration,
+        "disable_fail_high_reduction": args.disable_fail_high_reduction,
         "depth": args.depth,
         "reference_depth": ref_depth,
         "candidate_depth": args.candidate_depth,
         "k": args.k,
         "score_tolerance_cp": args.score_tolerance,
         "candidate_set_framing": "empirical search-informed candidate shortlist from MultiPV at candidate_depth",
+        "population_summary": population_summary,
         "results": all_results,
     }
 

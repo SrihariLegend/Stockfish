@@ -102,6 +102,32 @@ class TestCorpus(unittest.TestCase):
             for p in corpus["positions"]:
                 self.assertEqual(len(p["fen"].split()), 6, msg=f"Root {p['id']} FEN must have 6 fields")
 
+    def test_load_corpus_v3_and_exact_replay_verification(self):
+        v3_path = Path(__file__).resolve().parents[1] / "corpora" / "corpus-v3.json"
+        self.assertTrue(v3_path.is_file(), "corpus-v3.json must exist")
+        corpus, canonical = rc.load_corpus(v3_path)
+        self.assertEqual(corpus.get("schema"), "corpus/v3")
+        self.assertEqual(corpus.get("corpus_id"), "policy-research-corpus-v3")
+        self.assertEqual(len(corpus["positions"]), 26)
+        dev = [p for p in corpus["positions"] if p["set"] == "development"]
+        val = [p for p in corpus["positions"] if p["set"] == "validation"]
+        tst = [p for p in corpus["positions"] if p["set"] == "test"]
+        self.assertEqual(len(dev), 10)
+        self.assertEqual(len(val), 8)
+        self.assertEqual(len(tst), 8)
+
+        engine_path = os.environ.get("STOCKFISH_ENGINE")
+        for p in corpus["positions"]:
+            self.assertEqual(len(p["fen"].split()), 6, msg=f"Root {p['id']} FEN must have 6 fields")
+            if engine_path and "source_line_moves" in p:
+                moves = " ".join(p["source_line_moves"])
+                proc = subprocess.Popen([engine_path], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+                proc.stdin.write(f"position startpos moves {moves}\nd\nquit\n")
+                proc.stdin.flush()
+                out, _ = proc.communicate()
+                rep_fen = next(l[4:].strip() for l in out.splitlines() if l.startswith("Fen:"))
+                self.assertEqual(p["fen"], rep_fen, f"Root {p['id']} replay FEN mismatch byte-for-byte")
+
 
 class TestNormalize(unittest.TestCase):
     def test_strips_time_and_nps_keeps_nodes(self):
@@ -499,6 +525,30 @@ class TestForceFirstRootOrder(unittest.TestCase):
         self.assertGreaterEqual(tel["aspiration_iterations"], 1)
         self.assertIn("moves", tel)
         self.assertGreater(len(tel["moves"]), 0)
+        # Check attempts telemetry
+        self.assertIn("attempts", tel)
+        self.assertGreater(len(tel["attempts"]), 0)
+        att = tel["attempts"][0]
+        self.assertIn("depth", att)
+        self.assertIn("result", att)
+        # Check moves telemetry format: effort_total and effort_incremental
+        m_info = next(iter(tel["moves"].values()))
+        self.assertIn("effort_total", m_info)
+        self.assertIn("effort_incremental", m_info)
+
+    def test_causal_decomposition_options(self):
+        self._skip_if_no_engine()
+        import tools.policy_research.p4_force_first as p4
+        eng = p4.Engine(self.ENGINE)
+        fen = "r1bqk2r/pppp1ppp/2n5/2b5/2BPn3/5N2/PP3PPP/RNBQK2R w KQkq - 0 7"
+        # Run with preserve_aspiration
+        r_pa = eng.run_search(fen, depth=14, force_move="b1c3", force_depth=14, preserve_aspiration=True)
+        self.assertEqual(r_pa["best"], "d4c5")
+        self.assertGreater(r_pa["nodes"], 0)
+        # Run with disable_fail_high_reduction
+        r_df = eng.run_search(fen, depth=14, force_move="b1c3", force_depth=14, disable_fail_high_reduction=True)
+        self.assertEqual(r_df["best"], "d4c5")
+        self.assertGreater(r_df["nodes"], 0)
 
     def test_score_tolerance_below_25(self):
         # Unit test verifying Finding 8: score tolerance below 25 cp rejects larger deltas
