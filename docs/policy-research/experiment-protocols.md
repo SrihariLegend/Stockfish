@@ -365,35 +365,41 @@ Limitations: n=3 roots is too small for aggregate bootstrap CIs; top-k is a sear
 - Dynamic reference depth: strictly greater than target depth (default $D + 2$).
 - Schema: `policy-research-p4-counterfactual/3`.
 
-**Corpus Expansion (`corpus/v2`)**:
+**Corpus Expansion (`corpus/v3`)**:
 - 26 positions across 3 strict splits:
-  - `development` (10 roots: `c2-d-001`..`c2-d-010`): startpos, Kiwipete, CPW 3/4, Morphy Opera 10...cxb5 and 7...Qe7, Sicilian Najdorf, King's Indian, WAC 001, Lucena position.
-  - `validation` (8 roots: `c2-v-001`..`c2-v-008`): Giuoco Piano blunder, CPW 5, Scandinavian check, French Winawer, Tal-Larsen 1965, Petrosian Hedgehog, Philidor position, Bratko-Kopec 02.
-  - `test` (8 roots: `c2-t-001`..`c2-t-008`): Kasparov-Topalov 1999, Ruy Lopez Closed, Byrne-Fischer 1956, QGD Tartakower, Carlsen-Aronian 2015, WAC 002, Bratko-Kopec 01, King and pawns.
-  - Burned exploratory root `c1-t-001` is completely excluded from the test set.
+  - `development` (10 roots: `c3-d-001`..`c3-d-010`): startpos, Kiwipete, CPW 3/4, Morphy Opera 10...cxb5 and 7...Qe7, Sicilian Najdorf, King's Indian, WAC 001, Lucena position.
+  - `validation` (8 roots: `c3-v-001`..`c3-v-008`): Giuoco Piano blunder, CPW 5, Scandinavian check, French Winawer, Tal-Larsen 1965, Petrosian Hedgehog, Philidor 6th-rank defense (Philidor 1777), Bratko-Kopec 02.
+  - `test` (8 roots: `c3-t-001`..`c3-t-008`): Kasparov-Topalov 1999, Ruy Lopez Closed, Byrne-Fischer 1956, QGD Classical, Carlsen-Aronian 2015, WAC 002, Bratko-Kopec 01, King and pawns.
+  - Every position with `source_line_moves` is 100% byte-for-byte verified via replay from startpos against Stockfish's board parser.
+  - Burned exploratory root `c1-t-001` is completely excluded from the test set; all 8 test roots are strictly quarantined.
 
-**Depth Ladder Results on `c2-v-001` (Giuoco Piano)**:
-- Depth 12 (Ref D14): Baseline 1,948 nodes (491 incr D12). Best move `d4c5`. Optimal forced move `d4c5` (exact 0.0% regret).
-- Depth 14 (Ref D16): Baseline 20,956 nodes (17,285 incr D14). Best move `d4c5`. Optimal forced move `b1c3` (5,643 cumul / 1,972 incr), score cp 642 vs 645 ref (delta −3 cp). **88.6% incremental reduction**.
-- Depth 16 (Ref D18): Baseline 123,243 nodes (56,156 incr D16). Best move `d4c5`. Optimal forced move `b1c3` (68,467 cumul / 1,380 incr), score cp 635 vs 642 D18 ref (delta −7 cp). **97.5% incremental reduction ($40.7\times$ lower target-iteration search cost)**.
-- Confirms: the ordering pathology recurs across multiple depths rather than being a single-iteration fluke.
+**Multi-Depth Ladder Results**:
+- On `c3-d-004` (CPW4, tactical middlegame):
+  - D12 (Ref D14): Baseline 8,269 nodes; forced `g1h1` takes 2,296 nodes (**72.2% cumulative reduction**).
+  - D14 (Ref D16): Baseline 69,878 nodes (47,379 incr); forced `g1h1` takes 24,972 nodes (2,473 incr), **64.3% cumulative reduction, 94.8% incremental reduction**.
+  - D16 (Ref D18): Baseline 1,369,213 nodes; forced `g1h1` takes 267,656 nodes (**80.5% cumulative reduction, saving 1,101,557 nodes**).
+- On `c3-v-001` (Giuoco Piano):
+  - D14 (Ref D16): Baseline 20,956 nodes (17,285 incr); forced `b1c3` takes 5,643 nodes (1,972 incr), **73.1% cumulative reduction, 88.6% incremental reduction**.
+  - D16 (Ref D18): Baseline 123,243 nodes; forced `b1c3` takes 68,467 nodes (**44.4% cumulative reduction**).
 
-**Generalization Across Diverse Positions**:
-- `c2-d-007` (Sicilian Najdorf tabiya):
-  - Baseline D14: 129,556 nodes (66,264 incr), best `f2f3`. Ref D16: 168,770 nodes, best `c1e3`.
-  - Forced `f2f3` first at D14: takes only 66,704 cumulative nodes and **3,412 incremental D14 nodes** (**94.9% incremental node reduction**), discovering `c1e3` (the D16 reference best move).
-- `c2-v-005` (Tal-Larsen 1965):
-  - Baseline D14: 71,791 nodes (38,817 incr), best `c3a4` (fails to match D16 ref best move `d1d2`).
-  - Forced `c3b5` first at D14: takes 38,800 cumulative nodes and **5,826 incremental nodes** (**85.0% incremental reduction**), successfully discovering the D16 reference best move `d1d2`.
+**Causal Decomposition (Pure Move Order vs Aspiration Depth Control)**:
+Evaluated across 5 conditions: `baseline`, `joint_intervention`, `preserve_aspiration` (order only, baseline aspiration center/width), `disable_fail_high_reduction` (forced nominal depth), and `pure_order_nominal_depth` (pure order at nominal depth):
+- On `c3-d-004`: zero aspiration failures occur in all 5 conditions; nodes drop from 69,878 to 20,779 (**70.3% pure MovePicker alpha-beta ordering reduction at nominal depth 14**).
+- On `c3-v-001`: baseline searches at unadjusted D14 (20,956 nodes); pure order at nominal depth saves 49.8% (10,513 nodes); joint intervention allows 3 fail-highs reducing effective depth to 11 (5,643 nodes, 73.1% saving).
+- On `c3-d-002` (Kiwipete): fail-high depth reductions prevent search explosion in complex tactical trees.
 
-**Interleaved Multi-Trial Timing Benchmarks**:
-- Tooling now supports `--trials N` running round-robin interleaved runs to prevent thermal bias.
-- Records both engine internal search time (`engine_median_ms`) and end-to-end wall time (`wall_median_ms`).
-- On `c1-v-001` (3 interleaved trials): engine median search time dropped from 19.0 ms to 5.0 ms (**+73.7% engine speedup**).
-- On `c2-d-007` (5 fresh processes): median subprocess time dropped from 411.4 ms to 351.0 ms (14.7% end-to-end speedup including launch overhead).
+**Randomized Multi-Trial Timing Benchmarks**:
+- Tooling supports `--trials N` running counterbalanced randomized execution order across trials to prevent thermal and first-runner cache warming biases.
+- On `c3-v-001` (10 randomized runs): engine median search time dropped from 18.5 ms (mean 18.5±0.5 ms) to 5.0 ms (mean 5.2±0.4 ms), an exact **+73.0% engine search speedup** (IQR 0 ms, $p < 0.0001$).
+- On `c3-d-004` (10 randomized runs): engine median search time dropped from 63.0 ms (mean 63.1±1.6 ms) to 23.0 ms (mean 22.8±0.6 ms), an exact **+63.5% engine search speedup** (IQR 1 ms).
 
-**Search Mechanism Findings**:
-Direct root search instrumentation (`aspiration_fail_low`, `aspiration_fail_high`, per-root-move effort) revealed the exact mechanism:
-1. In baseline search, the lead move is searched first with full aspiration window and zero fail-highs (`fail_high=0, fail_low=0, iterations=1`), searching the full unadjusted depth tree (e.g. 20,354 nodes on `d4c5`).
-2. When a secondary setup move is forced first, it consumes minimal effort (e.g. 21 nodes on `b1c3`). When the true best move (`d4c5`) is subsequently searched as move 2, it fails high three times (`fail_high=3, iterations=4`), triggering aspiration window enlargements.
-3. In Stockfish, `adjustedDepth = rootDepth - failedHighCnt = 14 - 3 = 11`. At this reduced effective depth, `d4c5` completes in only 5,034 nodes, allowing the iteration to conclude at a fraction of the cost while confirming the optimal best move.
+**18-Root Canonical Population Statistics (`corpus/v3` Dev + Val)**:
+- 7 Result-preserving savings (38.9%)
+- 2 Convergence corrections (11.1%)
+- 5 Baseline optimal (27.8%)
+- 3 Harmful interventions (16.7%)
+- 1 No valid candidate (5.6%)
+- Total positive opportunity: 9 / 18 (50.0%)
+- Macro mean savings: 18.5% cumulative, 34.9% target-iteration.
+- Macro median savings: 1.8% cumulative, 7.8% target-iteration.
+- Pooled savings: 22.4% cumulative, 42.8% target-iteration.

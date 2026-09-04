@@ -259,17 +259,21 @@ Key features & options:
   1..D (`PolicyResearchForceFirstDepth 0`), measuring cumulative trajectory churn.
 - `--reference-depth <depth>`: runs a deeper search (default: target depth + 2) to check
   best-move agreement and score tolerance before declaring a candidate quality-valid.
-- `--corpus <path>`: path to corpus JSON (default: `corpora/corpus-v1.json`, also supports `corpora/corpus-v2.json`).
+- `--corpus <path>`: path to corpus JSON (default: `corpora/corpus-v3.json`, also supports `corpus-v1.json`, `corpus-v2.json`).
 - Reports both **cumulative search nodes** and **incremental depth-D nodes**.
 - Dual-dimensional quality gates: evaluates candidate deltas both vs deeper reference
   ($\Delta\text{ref}$) and relative to baseline ($\Delta\text{base}$), reporting
   sensitivity across gates $\pm 25, \pm 50, \pm 75, \pm 100\text{ cp}$.
 - Disentangles node-optimal candidate from time-optimal candidate, and records
   durable provenance (engine banner, executable SHA256, embedded commit, tool git state, timestamp).
-- `--trials <N>`: runs N interleaved timing trials per intervention, reporting both
-  engine search time (UCI `time <ms>`) and end-to-end wall time.
+- `--trials <N>`: runs N counterbalanced randomized timing trials per intervention, reporting
+  engine search time (UCI `time <ms>`), median, IQR, mean, and standard deviation.
+- `--preserve-aspiration`: causal ablation testing pure MovePicker ordering with baseline aspiration center and width.
+- `--disable-fail-high-reduction`: causal ablation forcing searches to full nominal depth without `failedHighCnt` reductions.
 - Emits and parses root search telemetry (`aspiration_fail_low`, `aspiration_fail_high`,
-  aspiration iterations, and per-root-move node efforts) under `POLICY_RESEARCH`.
+  aspiration iterations, individual attempts with window $[ \alpha, \beta ]$, and per-root-move node efforts) under `POLICY_RESEARCH`.
+- Categorizes outcomes into 5 mutually exclusive, exhaustive taxonomy classes:
+  `result_preserving_saving`, `convergence_correction_saving`, `baseline_optimal`, `harmful_intervention`, and `no_valid_candidate`.
 - Schema: `policy-research-p4-counterfactual/3`.
 ```
 
