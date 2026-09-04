@@ -312,15 +312,19 @@ the live node by the research hook (`Research::on_internal_node_counterfactual`)
 after all replays; endpoint non-mutation is asserted in research builds (live
 pos key, worker node counter, base TT bytes).
 
-Common fields: `schema`, `type:"decision"`, `root_key`, `pos_key` (internal
-`Position::key()` of the decision node), `fen`, `ply`,
-`entry_depth` (remaining depth at the node's **entry**; this is the replay
-depth and the sample-identity depth — see node_exit join), `depth` (remaining
+Common fields: `schema`, `type:"decision"`, `root_key` (the immutable root
+identity captured at root start — `InternalDatasetLog::current_root_key()`,
+equal to the `root_start`/`root_end` root_key on every row of the file, NOT
+the sampled node's key), `pos_key` (internal `Position::key()` of the decision
+node), `fen`, `ply`, `entry_depth` (remaining depth at the node's **entry**;
+this is the replay depth and the sample-identity depth), `depth` (remaining
 depth at the **decision point**, i.e. the main move loop head where the
 capture fired), `root_depth`, `alpha`, `beta`, `static_eval` (null when the
 decision point had no static eval), `improving`, `tt_hit`, `tt_move` (null
 when none), `cut_node`, `rule50`, `fullmove`, `sample_seed` (deterministic
-sample identity), `sample_rate`, `selection`
+sample identity; NOT unique per visit), `sample_id` (unique per-visit id,
+monotonic within the run starting at 1, reset at every root start; the join
+key to the row's `node_exit`), `sample_rate`, `selection`
 (`"probe_all"` | `"topK_plus_hash_sample"`), `n_candidates`, `node_budget`
 (finite per-replay budget applied to this node).
 
@@ -385,13 +389,15 @@ degenerate and are dropped, never written.
 ```json
 {"schema":"internal-counterfactual/2","type":"node_exit","root_key":<u64>,
  "pos_key":<u64>,"ply":<int>,"entry_depth":<int>,"sample_seed":<u64>,
- "live_subtree_nodes":<u64>}
+ "sample_id":<u64>,"live_subtree_nodes":<u64>}
 ```
 Written by `LiveExitScope` when the recorded live node's search frame exits
 (i.e. its subtree has fully executed) — after the decision row, so consumers
-join `node_exit` to `decision` on the exact identity key
-`(root_key, pos_key, ply, entry_depth, sample_seed)` (one-to-one). It records
-the real live subtree node count so live-vs-replay cost can be validated.
+join `node_exit` to `decision` on `sample_id` within the file's root (one
+sample id per decision row; ids are unique per run and repeated visits never
+collide — the `(pos_key, ply, entry_depth, sample_seed)` identity alone can
+collide when the same node is visited twice at equal depth). It records the
+real live subtree node count so live-vs-replay cost can be validated.
 Like other non-decision rows it bypasses the decision cap, but it only exists
 for recorded decisions (a skipped decision never pushes the oracle).
 
@@ -418,8 +424,9 @@ emissions at probability 1 plus one/two marginal candidate(s) at
   the recorded side to move; selected/probed candidates have `prob > 0`; probes
   reference candidate moves; every kept row has at least one `forced_slot1`.
 - `baseline.decision_point_nodes <= baseline.nodes`.
-- Every `decision` has exactly one `node_exit` with the same
-  `(root_key, pos_key, ply, entry_depth, sample_seed)`.
+- Every `decision` has exactly one `node_exit` with the same `sample_id`;
+  sample ids in the file are unique and monotonic from 1; `root_key` on every
+  decision/node_exit row equals the `root_start` root_key.
 - Censored probes (incomplete/stopped) carry `value == null` and
   `fail_high == null`; completed probes carry integer `value` and boolean
   `fail_high`.

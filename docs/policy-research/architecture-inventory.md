@@ -874,8 +874,17 @@ production builds. Map of the current research runtime modules:
     the joined `node_exit` audit row when the live frame exits.
   - `LiveExitScope` (ctor in search.cpp entry, dtor in
     `worker_snapshot.cpp`): pops the live oracle and writes the `node_exit`
-    audit row (live subtree node count, joins to the decision row on
-    `(root_key, pos_key, ply, entry_depth, sample_seed)`).
+    audit row (live subtree node count, joins to the decision row on the
+    per-visit `sample_id`).
+  - Frame-token binding (`ResearchFrameScope` + `research_frame_enter`,
+    worker_snapshot.h, search.cpp frame entry): every search frame owns a
+    unique TLS token; baseline-capture and force-next arms bind to the first
+    frame entering their `(posKey, ply)` (the isolated replay root), and the
+    decision capture, force-next protocol, and live-subtree oracle all
+    require the innermost frame token to match. Same-`(posKey, ply)` re-entry
+    frames (singular-extension and null-move-verification re-searches) can
+    therefore never consume an arm, drain the prefix buffer, or pop the
+    oracle in place of the sampled frame (audit item #4).
   - `run_sandbox_unit_tests` / overlay tests: `policy_research_test_sandbox`
     and `policy_research_test_overlay` UCI commands (parts 1-11).
 
