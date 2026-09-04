@@ -989,7 +989,8 @@ modes addressing the review findings:
      `rootDepth == PolicyResearchForceFirstDepth`. Depths 1..D-1 run under
      standard baseline conditions, giving every candidate intervention identical
      TT and history state at the decision boundary. Forcing the baseline's own
-     best move at depth D is an exact no-op (100% parity across nodes, time, score).
+     best move at depth D is an exact no-op in deterministic fields (nodes,
+     score, bestmove, PV).
 3. MovePicker root semantics: Stockfish sets `ttData.move = rootMoves[0]` and
    passes it to `MovePicker`, which emits it first in `MAIN_TT`. All subsequent
    root moves are generated and ordered by `MovePicker`'s normal stage progression
@@ -1003,22 +1004,31 @@ Tooling & quality evaluation (`tools/policy_research/p4_force_first.py`):
 - Explicitly sets `Threads 1`, `Hash 16`, `MultiPV 1`.
 - Token-based UCI parsing with depth-reached assertion; records wall time (ms),
   nodes, score (cp/mate and bound), bestmove, and PV.
+- Captures depth-(D-1) node baseline to report both cumulative nodes and
+  incremental depth-D nodes ($\Delta N_D$).
 - Reference search at D16 (plan §9.4): evaluates best-move agreement and score
-  tolerance (<= 50 cp) against deeper reference. Distinguishes unconstrained
-  `R_norm (all)` from quality-valid `R_norm (valid)`.
+  tolerance (<= 50 cp) against deeper reference; distinguishes mild drift
+  (<= 100 cp) from score collapse (> 100 cp).
+- Disentangles node-optimal candidate from time-optimal candidate; notes that
+  single-run millisecond times are subject to scheduling jitter.
+- Canonical artifacts recorded under
+  `tools/policy_research/runs/policy-research-p4-kickoff-d14-h16-20260904/`
+  with schema `policy-research-p4-counterfactual/2`.
 
 Pilot comparison (depth 14, candidate shortlist = depth 10 MultiPV top 4):
 - **Isolated Mode (Experiment B)**:
   - `c1-d-001` (startpos): baseline best `e2e4` is an exact no-op (43,275 nodes,
-    35 ms, score cp 27). Other candidates cost more (+0.5% to +5.9%).
-    `R_norm (valid) = +0.000`.
-  - `c1-v-001` (validation): baseline `d4c5` = 20,956 nodes, 18 ms. Forcing
-    `b1c3` first = 5,643 nodes, 5 ms, score cp 642 (agrees within 3 cp of D16
-    reference 645 cp). All candidates agree with reference best `d4c5`.
-    Quality-valid savings: **73.1% in nodes (`R_norm = +0.731`), 72.2% in wall time**.
-  - `c1-t-001` (burned test root): baseline `f1e2` = 26,292 nodes, 19 ms.
-    Cheaper runs (`f1g2`, `f3d1`) fail score tolerance vs D16 reference
-    (evaluation collapse). `R_norm (valid) = +0.000`.
+    2,680 incremental D14 nodes). Other candidates cost more (+78% to +95%
+    incremental regret). `R_norm (valid) = +0.000`.
+  - `c1-v-001` (validation): baseline `d4c5` = 20,956 nodes (17,285 incremental).
+    Forcing `b1c3` first = 5,643 cumulative nodes (1,972 incremental), score cp 642
+    (agrees within 3 cp of D16 reference 645 cp). All candidates agree with
+    reference best `d4c5`. Quality-valid oracle headroom on this root:
+    **73.1% cumulative nodes (`R_norm = +0.731`), 88.6% incremental D14 nodes
+    (`R_norm = +0.886`)**.
+  - `c1-t-001` (burned test root): baseline `f1e2` = 26,292 nodes (7,742 incremental).
+    Cheaper candidate `f1g2` had mild drift (−53 cp vs ref) while `f3d1` had score
+    collapse (−111 cp vs ref). `R_norm (valid) = +0.000`.
 - **Persistent Mode (Experiment A)**:
   - `c1-d-001`: `c2c4` = 21,146 nodes (`R_norm = +0.511`) due to iterative
     trajectory churn.

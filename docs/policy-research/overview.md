@@ -12,7 +12,7 @@ tests, exit gates, definition of done).
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
 | 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
 | 3 | Observational dataset and calibration baseline | **Complete (schema-derivable subset)** — prefix-free uniform-rate dataset v2 + root-held-out baseline report (protocol P3.2) landed; the P3.1 evaluation review (leaky row-random split + duplicated iterative-deepening prefixes, row-level SEs on 12 roots, non-random cell exclusion, collinear margins, in-sample isotonic fit) was fully addressed. §8.3 history / §8.4 baseline-score calibration and candidate-denominator analyses remain gated on the counterfactual candidate-enumeration schema (Phases 4/5). Strong *generalization* claims need a larger root sample (corpus/v2) |
-| 4 | Root-level counterfactual experiments | **In progress (P4.1 review remediation)** — research-only root override enhanced with target-depth gating (`PolicyResearchForceFirstDepth`), tablebase safety, and robust reference-quality evaluation; isolated counterfactuals show exact baseline-best parity (0.0% regret) and quality-valid savings of 73.1% on `c1-v-001` (tactical root) vs 0.0% on startpos |
+| 4 | Root-level counterfactual experiments | **In progress (P4.1 review remediation)** — research-only root override with isolated target-depth gating (`PolicyResearchForceFirstDepth`), tablebase safety, and robust reference-quality evaluation; isolated counterfactuals show exact baseline-best parity (0.0% regret) and quality-valid oracle headroom of 73.1% cumulative / 88.6% incremental nodes on `c1-v-001` (tactical root) vs 0.0% on startpos |
 | 5 | Internal counterfactual search sandbox | Not started |
 | 6 | Oracle / ratio / interaction-gap studies | Not started |
 | 7 | Proof-time survival modeling | Not started |
@@ -40,7 +40,8 @@ Engine-side Phase 4 unit (plan §9.1) and follow-up review remediation:
       `rootDepth == forceFirstDepth`. Depths 1..D-1 run under standard
       baseline conditions, guaranteeing identical TT and history state at the
       decision boundary. Forcing the baseline's own best move at depth D is
-      an exact bit-for-bit no-op (100% parity across nodes, time, score).
+      an exact bit-for-bit no-op in deterministic fields (nodes, score, bestmove,
+      PV).
 - Hook & semantics: `Search::Worker::iterative_deepening()` in `src/search.cpp`.
   At the root, Stockfish sets `ttData.move = rootMoves[0]` and emits it in
   `MovePicker`'s `MAIN_TT` stage. The former index-0 move drops into its
@@ -57,27 +58,36 @@ Tooling & quality validation (`tools/policy_research/p4_force_first.py`):
 - Enforces `Threads 1`, `Hash 16`, `MultiPV 1`; token-based UCI parsing with
   depth-reached assertions; records wall time (ms), nodes, score (cp/bound),
   bestmove, and PV.
+- Captures depth-(D-1) node baseline to report both **cumulative nodes**
+  (total search to depth D) and **incremental depth-D nodes** ($\Delta N_D$).
 - Deeper reference search (D16) evaluates plan §9.4 reference agreement: checks
   best-move agreement with reference and score tolerance (<= 50 cp) before
-  calling a candidate quality-valid.
+  calling a candidate quality-valid; distinguishes mild drift (<= 100 cp) from
+  score collapse (> 100 cp).
+- Disentangled time metrics: reports wall time of the node-optimal candidate
+  separately from the overall time-optimal candidate; warns of single-run
+  millisecond scheduling jitter.
 - Candidate set framing: depth-10 MultiPV top-k is a search-informed empirical
-  shortlist (upper bound for realizable cheap policy, lower bound for all-legal
+  shortlist (upper bound for deployable cheap policy, lower bound for all-legal
   oracle).
 - Root reservation: `c1-t-001` was inspected and is marked burned/exploratory.
+- Durable provenance & artifacts: recorded under
+  `tools/policy_research/runs/policy-research-p4-kickoff-d14-h16-20260904/`
+  with schema `policy-research-p4-counterfactual/2`.
 
 Pilot results at depth 14 (reference depth 16, candidate depth 10, k=4):
 
 **Experiment B: Isolated Target-Depth Override (Pure Counterfactual at Depth 14)**
-| root | set | C_base (best) | Ref @ D16 (best) | Quality-valid candidates | R_norm (nodes) | R_norm (time) |
-|---|---|---|---|---|---|---|
-| c1-d-001 | development | 43 275 / 35ms (e2e4, cp 27) | 75 655 (e2e4, cp 39) | e2e4 (43 275, cp 27) | **+0.000** | +0.029 |
-| c1-v-001 | validation | 20 956 / 18ms (d4c5, cp 654) | 123 243 (d4c5, cp 645) | b1c3 (5 643, cp 642) | **+0.731** | **+0.722** |
-| c1-t-001 | test (burned) | 26 292 / 18ms (f1e2, cp 133) | 128 139 (f1e2, cp 168) | f1e2 (26 292, cp 133) | **+0.000** | −0.056 |
+| root | set | C_base @ D14 (best) | Ref @ D16 (best) | Quality-valid candidates | R_norm (cumul) | R_norm (incr D14) | R_norm (time) |
+|---|---|---|---|---|---:|---:|---:|
+| c1-d-001 | development | 43 275 / 2 680 incr (e2e4, cp 27) | 75 655 (e2e4, cp 39) | e2e4 (43 275, cp 27) | **+0.000** | **+0.000** | +0.103 |
+| c1-v-001 | validation | 20 956 / 17 285 incr (d4c5, cp 654) | 123 243 (d4c5, cp 645) | b1c3 (5 643 / 1 972 incr, cp 642) | **+0.731** | **+0.886** | +0.722 |
+| c1-t-001 | test (burned) | 26 292 / 7 742 incr (f1e2, cp 133) | 128 139 (f1e2, cp 168) | f1e2 (26 292, cp 133) | **+0.000** | **+0.000** | −0.056 |
 
 *Notes on isolated mode:*
-- On `c1-d-001` (startpos): baseline best `e2e4` is an exact no-op (43 275 nodes, 35 ms). Other candidates cost more (+0.5% to +5.9%). Baseline was already optimal.
-- On `c1-v-001` (tactical root): forcing `b1c3` first takes 5 643 nodes and 5 ms (score cp 642, within 3 cp of D16 reference). All candidates agree with D16 reference best `d4c5`. Realizable ordering savings is genuine: **73.1% in nodes and 72.2% in wall time**.
-- On `c1-t-001`: cheaper runs (`f1g2`, `f3d1`) fail score tolerance vs D16 reference (evaluation collapse; cp 57 vs 168). Filtered out by quality gate. `R_norm (valid) = +0.000`.
+- On `c1-d-001` (startpos): baseline best `e2e4` is an exact no-op (43 275 nodes, 2 680 incremental D14 nodes). Other candidates cost more (+78% to +95% incremental regret). Baseline was already optimal.
+- On `c1-v-001` (tactical root): forcing `b1c3` first takes 5 643 cumulative nodes and only 1 972 incremental D14 nodes (score cp 642, within 3 cp of D16 reference). All candidates agree with D16 reference best `d4c5`. Oracle headroom on this tactical root: **73.1% in cumulative nodes, 88.6% in incremental depth-14 nodes**. Wall time at node-optimal dropped to 5 ms, though subject to millisecond jitter.
+- On `c1-t-001`: candidate `f1g2` had mild drift (cp 115 vs 168 ref, −53 cp) while `f3d1` had score collapse (cp 57 vs 168 ref, −111 cp). Filtered out by quality gate. `R_norm (valid) = +0.000`.
 
 **Experiment A: Persistent Schedule (Overriding at Depths 1..14)**
 - Demonstrates massive trajectory churn: on `c1-d-001`, forcing `e2e4` drops nodes to 25 317 (−41.5%) because always-first prevents best-move switches. On `c1-v-001`, `b1c3` appears to take 1 600 nodes, but its score drifted to cp 719 (+74 cp vs reference) and fails quality. On `c1-t-001`, forcing `f3d1` causes a 12.2x explosion to 320 781 nodes and collapses score to 0 cp.

@@ -298,37 +298,41 @@ evaluations addressing the expert review findings:
    tolerance (<= 50 cp) before being declared quality-valid.
 6. **Test root reservation**: `c1-t-001` was inspected and is marked burned/exploratory.
 
-Engine build: `make research-build ARCH=x86-64-avx2`. Full test suite: 92 tests
-green (7 engine-gated in `TestForceFirstRootOrder`). Standing zero-regression
-gate: macro-off `bench 16 1 10 default depth` = **453 169 nodes**.
+Engine build: `make research-build ARCH=x86-64-avx2` on clean commit `23a3efdb`;
+banner `dev-20260904-23a3efdb`. Full test suite: 92 tests green (7 engine-gated
+in `TestForceFirstRootOrder`). Standing zero-regression gate: macro-off
+`bench 16 1 10 default depth` = **453 169 nodes**.
+Artifacts: `tools/policy_research/runs/policy-research-p4-kickoff-d14-h16-20260904/`
+(`p4-isolated.json`, `p4-persistent.json`, schema `policy-research-p4-counterfactual/2`).
 
 ### Empirical Results (depth 14, reference depth 16, candidate depth 10, k=4)
 
 **Experiment B: Isolated Target-Depth Override (Pure Counterfactual at Depth 14)**
 - `c1-d-001` (development, startpos):
-  - Baseline: 43 275 nodes, 35 ms, score cp 27 (exact), best e2e4.
+  - Baseline: 43 275 cumulative nodes, 2 680 incremental D14 nodes, 39 ms, score cp 27 (exact), best e2e4.
   - Ref @ D16: 75 655 nodes, 60 ms, score cp 39, best e2e4.
-  - Forced `e2e4` (best): 43 275 nodes, 35 ms, score cp 27 (**exact 100% no-op parity**).
-  - Forced `d2d4`: 45 375 nodes (+4.8% isolated regret), score cp 30.
-  - Forced `g1f3`: 45 831 nodes (+5.9% isolated regret), score cp 28.
-  - Forced `c2c4`: 43 481 nodes (+0.5% isolated regret), score cp 26.
-  - All candidates quality-valid. Baseline best was already optimal: `R_norm (valid) = +0.000`.
+  - Forced `e2e4` (best): 43 275 cumulative / 2 680 incremental nodes (**exact 100% no-op parity**), 35 ms, score cp 27 (−12 cp vs ref).
+  - Forced `d2d4`: 45 375 cumulative (+4.8%), 4 780 incremental (+78.4%), 36 ms, score cp 30 (−9 cp vs ref).
+  - Forced `g1f3`: 45 831 cumulative (+5.9%), 5 236 incremental (+95.4%), 36 ms, score cp 28 (−11 cp vs ref).
+  - Forced `c2c4`: 43 481 cumulative (+0.5%), 2 886 incremental (+7.7%), 35 ms, score cp 26 (−13 cp vs ref).
+  - All candidates quality-valid. Baseline best was already optimal: `R_norm (cumul) = +0.000`, `R_norm (incr) = +0.000`.
 - `c1-v-001` (validation, tactical):
-  - Baseline: 20 956 nodes, 18 ms, score cp 654 (exact), best d4c5.
+  - Baseline: 20 956 cumulative nodes, 17 285 incremental D14 nodes, 18 ms, score cp 654 (exact), best d4c5.
   - Ref @ D16: 123 243 nodes, 102 ms, score cp 645, best d4c5.
-  - Forced `d4c5` (best): 20 956 nodes, 18 ms, score cp 654 (**exact 100% no-op parity**).
-  - Forced `b1c3`: **5 643 nodes, 5 ms**, score cp 642 (within 3 cp of D16 ref 645), best d4c5.
-  - Forced `e1g1`: 5 752 nodes, 5 ms, score cp 610, best d4c5.
-  - Forced `c4f7`: 6 187 nodes, 6 ms, score cp 683, best d4c5.
-  - All candidates pass quality gates. Realizable ordering opportunity is genuine:
-    **`R_norm (nodes) = +0.731` (−73.1% nodes), `R_norm (time) = +0.722` (−72.2% wall time)**.
+  - Forced `d4c5` (best): 20 956 cumulative / 17 285 incremental nodes (**exact 100% no-op parity**), 18 ms, score cp 654 (+9 cp vs ref).
+  - Forced `b1c3`: **5 643 cumulative nodes, 1 972 incremental D14 nodes, 5 ms**, score cp 642 (−3 cp vs ref).
+  - Forced `e1g1`: 5 752 cumulative, 2 081 incremental, 5 ms, score cp 610 (−35 cp vs ref).
+  - Forced `c4f7`: 6 187 cumulative, 2 516 incremental, 5 ms, score cp 683 (+38 cp vs ref).
+  - All candidates pass quality gates. Oracle headroom on this tactical root:
+    **`R_norm (cumul) = +0.731` (−73.1% cumulative nodes), `R_norm (incr) = +0.886` (−88.6% incremental D14 nodes)**.
+    Wall time dropped from 18 ms to 5 ms, though subject to millisecond scheduling jitter.
 - `c1-t-001` (test, burned):
-  - Baseline: 26 292 nodes, 18 ms, score cp 133, best f1e2.
-  - Ref @ D16: 128 139 nodes, 98 ms, score cp 168, best f1e2.
-  - Forced `f1e2` (best): 26 292 nodes, 19 ms, score cp 133 (**exact 100% no-op parity**).
-  - Forced `f1g2`: 21 802 nodes, score cp 115 (fails score tolerance vs 168 cp).
-  - Forced `f3d1`: 20 229 nodes, score cp 57 (fails score tolerance vs 168 cp; evaluation collapse).
-  - Cheaper candidates failed quality; only baseline best was valid: `R_norm (valid) = +0.000`.
+  - Baseline: 26 292 cumulative nodes, 7 742 incremental D14 nodes, 18 ms, score cp 133, best f1e2.
+  - Ref @ D16: 128 139 nodes, 101 ms, score cp 168, best f1e2.
+  - Forced `f1e2` (best): 26 292 cumulative / 7 742 incremental nodes (**exact 100% no-op parity**), 19 ms, score cp 133 (−35 cp vs ref).
+  - Forced `f1g2`: 21 802 cumulative (3 252 incremental), score cp 115 (−53 cp vs ref; mild drift beyond 50 cp gate).
+  - Forced `f3d1`: 20 229 cumulative (1 679 incremental), score cp 57 (−111 cp vs ref; severe score collapse).
+  - Cheaper candidates failed quality tolerance; only baseline best was valid: `R_norm (valid) = +0.000`.
 
 **Experiment A: Persistent Schedule (Overriding at Depths 1..14)**
 - Demonstrates iterative-deepening trajectory churn:
