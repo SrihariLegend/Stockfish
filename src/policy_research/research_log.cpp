@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <sstream>
 
 #include "../misc.h"
 #include "../position.h"
@@ -453,6 +454,284 @@ void Recorder::log_move_attempt(const MovesLoopCtx& ctx,
 void Recorder::on_run_end() {
     std::lock_guard<std::recursive_mutex> lk(m_);
     finish_run();
+}
+
+// ---------------------------------------------------------------------------
+// InternalDatasetLog (internal-counterfactual/1, JSONL)
+//
+// One self-contained dataset file per root. Row content is JSONL: numeric and
+// constrained string fields only (FEN and UCI move strings never contain
+// control characters, quotes, or backslashes), so json_quote_append below only
+// needs to guard against those three characters for robustness.
+// ---------------------------------------------------------------------------
+
+InternalDatasetLog& internal_log() {
+    static InternalDatasetLog log;
+    return log;
+}
+
+namespace {
+
+inline void json_quote_append(std::string& out, const std::string& s) {
+    out += '"';
+    for (char c : s)
+    {
+        if (c == '"' || c == '\\')
+            out += '\\';
+        if (c == '\n')
+            out += "\\n";
+        else if (c == '\r')
+            out += "\\r";
+        else
+            out += c;
+    }
+    out += '"';
+}
+
+inline std::string json_num(u64 v) {
+    return std::to_string(v);
+}
+
+inline std::string json_double(double v) {
+    // Fixed 6 decimals: probabilities and rates serialize exactly and
+    // deterministically across platforms.
+    std::ostringstream os;
+    os.setf(std::ios::fixed);
+    os.precision(6);
+    os << v;
+    return os.str();
+}
+
+inline std::string json_bool(bool b) {
+    return b ? std::string("true") : std::string("false");
+}
+
+}  // namespace
+
+// Pure close/reset used when a previous run left its file open (interactive
+// sessions): no rows are emitted here; an open root would already have been
+// closed by its own on_root_search_end().
+void InternalDatasetLog::finish_run() {
+    if (out_ != nullptr)
+    {
+        std::fclose(out_);
+        out_ = nullptr;
+    }
+    requested_ = false;
+    active_    = false;
+    rootOpen_  = false;
+}
+
+void InternalDatasetLog::on_go(const std::string& fen, int targetDepth,
+                               const std::string& engineInfo) {
+    // Same deferral model as Recorder::on_go: a `go` may arrive on the UCI
+    // thread while the previous root search is still closing; the lock orders
+    // the hand-off so no request is lost or torn.
+    std::lock_guard<std::recursive_mutex> lk(m_);
+    if (active_)
+    {
+        defer_           = true;
+        deferFen_        = fen;
+        deferDepth_      = targetDepth > 0 ? targetDepth : 0;
+        deferEngineInfo_ = engineInfo;
+        return;
+    }
+    if (out_ != nullptr)
+        finish_run();
+    arm_run(fen, targetDepth, engineInfo);
+}
+
+void InternalDatasetLog::arm_run(const std::string& fen, int targetDepth,
+                                 const std::string& engineInfo) {
+    requested_ = false;
+    active_    = false;
+    if (!Research::enabled() || config().mode != Research::Mode::InternalCounterfactual
+        || config().logPath.empty())
+        return;
+
+    logPath_      = config().logPath;
+    seed_         = config().seed;
+    sampleRate_   = config().sampleRate;
+    topK_         = config().topK;
+    nodeBudget_   = effective_node_budget(config());
+    effCap_       = config().maxRecords > 0
+                      ? std::min(static_cast<u32>(config().maxRecords), HARD_MAX_RECORDS)
+                      : HARD_MAX_RECORDS;
+    engineInfo_   = engineInfo;
+    pendingFen_   = fen;
+    pendingDepth_ = targetDepth > 0 ? targetDepth : 0;
+    overflow_     = false;
+    ioFailed_     = false;
+    rows_         = 0;
+    bytes_        = 0;
+
+    requested_ = true;
+    open_run();  // may clear requested_ on failure
+    active_    = requested_;
+}
+
+void InternalDatasetLog::open_run() {
+    if (out_ != nullptr)
+        return;
+    out_ = std::fopen(logPath_.c_str(), "wb");
+    if (out_ == nullptr)
+    {
+        // Collection cannot start; the search itself still proceeds. Surface
+        // the failure instead of failing silently.
+        sync_cout << "info string policy research: cannot open dataset file '" << logPath_
+                  << "'; internal counterfactual collection disabled for this search"
+                  << sync_endl;
+        requested_ = false;
+        active_    = false;
+        return;
+    }
+}
+
+void InternalDatasetLog::on_root_search_start(u64 rootKey) {
+    std::lock_guard<std::recursive_mutex> lk(m_);
+    if (!requested_ || pendingFen_.empty())
+        return;
+    rootKey_  = rootKey;
+    rootOpen_ = true;
+    active_   = true;
+
+    // run_start row: provenance + sampler configuration for this file.
+    {
+        std::string row;
+        row += "{\"schema\":\"internal-counterfactual/1\",\"type\":\"run_start\"";
+        row += ",\"engine\":";
+        json_quote_append(row, engineInfo_);
+        row += ",\"seed\":" + json_num(seed_);
+        row += ",\"sample_rate\":" + json_double(sampleRate_);
+        row += ",\"top_k\":" + json_num(topK_ > 0 ? u64(topK_) : u64(0));
+        row += ",\"node_budget\":" + json_num(nodeBudget_);
+        row += ",\"max_records\":" + json_num(effCap_);
+        row += "}";
+        emit_row_locked(row, false);  // lifecycle row: bypasses the decision cap
+    }
+    // root_start row: root identity + start position.
+    {
+        std::string row;
+        row += "{\"schema\":\"internal-counterfactual/1\",\"type\":\"root_start\"";
+        row += ",\"root_key\":" + json_num(rootKey_);
+        row += ",\"target_depth\":" + json_num(u64(pendingDepth_));
+        row += ",\"fen\":";
+        json_quote_append(row, pendingFen_);
+        row += "}";
+        emit_row_locked(row, false);  // lifecycle row: bypasses the decision cap
+    }
+    pendingFen_.clear();
+    pendingDepth_ = 0;
+}
+
+void InternalDatasetLog::on_root_search_end(u64 rootKey) {
+    std::lock_guard<std::recursive_mutex> lk(m_);
+    if (!active_ || !rootOpen_ || rootKey != rootKey_)
+        return;
+
+    {
+        std::string row;
+        row += "{\"schema\":\"internal-counterfactual/1\",\"type\":\"root_end\"";
+        row += ",\"root_key\":" + json_num(rootKey_);
+        row += ",\"rows\":" + json_num(rows_);
+        row += ",\"bytes\":" + json_num(bytes_);
+        row += ",\"overflow\":" + json_bool(overflow_);
+        row += ",\"io_failed\":" + json_bool(ioFailed_);
+        row += "}";
+        emit_row_locked(row, false);  // lifecycle row: always written
+    }
+
+    rootOpen_  = false;
+    active_    = false;
+    requested_ = false;
+    if (out_ != nullptr)
+    {
+        if (std::fflush(out_) != 0)
+        {
+            ioFailed_ = true;
+            sync_cout << "info string policy research: error flushing dataset file" << sync_endl;
+        }
+        if (std::fclose(out_) != 0)
+        {
+            ioFailed_ = true;
+            sync_cout << "info string policy research: error closing dataset file" << sync_endl;
+        }
+        out_ = nullptr;
+    }
+
+    // A `go` arrived while this root was still searching; apply it now under
+    // the current options.
+    if (defer_)
+    {
+        defer_ = false;
+        arm_run(deferFen_, deferDepth_, deferEngineInfo_);
+        deferFen_.clear();
+        deferDepth_      = 0;
+        deferEngineInfo_.clear();
+    }
+}
+
+void InternalDatasetLog::on_run_end() {
+    std::lock_guard<std::recursive_mutex> lk(m_);
+    if (active_ && rootOpen_)
+        on_root_search_end(rootKey_);
+    if (out_ != nullptr)
+    {
+        std::fclose(out_);
+        out_ = nullptr;
+    }
+    requested_ = false;
+    active_    = false;
+    rootOpen_  = false;
+}
+
+bool InternalDatasetLog::write_row(const std::string& jsonLine) {
+    std::lock_guard<std::recursive_mutex> lk(m_);
+    if (!active_ || ioFailed_ || overflow_)
+        return false;
+    emit_row_locked(jsonLine, true);
+    return !ioFailed_ && !overflow_;
+}
+
+void InternalDatasetLog::emit_row_locked(const std::string& line, bool countsAgainstCap) {
+    // Caller holds m_. The decision-row cap (effCap_) and the hard byte budget
+    // apply to decision rows only; hitting either stops sampling and raises
+    // overflow_, which the always-written root_end row reports. Lifecycle
+    // rows (run_start/root_start/root_end) are rare and tiny, so they bypass
+    // both caps; root_end in particular must never be dropped, because it
+    // carries the overflow/io_failed accounting for the whole file.
+    if (countsAgainstCap
+        && (ioFailed_ || rows_ >= effCap_ || bytes_ + line.size() + 1 > HARD_MAX_BYTES))
+    {
+        if (!overflow_)
+            sync_cout << "info string policy research: internal counterfactual dataset cap "
+                         "reached; collection disabled for the rest of this search"
+                      << sync_endl;
+        overflow_ = true;
+        active_   = false;
+        return;
+    }
+
+    if (out_ == nullptr)
+    {
+        ioFailed_ = true;
+        sync_cout << "info string policy research: dataset file not open; collection disabled"
+                  << sync_endl;
+        return;
+    }
+    const std::size_t written = std::fwrite(line.data(), 1, line.size(), out_);
+    const int         newline = std::fputc('\n', out_);
+    if (written != line.size() || newline == EOF)
+    {
+        ioFailed_ = true;
+        sync_cout << "info string policy research: dataset write failed; collection disabled "
+                     "for the rest of this run"
+                  << sync_endl;
+        return;
+    }
+    if (countsAgainstCap)
+        rows_ += 1;
+    bytes_ += line.size() + 1;
 }
 
 }  // namespace Stockfish::Research

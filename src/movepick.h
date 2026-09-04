@@ -51,6 +51,18 @@ class MovePicker {
     Move next_move();
     void skip_quiet_moves();
 
+#ifdef POLICY_RESEARCH
+    // Research-only accessor: the stage-sort score of the move most recently
+    // emitted by next_move(). Valid ONLY when that emission came from a scored,
+    // select()-based stage (good/bad captures, good/bad quiets, evasions,
+    // probCut/qsearch captures): select() returns the element at (cur - 1),
+    // leaving it intact until the next call. It must NOT be called after a
+    // MAIN_TT emission (no score is assigned; stage advances without touching
+    // the buffer) nor after the final Move::none() return. The research
+    // enumeration in worker_snapshot.cpp guards the call accordingly.
+    int research_emitted_score() const { return (cur - 1)->value; }
+#endif
+
    private:
     template<typename Pred>
     Move select(Pred);

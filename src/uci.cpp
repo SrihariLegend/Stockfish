@@ -181,24 +181,48 @@ void UCIEngine::loop() {
         }
         else if (token == "policy_research_enumerate_candidates")
         {
+            // Debug/enumeration inspection command: prints the full legal
+            // denominator in exact real-MovePicker emission order for the
+            // current position, with per-candidate features. Optional trailing
+            // integer = picker depth (default 1); the stack is a synthetic
+            // root-like window (sentinel continuation frames, ply 0), exactly
+            // like the search root's own construction.
             if (engine.main_worker())
             {
-                auto candidates = Research::enumerate_candidates(
-                  engine.get_pos(), *engine.main_worker(), nullptr, Move::none());
-                sync_cout << "info string candidates_begin count " << candidates.size() << sync_endl;
+                Search::Worker* w = engine.main_worker();
+                Depth           d = Depth(1);
+                int             darg = 1;
+                if (is >> darg && darg > 0 && darg <= MAX_PLY)
+                    d = Depth(darg);
+                auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
+                Search::Stack* dummySS = &(*dummyStack)[7];
+                dummySS->ply            = 0;
+                dummySS->staticEval     = VALUE_NONE;
+                for (int i = 7; i > 0; --i)
+                {
+                    (dummySS - i)->continuationHistory =
+                      &w->continuationHistory[0][0][NO_PIECE][0];
+                    (dummySS - i)->continuationCorrectionHistory =
+                      &w->continuationCorrectionHistory[NO_PIECE][0];
+                    (dummySS - i)->staticEval = VALUE_NONE;
+                }
+                auto candidates =
+                  Research::enumerate_candidates(engine.get_pos(), *w, dummySS, Move::none(), d);
+                sync_cout << "info string candidates_begin count " << candidates.size()
+                          << sync_endl;
                 for (const auto& cf : candidates)
                 {
                     sync_cout << "info string candidate move "
                               << UCIEngine::move(cf.move, engine.get_pos().is_chess960())
-                              << " stage " << cf.stage
-                              << " stage_score " << cf.stageScore
-                              << " main_hist " << cf.mainHist
-                              << " capture_hist " << cf.captureHist
-                              << " cont_hist " << cf.contHist
-                              << " see_score " << cf.seeScore
-                              << " is_check " << (cf.isCheck ? 1 : 0)
+                              << " ordinal " << cf.ordinal << " stage "
+                              << Research::candidate_stage_name(cf.stage)
+                              << " stage_score " << cf.stageScore << " main_hist "
+                              << cf.mainHist << " capture_hist " << cf.captureHist
+                              << " pawn_hist " << cf.pawnHist << " cont_hist " << cf.contHist
+                              << " low_ply_hist " << cf.lowPlyHist << " see_score "
+                              << cf.seeScore << " is_check " << (cf.isCheck ? 1 : 0)
                               << " is_capture " << (cf.isCapture ? 1 : 0)
-                              << sync_endl;
+                              << " is_tt_move " << (cf.isTTMove ? 1 : 0) << sync_endl;
                 }
                 sync_cout << "info string candidates_end total " << candidates.size() << sync_endl;
             }
@@ -231,10 +255,11 @@ void UCIEngine::loop() {
 
 #ifdef POLICY_RESEARCH
     // Research: finalize logging at engine shutdown. Wait for any in-flight
-    // search so the recorder's single writer never overlaps the UCI thread
+    // search so the writers' single-thread model never overlaps the UCI thread
     // (records are flushed per root already; this writes RUN_END and closes).
     engine.wait_for_search_finished();
     Research::recorder().on_run_end();
+    Research::internal_log().on_run_end();
 #endif
 }
 
@@ -290,18 +315,37 @@ void UCIEngine::go(std::istringstream& is) {
     Search::LimitsType limits = parse_limits(is);
 
 #ifdef POLICY_RESEARCH
-    // Research: arm the observational recorder for this root. Only fixed-depth
-    // (`go depth N`) single-thread searches log; per protocol P2.1 the master
-    // switch, mode, and log path are validated inside Recorder::on_go().
-    if (!limits.perft && limits.depth > 0)
+    // Research: arm the collection writers for this root.
+    //  * Recorder (observational mode): only fixed-depth (`go depth N`)
+    //    single-thread searches log (P2.1); validation inside Recorder::on_go().
+    //  * Internal dataset log (internal_counterfactual mode): arms for
+    //    fixed-depth or fixed-node searches only. Safe isolation requires
+    //    Threads == 1; the in-search hook also gates on it (defense in depth).
+    //    movetime/infinite/time-limited searches never arm (timed shadow
+    //    limits could spuriously stop isolated probes); the diagnostic below
+    //    says so.
+    if (!limits.perft && !limits.infinite && limits.movetime == 0 && limits.time[WHITE] == 0
+        && limits.time[BLACK] == 0 && (limits.depth > 0 || limits.nodes > 0))
     {
         const int threads = int(engine.get_options()["Threads"]);
         if (threads == 1)
+        {
             Research::recorder().on_go(engine.fen(), limits.depth, engine_info(true));
-        else
-            print_info_string(
-              "policy research logging requires Threads=1; skipping logging for this search");
+            Research::internal_log().on_go(engine.fen(), limits.depth, engine_info(true));
+            if (Research::config().mode == Research::Mode::InternalCounterfactual
+                && Research::config().logPath.empty())
+                print_info_string("policy research internal counterfactual collection requires "
+                                  "PolicyResearchLogPath; skipping collection for this search");
+        }
+        else if (Research::enabled())
+            print_info_string("policy research logging requires Threads=1; skipping logging for "
+                              "this search");
     }
+    else if (!limits.perft && Research::enabled()
+             && Research::config().mode == Research::Mode::InternalCounterfactual)
+        print_info_string("policy research internal counterfactual collection requires fixed-depth "
+                          "or fixed-node limits (go depth N / go nodes N) with no movetime, "
+                          "infinite, or clock; skipping collection for this search");
 #endif
 
     if (limits.perft)

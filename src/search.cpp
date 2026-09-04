@@ -218,6 +218,7 @@ void Search::Worker::start_searching() {
 
 #ifdef POLICY_RESEARCH
     Research::recorder().on_root_search_start(rootPos.key());
+    Research::internal_log().on_root_search_start(rootPos.key());
 #endif
 
     if (rootMoves.empty())
@@ -226,6 +227,7 @@ void Search::Worker::start_searching() {
           {0, {rootPos.checkers() ? -VALUE_MATE : VALUE_DRAW, rootPos}});
 #ifdef POLICY_RESEARCH
         Research::recorder().on_root_search_end(rootPos.key());
+        Research::internal_log().on_root_search_end(rootPos.key());
 #endif
         main_manager()->updates.onBestmove(UCIEngine::move(Move::none()), "");
         return;
@@ -282,6 +284,7 @@ void Search::Worker::start_searching() {
     auto bestmove = UCIEngine::move(bestThread->rootMoves[0].pv[0], rootPos.is_chess960());
 #ifdef POLICY_RESEARCH
     Research::recorder().on_root_search_end(rootPos.key());
+    Research::internal_log().on_root_search_end(rootPos.key());
 #endif
     main_manager()->updates.onBestmove(bestmove, ponder);
 }
@@ -1372,14 +1375,17 @@ moves_loop:  // When in check, search starts here
 
     // Phase 5 internal-node counterfactual search hook:
     // When PolicyResearchMode is internal_counterfactual, sample eligible NonPV null-window
-    // decision points and run isolated candidate counterfactual probes without mutating live search.
+    // decision points and run isolated whole-node counterfactual replays (baseline +
+    // slot-1 forced) without mutating live search. Dataset gate: the hook stays inert
+    // unless the internal dataset log is armed and below its caps.
     if (!rootNode && !PvNode && !ss->inCheck && excludedMove == Move::none()
         && is_mainthread() && Research::enabled()
         && Research::config().mode == Research::Mode::InternalCounterfactual
-        && !Research::is_shadow_probe_active())
+        && !Research::is_shadow_probe_active() && Research::internal_log().active())
     {
-        Research::on_internal_node_counterfactual(
-          *this, pos, ss, alpha, beta, depth, rootDepth, rootPos.key(), ttData.move);
+        Research::on_internal_node_counterfactual(*this, pos, ss, alpha, beta, depth, rootDepth,
+                                                  rootPos.key(), ttData.move, ss->ttHit, cutNode,
+                                                  improving, ss->staticEval);
     }
 #endif
 
@@ -1419,6 +1425,18 @@ moves_loop:  // When in check, search starts here
         // searched and those of lower "TB rank" if we are in a TB root position.
         if (rootNode && !std::count(rootMoves.begin() + pvIdx, rootMoves.begin() + pvLast, move))
             continue;
+
+#ifdef POLICY_RESEARCH
+        // Phase 5 force-next (whole-node counterfactual replays, worker_snapshot.h):
+        // while an isolated replay is armed for THIS node, emissions the real
+        // MovePicker would have produced before the forced candidate are
+        // swallowed unsearched and uncounted so the candidate gets this node's
+        // exact slot-1 treatment. The arm clears at the forced move's emission
+        // (which then proceeds normally, including being pruned). Dead code in
+        // macro-off builds.
+        if (Research::force_next_step(posKey, ss->ply, move) == 1)
+            continue;
+#endif
 
         ss->moveCount = ++moveCount;
 

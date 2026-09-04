@@ -60,28 +60,131 @@ struct ProbeResult {
     bool       completed  = false;       // search returned before any stop
     bool       hit_budget = false;       // == (stopReason == StopReason::Budget)
     StopReason stopReason = StopReason::None;
+
+    // True when an armed force-next scope (whole-node replay) was consumed:
+    // the forced candidate was emitted by the real MovePicker and received this
+    // node's slot-1 treatment (it may still have been pruned by the ordinary
+    // per-move prunes, which is exactly the live slot-1 semantics). False for
+    // unforced replays and for replays that returned before the move loop.
+    bool forced_slot1 = false;
 };
 
-// CandidateFeature captures MovePicker stage and history scores for candidate enumeration (Phase 3 §8.3/§8.4).
+// CandidateStage mirrors the REAL MovePicker emission classes observed by
+// driving MovePicker::next_move() to exhaustion in enumerate_candidates() --
+// no duplicated scoring or ordering heuristics. Classification rules (they
+// replicate the picker's own split conditions on the picker's own scores):
+//   TT:         emission 0 == pseudo-legal ttMove (MAIN_TT stage)
+//   captures:   picker split on pos.see_ge(move, -stageScore / 18)
+//   quiets:     picker split on stageScore > -14000 (goodQuietThreshold)
+enum class CandidateStage : u8 {
+    TT         = 1,
+    GoodCapture = 2,
+    BadCapture  = 3,
+    GoodQuiet   = 4,
+    BadQuiet    = 5
+};
+
+// CandidateFeature captures the features of one legal candidate at a decision
+// node, in real MovePicker emission order (Phase 3 §8.3/§8.4, Phase 5 §10.4).
 struct CandidateFeature {
-    Move move        = Move::none();
-    int  stage       = 0;  // 1: TT, 2: good capture, 3: killer, 4: quiet, 5: bad capture
-    int  stageScore  = 0;
-    int  mainHist    = 0;
-    int  captureHist = 0;
-    int  contHist    = 0;
-    int  seeScore    = 0;
-    bool isCheck     = false;
-    bool isCapture   = false;
-    bool isTTMove    = false;
+    Move           move = Move::none();
+    u16            ordinal = 0;      // 0-based slot among legal candidates in real
+                                     // MovePicker order (search-visible moveCount
+                                     // for this move is ordinal + 1)
+    CandidateStage stage = CandidateStage::GoodQuiet;
+    int            stageScore = 0;   // the real MovePicker sort value at emission
+                                     // (select()-based stages only; TT stage has none)
+    int            mainHist = 0;     // raw mainHistory[us][move.raw()]
+    int            captureHist = 0;  // raw captureHistory[pc][to][captured] (captures only)
+    int            pawnHist = 0;     // raw sharedHistory pawn entry [pc][to] (quiets only)
+    int            contHist = 0;     // sum of continuation entries at the search's own
+                                     // offsets 0,1,2,3,5 (quiets only)
+    int            lowPlyHist = 0;   // raw lowPlyHistory[ply][raw] (quiets, ply < 5)
+    int            seeScore = 0;     // feature: +1 see_ge(m,0), 0 see_ge(m,-100), else -1
+    bool           isCheck = false;
+    bool           isCapture = false;
+    bool           isTTMove = false; // == the pseudo-legal ttMove emitted first
+    double         selectionProb = 0.0;  // filled by the sampler (1.0 / 2/(N-k))
+    bool           selected = false;     // filled by the sampler
 };
 
-// Enumerates all legal candidate moves at the given position and extracts their MovePicker
-// and history features, providing the full candidate denominator for Phase 3 §8.3/§8.4.
-std::vector<CandidateFeature> enumerate_candidates(const Position&       pos,
-                                                   const Search::Worker& worker,
-                                                   const Search::Stack*  ss,
-                                                   Move                  ttMove = Move::none());
+// Human-readable MovePicker stage name (public helper for diagnostics/UCI).
+const char* candidate_stage_name(CandidateStage s);
+
+// ---------------------------------------------------------------------------
+// Force-next (slot-1) machinery for whole-node counterfactual replays
+// (plan §10.6: the candidate is forced into the node's exact slot-1
+// treatment, i.e. full decision-node replay with the candidate emitted first;
+// moves the real MovePicker would have emitted earlier are skipped WITHOUT
+// being searched or counted).
+//
+// The armed request is thread-local and RAII-scoped to one synchronous replay
+// (ForceNextScope); the live move loop consumes it with force_next_step()
+// when it reaches a node whose (position key, ply) matches. Only the main
+// search move loop consumes; the qsearch loop and all other nodes never match
+// unless armed. Nested arming is a programming error (assert).
+// ---------------------------------------------------------------------------
+struct ForceNextState {
+    bool armed = false;
+    bool consumed = false;
+    Key  posKey = 0;
+    int  ply = -1;
+    Move forced = Move::none();
+};
+
+inline thread_local ForceNextState      gForceNext;
+inline thread_local u64                 gForceNextConsumedCount = 0;
+
+class ForceNextScope {
+   public:
+    ForceNextScope(Key posKey, int ply, Move forced) {
+        assert(!gForceNext.armed && !gForceNext.consumed);  // never nest
+        gForceNext = {true, false, posKey, ply, forced};
+    }
+    ~ForceNextScope() { gForceNext = {}; }
+
+    ForceNextScope(const ForceNextScope&)            = delete;
+    ForceNextScope& operator=(const ForceNextScope&) = delete;
+};
+
+// Called by the main search move loop on every emitted move while a shadow
+// probe is active (research builds only; the call site is macro-gated).
+// Returns 1 when this emission must be SWALLOWED: the replay is armed for
+// this exact node and the forced candidate has not been emitted yet, so the
+// emission is skipped without a search and without incrementing moveCount
+// (the forced candidate keeps the node's exact slot-1 treatment). Returns 0
+// otherwise; when the emitted move IS the forced candidate the arm is cleared
+// and marked consumed, and the move proceeds as the node's slot-1 move.
+inline int force_next_step(Key posKey, int ply, Move move) {
+    if (!gForceNext.armed || gForceNext.posKey != posKey || gForceNext.ply != ply)
+        return 0;
+    if (move == gForceNext.forced)
+    {
+        gForceNext.armed    = false;
+        gForceNext.consumed = true;
+        ++gForceNextConsumedCount;
+        return 0;  // forced move proceeds as slot 1
+    }
+    return 1;  // swallow this natural-order emission (unsearched, uncounted)
+}
+
+// Enumerates all legal candidate moves at the given position by driving the
+// REAL MovePicker (same construction parameters as the step-14 move loop in
+// search.cpp: live worker histories, ss continuation window, search depth) to
+// exhaustion, filtering pos.legal() exactly like the search does. The returned
+// vector is therefore in exact search-visible emission order with search-visible
+// ordinals and per-candidate features; stageScore is the picker's own sort
+// value (research accessor, no formula duplication). ttMove is the node's TT
+// move. depth must be the node's search depth (affects the picker's quiet
+// partial sort cutoff). contHist, when non-null, must be the search's own
+// continuation-history window ((ss-1)..(ss-6) pointers); when null it is
+// derived from ss exactly like search.cpp does.
+std::vector<CandidateFeature> enumerate_candidates(const Position&            pos,
+                                                   const Search::Worker&      worker,
+                                                   const Search::Stack*       ss,
+                                                   Move                        ttMove,
+                                                   Depth                       depth,
+                                                   const PieceToHistory**      contHist = nullptr);
 
 // IsolatedWorker owns an isolated Search::Worker and its private SharedHistories.
 // It allows running isolated shadow searches (e.g. via ResearchTTOverlay) without
@@ -167,6 +270,7 @@ class IsolatedWorker {
         const u64 startNodes = shadowWorker->get_nodes();
         shadowWorker->limits.nodes = (nodeBudget > 0) ? (startNodes + nodeBudget) : 0;
 
+        const u64 fnBefore = gForceNextConsumedCount;
         Value val = shadowWorker->search<NT, ResearchTTOverlay>(pos, ss, alpha, beta, depth, cutNode,
                                                                overlay);
 
@@ -183,10 +287,11 @@ class IsolatedWorker {
         result.hit_budget = result.stopReason == ProbeResult::StopReason::Budget;
         // Censored probes carry no value (never a numeric score, never a draw):
         result.score      = result.completed ? val : VALUE_NONE;
+        result.forced_slot1 = gForceNextConsumedCount != fnBefore;
         return result;
     }
 
-    // Convenience wrapper returning only the score
+    // Convenience wrapper returning only the score (VALUE_NONE when censored)
     template<NodeType NT = NonPV>
     Value search(Position&          pos,
                  Search::Stack*     ss,
@@ -208,10 +313,24 @@ class IsolatedWorker {
     std::unique_ptr<std::array<Search::PVMoves, MAX_PLY + 10>> shadowPV;
 };
 
-// CandidateProbeRunner executes isolated counterfactual evaluations for multiple candidate
-// moves at a specific internal decision state. It guarantees complete inter-candidate
-// isolation: each candidate is probed with an independent ResearchTTOverlay, fresh position clone,
-// rebound search stack, and re-synchronized worker state, eliminating candidate-order contamination.
+// CandidateProbeRunner executes isolated whole-node counterfactual replays for
+// multiple candidate moves at a specific internal decision state. It guarantees
+// complete inter-candidate isolation: every replay (baseline and per-candidate)
+// uses an independent ResearchTTOverlay, a fresh position clone, a rebound
+// search stack, and a re-synchronized worker snapshot, eliminating
+// candidate-order contamination.
+//
+// The force-next estimand (plan §10.6): replay_node_forced() re-runs the whole
+// decision node's search from its captured entry state with the candidate armed
+// as slot-1 move (see ForceNextScope); the replay applies the node's exact
+// step-1..step-13 pipeline and the candidate receives the exact slot-1
+// treatment (TT handling, razoring/futility gates already passed at hook time,
+// small probCut, per-move prunes, LMR, re-search, history updates). If the
+// forced move fails low the replay naturally continues the remaining moves, so
+// the measured outcome (fail-low/fail-high value, node cost, censoring) is the
+// decision-node outcome with the candidate forced first. Nodes whose replay
+// returns before the move loop never consume the arm (forced_slot1 == false)
+// and are not decision nodes: the sampler drops those rows.
 class CandidateProbeRunner {
    public:
     CandidateProbeRunner(const Search::Worker& liveWorker,
@@ -220,19 +339,20 @@ class CandidateProbeRunner {
                          int                   windowBefore = 7,
                          int                   maxDepth     = MAX_PLY);
 
-    // Evaluates a candidate move as the next move from the decision state.
-    // The candidate move is played on a cloned position, and the resulting child state
-    // is searched with null-window [-beta, -alpha] at depth - 1.
-    // Returns a ProbeResult with the score negated back to the parent perspective.
-    ProbeResult probe_candidate(Move  candidate,
-                                Value alpha,
-                                Value beta,
-                                Depth depth,
-                                u64   nodeBudget = 0);
+    // Whole-node replay WITHOUT forcing: the measurement-B baseline replay.
+    ProbeResult replay_node(Value alpha, Value beta, Depth depth, bool cutNode,
+                            u64 nodeBudget = 0);
+
+    // Whole-node replay WITH the candidate forced into slot 1.
+    ProbeResult replay_node_forced(Move forced, Value alpha, Value beta, Depth depth,
+                                   bool cutNode, u64 nodeBudget = 0);
 
     IsolatedWorker& worker() { return isolatedWorker; }
 
    private:
+    ProbeResult replay_impl(Move forced, Value alpha, Value beta, Depth depth, bool cutNode,
+                            u64 nodeBudget);
+
     const Search::Worker& liveWorker;
     const Position&       livePos;
     const Search::Stack*  liveSS;
@@ -241,7 +361,11 @@ class CandidateProbeRunner {
     IsolatedWorker        isolatedWorker;
 };
 
-// Internal-node counterfactual hook invoked from Search::Worker::search at eligible NonPV decision nodes.
+// Internal-node counterfactual hook invoked from Search::Worker::search at
+// eligible NonPV null-window decision nodes (search.cpp moves_loop entry).
+// Sampling, full-denominator enumeration, baseline + per-candidate whole-node
+// replays, and dataset row emission are implemented in worker_snapshot.cpp;
+// all live state must be untouched on return (asserted in unit tests).
 void on_internal_node_counterfactual(Search::Worker& liveWorker,
                                      Position&       pos,
                                      Search::Stack*  ss,
@@ -250,7 +374,11 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
                                      Depth           depth,
                                      Depth           rootDepth,
                                      Key             rootKey,
-                                     Move            ttMove);
+                                     Move            ttMove,
+                                     bool            ttHit,
+                                     bool            cutNode,
+                                     bool            improving,
+                                     Value           staticEval);
 
 // Unit tests verifying Phase 5 §§4-5 requirements:
 // 1. Position deep cloning (StateInfo chain, repetition detection, independent moves/undo)

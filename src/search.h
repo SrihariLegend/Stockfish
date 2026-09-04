@@ -339,6 +339,8 @@ class Worker {
     u64 get_nodes() const { return nodes.load(std::memory_order_relaxed); }
     TranspositionTable& get_tt() const { return tt; }
     ThreadPool& get_threads() const { return threads; }
+    const LimitsType& research_limits() const { return limits; }
+    LimitsType& research_limits() { return limits; }
 #endif
 
     // Public because they need to be updatable by the stats

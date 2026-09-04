@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "../types.h"
+#include "research_options.h"
 #include "scoped_probe.h"
 
 namespace Stockfish {
@@ -217,6 +218,134 @@ class Recorder {
     bool runOverflow_ = false;
     bool rootOpen_ = false;
 };
+
+// Internal counterfactual dataset (JSONL, schema internal-counterfactual/1).
+//
+// Phase 5: whole-node decision replays with slot-1 forced candidates are
+// emitted as versioned JSONL rows. This artifact is SEPARATE from the
+// observational binary Recorder above (which stays observational-only); the
+// two can never both be armed because PolicyResearchMode selects exactly one
+// mode per search. One self-contained dataset file per root (a `go` produces
+// one file; interactive sessions finalize the previous file per root, exactly
+// like the Recorder's run semantics). Row content is built by the sampling
+// hook (worker_snapshot.cpp) and written here through write_row(); root and
+// run rows are emitted here from the saved go-time provenance.
+//
+// Guard rails (finite defaults doctrine): collection stops at the effective
+// record cap (PolicyResearchMaxRecords, else HARD_MAX_RECORDS) or the hard
+// byte budget (HARD_MAX_BYTES); overflow is reported in the root_end row and
+// sampling stops. write failures deactivate collection with an info string
+// (never a silent truncation).
+class InternalDatasetLog {
+   public:
+    bool active() const {
+        return active_.load(std::memory_order_relaxed) && !is_shadow_probe_active();
+    }
+
+    // Hot-path pre-check used by the sampling hook before any probe work:
+    // a decision row would actually be recorded (armed, caps not reached).
+    bool would_record() const {
+        return active_.load(std::memory_order_relaxed) && !ioFailed_ && !overflow_
+               && rows_ < effCap_ && bytes_ < HARD_MAX_BYTES;
+    }
+
+    // UCI `go` handler (main/UCI thread), before the search starts. Only arms
+    // when PolicyResearch is enabled with mode internal_counterfactual and a
+    // non-empty log path; otherwise stays inactive (the UCI site prints the
+    // diagnostic). Mirrors Recorder::on_go deferral so a `go` arriving while a
+    // root is closing can never lose or tear a request.
+    void on_go(const std::string& fen, int targetDepth, const std::string& engineInfo);
+
+    // Root lifecycle on the main searching thread (next to the Recorder calls
+    // in search.cpp). Emits the run_start and root_start rows when armed.
+    void on_root_search_start(u64 rootKey);
+    void on_root_search_end(u64 rootKey);
+
+    // Engine shutdown (UCI `quit`). Closes any still-open root/file.
+    void on_run_end();
+
+    // Writes one complete JSONL row (hook-built content). Applies the record
+    // and byte caps and the io-failure policy. Returns false when the row was
+    // dropped (caps or io failure); sampling must stop then.
+    bool write_row(const std::string& jsonLine);
+
+    // Inspection accessors for tests and diagnostics
+    u64  rows_written() const { return rows_; }
+    u64  bytes_written() const { return bytes_; }
+    bool overflowed() const { return overflow_; }
+    bool root_open() const { return rootOpen_; }
+    u64  current_root_key() const { return rootKey_; }
+
+    // Test hooks to exercise the real pipeline without UCI
+    void test_arm_for_unit_tests(const std::string& path, u64 dummyRootKey) {
+        std::lock_guard<std::recursive_mutex> lock(m_);
+        logPath_ = path;
+        out_     = std::fopen(path.c_str(), "wb");
+        if (out_ == nullptr)
+        {
+            active_   = false;
+            requested_ = false;
+            return;
+        }
+        requested_ = true;
+        rootKey_   = dummyRootKey;
+        rootOpen_  = true;
+        overflow_  = false;
+        ioFailed_  = false;
+        rows_      = 0;
+        bytes_     = 0;
+        effCap_    = HARD_MAX_RECORDS;
+        active_.store(true, std::memory_order_relaxed);
+    }
+    void test_disarm_for_unit_tests() {
+        std::lock_guard<std::recursive_mutex> lock(m_);
+        active_.store(false, std::memory_order_relaxed);
+        requested_ = false;
+        rootOpen_  = false;
+        rootKey_   = 0;
+        if (out_ != nullptr)
+        {
+            std::fclose(out_);
+            out_ = nullptr;
+        }
+    }
+
+   private:
+    void open_run();
+    void finish_run();
+    void arm_run(const std::string& fen, int targetDepth, const std::string& engineInfo);
+    void emit_row_locked(const std::string& line, bool countsAgainstCap);
+
+    // Same threading model as the Recorder: on_go()/on_run_end() run on the
+    // UCI thread, root lifecycle and decision rows on the main searching
+    // thread; every transition touching shared state takes m_ (recursive for
+    // finish_run() -> on_root_search_end() on the shutdown path). active_ is
+    // atomic for lock-free hot-path reads.
+    std::recursive_mutex m_;
+    std::atomic<bool> active_ = false;
+
+    bool        requested_ = false;
+    bool        overflow_  = false;
+    bool        ioFailed_  = false;
+    bool        rootOpen_  = false;
+    bool        defer_     = false;
+    std::string deferFen_, deferEngineInfo_;
+    int         deferDepth_ = 0;
+    std::string logPath_, pendingFen_, engineInfo_;
+    int         pendingDepth_ = 0;
+    u64         seed_ = 0;
+    double      sampleRate_ = 1.0;
+    int         topK_ = 0;
+    u64         nodeBudget_ = DEFAULT_NODE_BUDGET;
+    u32         effCap_ = HARD_MAX_RECORDS;  // effective decision-row cap
+    u64         rows_ = 0;                   // rows written in this file
+    u64         bytes_ = 0;                  // bytes written in this file
+    u64         rootKey_ = 0;
+    std::FILE*  out_ = nullptr;
+};
+
+// Single process-wide internal dataset log (macro-gated builds only).
+InternalDatasetLog& internal_log();
 
 // Single process-wide recorder. All engine hooks are macro-gated, so this is
 // only ever referenced (and the class instantiated) in POLICY_RESEARCH builds.

@@ -183,15 +183,6 @@ Option& Option::operator=(const std::string& v) {
         {
             if (parent != nullptr && parent->info != nullptr)
                 parent->info(ret);
-
-#ifdef POLICY_RESEARCH
-            // Research builds reject invalid option values outright: restore the
-            // previous value so the option map and Research::config() agree.
-            // (Production builds keep Stockfish's stock semantics: the value
-            // stays set and only an 'info string' diagnostic is emitted.)
-            if (type != "button")
-                currentValue = previousValue;
-#endif
         }
     }
 

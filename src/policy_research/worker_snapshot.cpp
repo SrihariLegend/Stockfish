@@ -22,13 +22,17 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "../engine.h"
 #include "../misc.h"
 #include "../movegen.h"
+#include "../movepick.h"
 #include "../thread.h"
 #include "../uci.h"
 #include "research_log.h"
@@ -1033,130 +1037,474 @@ bool run_sandbox_unit_tests(Engine& engine) {
         }
     }
 
-    // Part 8: Inter-Candidate Order Invariance via CandidateProbeRunner
+    // Part 8: Whole-Node Replay Isolation, Order Invariance & Force-Next
     {
         StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
         Position p8Pos;
-        p8Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false, &states->back());
+        p8Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false,
+                  &states->back());
         Move m = UCIEngine::to_move(p8Pos, "e2e4");
         states->emplace_back();
         p8Pos.do_move(m, states->back());
 
         auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
         Search::Stack* dummySS = &(*dummyStack)[7 + 1];
-        dummySS->ply = 1;
+        dummySS->ply            = 1;
+        dummySS->staticEval     = VALUE_NONE;
         for (int i = 7; i > 0; --i)
         {
             (dummySS - i)->continuationHistory = &liveWorker->continuationHistory[0][0][NO_PIECE][0];
-            (dummySS - i)->continuationCorrectionHistory = &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
+            (dummySS - i)->continuationCorrectionHistory =
+              &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
             (dummySS - i)->staticEval = VALUE_NONE;
         }
 
         Move candA = UCIEngine::to_move(p8Pos, "c7c5");
         Move candB = UCIEngine::to_move(p8Pos, "e7e5");
 
-        // Run sequence A: probe candA then candB
+        // Sequence A: baseline + forced(candA) then forced(candB) on one runner.
         CandidateProbeRunner runnerA(*liveWorker, p8Pos, dummySS);
-        ProbeResult resA1 = runnerA.probe_candidate(candA, -50, -49, Depth(3), 0);
-        ProbeResult resB1 = runnerA.probe_candidate(candB, -50, -49, Depth(3), 0);
+        ProbeResult baseA   = runnerA.replay_node(-50, -49, Depth(3), false, 0);
+        ProbeResult resA1   = runnerA.replay_node_forced(candA, -50, -49, Depth(3), false, 0);
+        ProbeResult resB1   = runnerA.replay_node_forced(candB, -50, -49, Depth(3), false, 0);
 
-        // Run sequence B: probe candB then candA on fresh runner
+        // Sequence B: baseline + forced(candB) then forced(candA) on a fresh
+        // runner: per-candidate replays must be order-invariant and identical
+        // to sequence A's per-candidate outcomes.
         CandidateProbeRunner runnerB(*liveWorker, p8Pos, dummySS);
-        ProbeResult resB2 = runnerB.probe_candidate(candB, -50, -49, Depth(3), 0);
-        ProbeResult resA2 = runnerB.probe_candidate(candA, -50, -49, Depth(3), 0);
+        ProbeResult baseB   = runnerB.replay_node(-50, -49, Depth(3), false, 0);
+        ProbeResult resB2   = runnerB.replay_node_forced(candB, -50, -49, Depth(3), false, 0);
+        ProbeResult resA2   = runnerB.replay_node_forced(candA, -50, -49, Depth(3), false, 0);
 
-        if (resA1.nodes != resA2.nodes || resA1.score != resA2.score)
+        if (baseA.nodes != baseB.nodes || baseA.score != baseB.score
+            || baseA.completed != baseB.completed)
         {
-            std::cerr << "sandbox_test 8.1 failed: candidate A non-deterministic across evaluation orders ("
-                      << resA1.nodes << ":" << resA1.score << " vs " << resA2.nodes << ":" << resA2.score << ")" << std::endl;
+            std::cerr << "sandbox_test 8.1 failed: baseline replay non-deterministic across "
+                         "runners"
+                      << std::endl;
             return false;
         }
-        if (resB1.nodes != resB2.nodes || resB1.score != resB2.score)
+        if (resA1.nodes != resA2.nodes || resA1.score != resA2.score
+            || resA1.completed != resA2.completed || resA1.forced_slot1 != resA2.forced_slot1)
         {
-            std::cerr << "sandbox_test 8.1 failed: candidate B non-deterministic across evaluation orders ("
-                      << resB1.nodes << ":" << resB1.score << " vs " << resB2.nodes << ":" << resB2.score << ")" << std::endl;
+            std::cerr << "sandbox_test 8.2 failed: forced(candA) non-deterministic across "
+                         "evaluation orders ("
+                      << resA1.nodes << ":" << int(resA1.score) << ":" << resA1.forced_slot1
+                      << " vs " << resA2.nodes << ":" << int(resA2.score) << ":"
+                      << resA2.forced_slot1 << ")" << std::endl;
+            return false;
+        }
+        if (resB1.nodes != resB2.nodes || resB1.score != resB2.score
+            || resB1.completed != resB2.completed || resB1.forced_slot1 != resB2.forced_slot1)
+        {
+            std::cerr << "sandbox_test 8.3 failed: forced(candB) non-deterministic across "
+                         "evaluation orders"
+                      << std::endl;
+            return false;
+        }
+
+        // 8.4: This is a real decision node reached at the move loop, so the
+        // forced replays must report forced_slot1 == true (the arm was
+        // consumed by the slot-1 emission).
+        if (!resA1.completed || !resA1.forced_slot1)
+        {
+            std::cerr << "sandbox_test 8.4 failed: whole-node replay did not consume the "
+                         "force-next arm (completed="
+                      << resA1.completed << " forced_slot1=" << resA1.forced_slot1 << ")"
+                      << std::endl;
+            return false;
+        }
+
+        // 8.5: Unforced baseline replays report forced_slot1 == false and are
+        // not censored by an empty arm.
+        if (baseA.forced_slot1)
+        {
+            std::cerr << "sandbox_test 8.5 failed: baseline replay consumed an arm" << std::endl;
+            return false;
+        }
+
+        // 8.6: Forcing an illegal move is rejected up front (censored,
+        // empty result, no search). King e1-d2 is pseudo-legal but illegal
+        // (d2 is covered by the rook on e2; Kxe2 is the only legal king move).
+        StateListPtr st8x   = std::make_unique<std::deque<StateInfo>>(1);
+        Position     p8x;
+        p8x.set("4k3/8/8/8/8/8/4r3/4K3 w - - 0 1", false, &st8x->back());
+        Move nonLegal = Move(SQ_E1, SQ_D2);
+        if (!p8x.pseudo_legal(nonLegal) || p8x.legal(nonLegal))
+        {
+            std::cerr << "sandbox_test 8.6 setup failed: expected pseudo-legal but illegal move"
+                      << std::endl;
+            return false;
+        }
+        CandidateProbeRunner runnerX(*liveWorker, p8x, dummySS);
+        ProbeResult resIllegal = runnerX.replay_node_forced(nonLegal, -50, -49, Depth(3), false, 0);
+        if (resIllegal.completed || resIllegal.nodes != 0 || resIllegal.forced_slot1)
+        {
+            std::cerr << "sandbox_test 8.6 failed: illegal forced move not rejected" << std::endl;
             return false;
         }
     }
 
-    // Part 9: Full Candidate Denominator Enumeration (Phase 3 §8.3/§8.4)
+    // Part 9: Full Candidate Denominator Enumeration (real MovePicker drive)
     {
         StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
         Position p9Pos;
-        p9Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false, &states->back());
+        p9Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false,
+                  &states->back());
         auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
         Search::Stack* dummySS = &(*dummyStack)[7];
-        dummySS->ply = 0;
+        dummySS->ply        = 0;
+        dummySS->staticEval = VALUE_NONE;
+        for (int i = 7; i > 0; --i)
+        {
+            (dummySS - i)->continuationHistory = &liveWorker->continuationHistory[0][0][NO_PIECE][0];
+            (dummySS - i)->continuationCorrectionHistory =
+              &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
+            (dummySS - i)->staticEval = VALUE_NONE;
+        }
 
-        auto candidates = enumerate_candidates(p9Pos, *liveWorker, dummySS, Move::none());
+        Move ttMove = UCIEngine::to_move(p9Pos, "e2e4");
+        auto candidates =
+          enumerate_candidates(p9Pos, *liveWorker, dummySS, ttMove, Depth(8));
 
-        // Startpos has exactly 20 legal moves
+        // 9.1: full legal denominator, ordinals contiguous from 0 in emission
+        // order, every candidate legal.
         if (candidates.size() != 20)
         {
-            std::cerr << "sandbox_test 9.1 failed: candidate count != 20 (" << candidates.size() << ")" << std::endl;
+            std::cerr << "sandbox_test 9.1 failed: candidate count != 20 (" << candidates.size()
+                      << ")" << std::endl;
             return false;
         }
-        for (const auto& cf : candidates)
+        for (usize i = 0; i < candidates.size(); ++i)
         {
-            if (!p9Pos.legal(cf.move))
+            const auto& cf = candidates[i];
+            if (cf.ordinal != i || !p9Pos.legal(cf.move))
             {
-                std::cerr << "sandbox_test 9.2 failed: non-legal candidate emitted" << std::endl;
+                std::cerr << "sandbox_test 9.2 failed: ordinal/legality invariant at " << i
+                          << std::endl;
                 return false;
             }
         }
+
+        // 9.3: the pseudo-legal TT move is the first emission with stage TT.
+        if (!candidates.empty() && (candidates[0].move != ttMove || !candidates[0].isTTMove
+                                    || candidates[0].stage != CandidateStage::TT))
+        {
+            std::cerr << "sandbox_test 9.3 failed: TT move not emitted first as TT stage (first="
+                      << UCIEngine::move(candidates[0].move, false)
+                      << " isTT=" << candidates[0].isTTMove
+                      << " stage=" << candidate_stage_name(candidates[0].stage) << ")" << std::endl;
+            return false;
+        }
+
+        // 9.4: differential drive - an independently constructed fresh
+        // MovePicker with identical parameters must emit the identical legal
+        // sequence with identical per-emission scores.
+        const Color        us = p9Pos.side_to_move();
+        const PieceToHistory* window[6] = {};
+        for (int i = 0; i < 6; ++i)
+            window[i] = (dummySS - (i + 1))->continuationHistory;
+        MovePicker mp2(p9Pos, ttMove, Depth(8), &liveWorker->mainHistory,
+                       &liveWorker->lowPlyHistory, &liveWorker->captureHistory, window,
+                       &liveWorker->sharedHistory, dummySS->ply);
+        usize      ordinal = 0;
+        for (Move mv = mp2.next_move(); mv != Move::none(); mv = mp2.next_move())
+        {
+            if (!p9Pos.legal(mv))
+                continue;
+            if (ordinal >= candidates.size() || candidates[ordinal].move != mv)
+            {
+                std::cerr << "sandbox_test 9.4 failed: independent drive diverged at " << ordinal
+                          << std::endl;
+                return false;
+            }
+            const auto& cf = candidates[ordinal];
+            if (cf.stage != CandidateStage::TT)
+            {
+                const int emScore = mp2.research_emitted_score();
+                if (emScore != cf.stageScore)
+                {
+                    std::cerr << "sandbox_test 9.5 failed: emission score mismatch at " << ordinal
+                              << std::endl;
+                    return false;
+                }
+                // Classification re-derivation from the picker's own score:
+                if (cf.isCapture)
+                {
+                    const bool good = p9Pos.see_ge(mv, -emScore / 18);
+                    if ((cf.stage == CandidateStage::GoodCapture) != good)
+                    {
+                        std::cerr << "sandbox_test 9.6 failed: capture split mismatch at "
+                                  << ordinal << std::endl;
+                        return false;
+                    }
+                }
+                else
+                {
+                    const bool good = emScore > -14000;
+                    if ((cf.stage == CandidateStage::GoodQuiet) != good)
+                    {
+                        std::cerr << "sandbox_test 9.7 failed: quiet split mismatch at "
+                                  << ordinal << std::endl;
+                        return false;
+                    }
+                }
+            }
+            ++ordinal;
+        }
+        if (ordinal != candidates.size())
+        {
+            std::cerr << "sandbox_test 9.8 failed: independent drive ended early (" << ordinal
+                      << " vs " << candidates.size() << ")" << std::endl;
+            return false;
+        }
+
+        // 9.9: enumeration must not perturb the live worker histories (pure
+        // read-only scoring): a second enumeration equals the first.
+        auto candidates2 = enumerate_candidates(p9Pos, *liveWorker, dummySS, ttMove, Depth(8));
+        if (candidates2.size() != candidates.size())
+        {
+            std::cerr << "sandbox_test 9.9 failed: enumeration count changed across drives"
+                      << std::endl;
+            return false;
+        }
+        for (usize i = 0; i < candidates.size(); ++i)
+            if (candidates2[i].move != candidates[i].move
+                || candidates2[i].stageScore != candidates[i].stageScore
+                || candidates2[i].mainHist != candidates[i].mainHist)
+            {
+                std::cerr << "sandbox_test 9.10 failed: enumeration mutated live history state"
+                          << std::endl;
+                return false;
+            }
     }
 
-    // Part 10: Real Search Hook Invariant & Non-Mutation Verification
+    // Part 10: Armed-Dataset Hook Invariant, Non-Mutation & Row Pipeline
     {
         StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
         Position p10Pos;
-        p10Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false, &states->back());
+        p10Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false,
+                   &states->back());
         Move m = UCIEngine::to_move(p10Pos, "e2e4");
         states->emplace_back();
         p10Pos.do_move(m, states->back());
 
         auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
         Search::Stack* dummySS = &(*dummyStack)[7 + 1];
-        dummySS->ply = 1;
+        dummySS->ply            = 1;
+        dummySS->staticEval     = 0;
+        dummySS->ttHit          = false;
+        dummySS->excludedMove   = Move::none();
         for (int i = 7; i > 0; --i)
         {
             (dummySS - i)->continuationHistory = &liveWorker->continuationHistory[0][0][NO_PIECE][0];
-            (dummySS - i)->continuationCorrectionHistory = &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
+            (dummySS - i)->continuationCorrectionHistory =
+              &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
             (dummySS - i)->staticEval = VALUE_NONE;
         }
 
-        const Key keyBefore = p10Pos.key();
-        const u64 nodesBefore = liveWorker->get_nodes();
+        const Key  keyBefore   = p10Pos.key();
+        const u64  nodesBefore = liveWorker->get_nodes();
+        const bool savedStop =
+          engine.get_threads().stop.load(std::memory_order_relaxed);
+        // The suite runs outside a `go`, where the pool's stop flag is raised
+        // (it is cleared when a real search starts). Direct hook invocation
+        // must simulate the in-search condition: stop == false. Restored below.
+        engine.get_threads().stop.store(false, std::memory_order_relaxed);
         TranspositionTable& baseTT = engine.get_tt();
         std::vector<u8> ttSnapshot(baseTT.byte_size());
         std::memcpy(ttSnapshot.data(), baseTT.cluster_data(), baseTT.byte_size());
 
-        // Configure internal counterfactual mode
-        Research::config().switchOn = true;
-        Research::config().mode = Research::Mode::InternalCounterfactual;
-        Research::config().sampleRate = 1.0;
-        Research::config().topK = 2;
-        Research::config().nodeBudget = 50;
+        // Arm an internal dataset log (temp file) and the sampler options.
+        const std::string datasetPath = "/tmp/policy_research_sandbox_dataset.jsonl";
+        std::remove(datasetPath.c_str());
+        Research::internal_log().test_arm_for_unit_tests(datasetPath, keyBefore);
+        Research::config().switchOn    = true;
+        Research::config().mode        = Research::Mode::InternalCounterfactual;
+        Research::config().sampleRate  = 1.0;
+        Research::config().topK        = 2;
+        Research::config().nodeBudget  = 300;
+        Research::config().seed        = 0x5EED1234ULL;
 
-        on_internal_node_counterfactual(*liveWorker, p10Pos, dummySS, -50, -49, Depth(3), Depth(3), keyBefore, Move::none());
+        // Give the live worker fixed-depth-style limits (mirrors `go depth N`
+        // with no clock) so the hook's gates pass; restore afterwards. The
+        // replay budget is generous so every replay reaches its own move loop
+        // (deterministic: the live node already passed all pre-loop gates).
+        Search::LimitsType savedLimits = liveWorker->research_limits();
+        liveWorker->research_limits()  = Search::LimitsType{};
+        liveWorker->research_limits().depth       = 4;
+        liveWorker->research_limits().movetime    = 0;
+        liveWorker->research_limits().infinite    = false;
+        liveWorker->research_limits().nodes       = 0;
+        liveWorker->research_limits().time[WHITE] = 0;
+        liveWorker->research_limits().time[BLACK] = 0;
 
-        // Reset research config
-        Research::config().mode = Research::Mode::Off;
-        Research::config().switchOn = false;
+        Research::config().nodeBudget = 200000;
+
+        Research::on_internal_node_counterfactual(*liveWorker, p10Pos, dummySS, -50, -49, Depth(4),
+                                                  Depth(3), keyBefore, Move::none(), false, false,
+                                                  false, 0);
+
+        liveWorker->research_limits() = savedLimits;
+        engine.get_threads().stop.store(savedStop, std::memory_order_relaxed);
 
         if (p10Pos.key() != keyBefore)
         {
-            std::cerr << "sandbox_test 10.1 failed: on_internal_node_counterfactual mutated position key" << std::endl;
+            std::cerr << "sandbox_test 10.1 failed: hook mutated position key" << std::endl;
             return false;
         }
         if (liveWorker->get_nodes() != nodesBefore)
         {
-            std::cerr << "sandbox_test 10.1 failed: on_internal_node_counterfactual mutated live worker nodes" << std::endl;
+            std::cerr << "sandbox_test 10.1 failed: hook mutated live worker nodes" << std::endl;
             return false;
         }
         if (std::memcmp(ttSnapshot.data(), baseTT.cluster_data(), baseTT.byte_size()) != 0)
         {
-            std::cerr << "sandbox_test 10.1 failed: on_internal_node_counterfactual mutated base TT" << std::endl;
+            std::cerr << "sandbox_test 10.1 failed: hook mutated base TT" << std::endl;
+            return false;
+        }
+
+        // Reset sampler configuration, disarm the log (closes/flushes the
+        // file), then read the row count for the schema validation below.
+        Research::config().mode     = Research::Mode::Off;
+        Research::config().switchOn = false;
+        Research::internal_log().test_disarm_for_unit_tests();
+        const u64 rows = Research::internal_log().rows_written();
+
+        // 10.2: the decision-node replay pipeline wrote at least one schema-valid
+        // decision row for this node (sample rate 1.0, node reached the loop).
+        if (rows < 1)
+        {
+            std::cerr << "sandbox_test 10.2 failed: no decision row written (rows=" << rows
+                      << ")" << std::endl;
+            return false;
+        }
+        {
+            // Read back and structurally validate every row as JSONL.
+            std::FILE* f = std::fopen(datasetPath.c_str(), "rb");
+            if (f == nullptr)
+            {
+                std::cerr << "sandbox_test 10.3 failed: cannot reopen dataset file" << std::endl;
+                return false;
+            }
+            char buf[1 << 16];
+            std::size_t n = 0, lineNo = 0;
+            std::string content;
+            while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0)
+                content.append(buf, n);
+            std::fclose(f);
+            std::size_t pos = 0;
+            while (pos < content.size())
+            {
+                const std::size_t eol = content.find('\n', pos);
+                if (eol == std::string::npos)
+                    break;
+                const std::string line = content.substr(pos, eol - pos);
+                pos = eol + 1;
+                ++lineNo;
+                if (line.find("\"schema\":\"internal-counterfactual/1\"") == std::string::npos
+                    || line.find("\"type\":\"decision\"") == std::string::npos
+                    || line.find("\"baseline\":{") == std::string::npos
+                    || line.find("\"candidates\":[") == std::string::npos
+                    || line.find("\"probes\":[") == std::string::npos
+                    || line[0] != '{')
+                {
+                    std::cerr << "sandbox_test 10.3 failed: malformed decision row " << lineNo
+                              << std::endl;
+                    return false;
+                }
+            }
+            if (lineNo != rows)
+            {
+                std::cerr << "sandbox_test 10.4 failed: row count mismatch (" << lineNo
+                          << " lines vs " << rows << " rows)" << std::endl;
+                return false;
+            }
+        }
+        std::remove(datasetPath.c_str());
+    }
+
+    // Part 11: Force-Next Step Semantics (slot-1 swallow/count fidelity)
+    {
+        // The armed replay of a real decision node must swallow exactly the
+        // natural-order emissions preceding the forced candidate: run the same
+        // node twice with two different forced candidates whose ordinal
+        // positions differ, and verify the arm-consumption marker plus that a
+        // forced move that is ALREADY first in MovePicker order costs exactly
+        // the same as an unforced replay (slot-1 treatment identity).
+        StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
+        Position p11Pos;
+        p11Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false,
+                   &states->back());
+        Move m = UCIEngine::to_move(p11Pos, "e2e4");
+        states->emplace_back();
+        p11Pos.do_move(m, states->back());
+
+        auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
+        Search::Stack* dummySS = &(*dummyStack)[7 + 1];
+        dummySS->ply            = 1;
+        dummySS->staticEval     = VALUE_NONE;
+        for (int i = 7; i > 0; --i)
+        {
+            (dummySS - i)->continuationHistory = &liveWorker->continuationHistory[0][0][NO_PIECE][0];
+            (dummySS - i)->continuationCorrectionHistory =
+              &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
+            (dummySS - i)->staticEval = VALUE_NONE;
+        }
+
+        // Direct force_next_step unit checks (no search):
+        const Key  k  = p11Pos.key();
+        Move       fA = UCIEngine::to_move(p11Pos, "c7c5");
+        Move       fB = UCIEngine::to_move(p11Pos, "g8f6");
+        {
+            ForceNextScope scope(k, 1, fA);
+            Move other = UCIEngine::to_move(p11Pos, "e7e5");
+            if (force_next_step(k, 1, other) != 1)
+            {
+                std::cerr << "sandbox_test 11.1 failed: pre-forced emission not swallowed"
+                          << std::endl;
+                return false;
+            }
+            if (force_next_step(k, 1, fA) != 0 || gForceNext.armed || !gForceNext.consumed)
+            {
+                std::cerr << "sandbox_test 11.2 failed: forced emission did not consume the arm"
+                          << std::endl;
+                return false;
+            }
+            if (force_next_step(k, 1, other) != 0)
+            {
+                std::cerr << "sandbox_test 11.3 failed: post-consumption emission swallowed"
+                          << std::endl;
+                return false;
+            }
+        }
+        // Mismatched key/ply never arms.
+        {
+            ForceNextScope scope(k, 1, fB);
+            if (force_next_step(k ^ 1, 1, fB) != 0 || force_next_step(k, 2, fB) != 0
+                || gForceNext.armed != true)
+            {
+                std::cerr << "sandbox_test 11.4 failed: arm matched wrong node" << std::endl;
+                return false;
+            }
+        }
+
+        // Forced-natural-first replay equals unforced baseline (slot-1 identity).
+        const auto& cands = enumerate_candidates(p11Pos, *liveWorker, dummySS, Move::none(),
+                                                 Depth(3));
+        if (cands.size() < 3)
+        {
+            std::cerr << "sandbox_test 11.5 failed: not enough candidates" << std::endl;
+            return false;
+        }
+        CandidateProbeRunner rN(*liveWorker, p11Pos, dummySS);
+        ProbeResult base   = rN.replay_node(-50, -49, Depth(3), false, 0);
+        ProbeResult forced = rN.replay_node_forced(cands[0].move, -50, -49, Depth(3), false, 0);
+        if (base.nodes != forced.nodes || base.score != forced.score)
+        {
+            std::cerr << "sandbox_test 11.6 failed: forcing the natural first move changed the "
+                         "node outcome (nodes "
+                      << base.nodes << " vs " << forced.nodes << ")" << std::endl;
             return false;
         }
     }
@@ -1177,14 +1525,28 @@ CandidateProbeRunner::CandidateProbeRunner(const Search::Worker& liveWorker,
     maxDepth(maxDepth),
     isolatedWorker(liveWorker) {}
 
-ProbeResult CandidateProbeRunner::probe_candidate(Move  candidate,
-                                                  Value alpha,
-                                                  Value beta,
-                                                  Depth depth,
-                                                  u64   nodeBudget) {
-    if (!livePos.legal(candidate))
-        return ProbeResult{VALUE_NONE, 0, false, false};
+ProbeResult CandidateProbeRunner::replay_node(Value alpha, Value beta, Depth depth, bool cutNode,
+                                              u64 nodeBudget) {
+    return replay_impl(Move::none(), alpha, beta, depth, cutNode, nodeBudget);
+}
 
+ProbeResult CandidateProbeRunner::replay_node_forced(Move forced, Value alpha, Value beta,
+                                                     Depth depth, bool cutNode, u64 nodeBudget) {
+    return replay_impl(forced, alpha, beta, depth, cutNode, nodeBudget);
+}
+
+ProbeResult CandidateProbeRunner::replay_impl(Move  forced,
+                                              Value alpha,
+                                              Value beta,
+                                              Depth depth,
+                                              bool  cutNode,
+                                              u64   nodeBudget) {
+    if (forced != Move::none() && !livePos.legal(forced))
+        return ProbeResult{};  // invalid request; the sampler never sends one
+
+    // Full per-replay isolation: re-synchronized worker state (histories +
+    // search context), fresh position clone, rebound stack window, and an
+    // empty copy-on-first-access TT overlay over the base TT.
     isolatedWorker.sync_from(liveWorker);
     isolatedWorker.reset_stop();
 
@@ -1195,94 +1557,210 @@ ProbeResult CandidateProbeRunner::probe_candidate(Move  candidate,
     Search::Stack* shadowSS =
       isolatedWorker.clone_and_rebind_stack(liveWorker, liveSS, windowBefore, maxDepth);
 
-    StateInfo newSt;
-    isolatedWorker.do_move(shadowPos, candidate, newSt, shadowSS);
-
-    Search::Stack* childSS = shadowSS + 1;
-
     ResearchTTOverlay overlay(liveWorker.get_tt());
 
-    const Depth childDepth = (depth > 1) ? (depth - 1) : Depth(0);
+    if (forced == Move::none())
+        return isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode,
+                                           overlay, nodeBudget);
 
-    ProbeResult res;
-    if (beta == alpha + 1)
-        res = isolatedWorker.probe<NonPV>(
-          shadowPos, childSS, -beta, -alpha, childDepth, false, overlay, nodeBudget);
-    else
-        res = isolatedWorker.probe<PV>(
-          shadowPos, childSS, -beta, -alpha, childDepth, false, overlay, nodeBudget);
-
-    isolatedWorker.undo_move(shadowPos, candidate);
-
-    if (res.completed && res.score != VALUE_NONE && std::abs(res.score) < VALUE_INFINITE)
-        res.score = -res.score;
-
-    return res;
+    // Armed only for the duration of this synchronous replay; the live move
+    // loop consumes it at the matching (position key, ply) node.
+    ForceNextScope scope(livePos.key(), liveSS->ply, forced);
+    return isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode, overlay,
+                                       nodeBudget);
 }
 
-std::vector<CandidateFeature> enumerate_candidates(const Position&       pos,
-                                                   const Search::Worker& worker,
-                                                   const Search::Stack*  ss,
-                                                   Move                  ttMove) {
+std::vector<CandidateFeature> enumerate_candidates(const Position&            pos,
+                                                   const Search::Worker&      worker,
+                                                   const Search::Stack*       ss,
+                                                   Move                        ttMove,
+                                                   Depth                       depth,
+                                                   const PieceToHistory**      contHist) {
+    // Drives the REAL MovePicker (main-search step-14 construction: live worker
+    // history tables, the search's continuation-history window, the node's
+    // search depth and ply, the node's TT move) to exhaustion and keeps every
+    // legal emission in order. No duplicated ordering or scoring heuristics:
+    // stageScore is read from the picker's own buffer right after each
+    // select()-based emission (research accessor; TT emissions carry no score).
     std::vector<CandidateFeature> result;
     const Color us = pos.side_to_move();
 
-    for (const auto& m : MoveList<LEGAL>(pos))
-    {
-        CandidateFeature cf;
-        cf.move = m;
-        cf.isCapture = pos.capture_stage(m);
-        cf.isCheck = pos.gives_check(m);
-        cf.isTTMove = (ttMove != Move::none() && m == ttMove);
+    // Derive the continuation-history window exactly like the step-14 move
+    // loop does when the caller did not pass its own copy (search.cpp always
+    // passes its own; tests and the UCI debug command use nullptr).
+    const PieceToHistory* window[6] = {};
+    if (contHist == nullptr && ss != nullptr)
+        for (int i = 0; i < 6; ++i)
+            window[i] = (ss - (i + 1))->continuationHistory;
+    if (contHist == nullptr)
+        contHist = window;
 
-        const Piece pc = pos.moved_piece(m);
-        const Square to = m.to_sq();
+    MovePicker mp(pos, ttMove, depth, &worker.mainHistory, &worker.lowPlyHistory,
+                  &worker.captureHistory, contHist, &worker.sharedHistory, ss ? ss->ply : 0);
+
+    u16  ordinal = 0;
+    bool first   = true;
+    for (Move m = mp.next_move(); m != Move::none(); m = mp.next_move())
+    {
+        const bool ttEmission = first && ttMove != Move::none() && m == ttMove
+                             && pos.pseudo_legal(ttMove);
+        first = false;
+
+        // The search skips non-legal emissions before moveCount increments;
+        // enumeration must mirror that exactly for ordinals to be
+        // search-visible slots.
+        if (!pos.legal(m))
+            continue;
+
+        CandidateFeature cf;
+        cf.move      = m;
+        cf.ordinal   = ordinal++;
+        cf.isCheck   = pos.gives_check(m);
+        cf.isCapture = pos.capture_stage(m);
+        cf.isTTMove  = ttEmission;
+
+        const Piece pc     = pos.moved_piece(m);
+        const Square to    = m.to_sq();
+        const Piece captured = pos.piece_on(to);
 
         cf.mainHist = int(worker.mainHistory[us][m.raw()]);
-        cf.captureHist = cf.isCapture ? int(worker.captureHistory[pc][to][type_of(pos.piece_on(to))]) : 0;
-
-        cf.contHist = 0;
-        if (ss != nullptr)
-        {
-            if (ss->ply >= 1)
-                cf.contHist += int((*(ss - 1)->continuationHistory)[pc][to]);
-            if (ss->ply >= 2)
-                cf.contHist += int((*(ss - 2)->continuationHistory)[pc][to]);
-            if (ss->ply >= 4)
-                cf.contHist += int((*(ss - 4)->continuationHistory)[pc][to]);
-        }
-
-        cf.seeScore = pos.see_ge(m, 0) ? 1 : (pos.see_ge(m, -100) ? 0 : -1);
-
-        if (cf.isTTMove)
-        {
-            cf.stage = 1;
-            cf.stageScore = 1000000;
-        }
-        else if (cf.isCapture && pos.see_ge(m, 0))
-        {
-            cf.stage = 2;
-            cf.stageScore = 500000 + cf.captureHist;
-        }
-        else if (!cf.isCapture)
-        {
-            cf.stage = 4;
-            cf.stageScore = 2 * cf.mainHist + cf.contHist;
-        }
+        if (cf.isCapture)
+            cf.captureHist = int(worker.captureHistory[pc][to][type_of(captured)]);
         else
         {
-            cf.stage = 5;
-            cf.stageScore = -100000 + cf.captureHist;
+            // Quiet-side features (mirror the picker's own scoring inputs; the
+            // exact composite lives in stageScore).
+            cf.pawnHist = int(worker.sharedHistory.pawn_entry(pos)[pc][to]);
+            cf.contHist = 0;
+            for (int i : {0, 1, 2, 3, 5})
+                if (contHist[i] != nullptr)
+                    cf.contHist += int((*contHist[i])[pc][to]);
+            const int ply = ss ? ss->ply : 0;
+            if (ply < LOW_PLY_HISTORY_SIZE)
+                cf.lowPlyHist = int(worker.lowPlyHistory[ply][m.raw()]);
+        }
+        cf.seeScore = pos.see_ge(m, 0) ? 1 : (pos.see_ge(m, -100) ? 0 : -1);
+
+        if (ttEmission)
+            cf.stage = CandidateStage::TT;  // no picker sort value for TT
+        else
+        {
+            // select()-based emission: the emitted element stays at (cur - 1)
+            // until the next call, so the picker's own sort value is readable
+            // here (movepick.h research accessor).
+            cf.stageScore = mp.research_emitted_score();
+            if (cf.isCapture)
+                // The picker's good/bad capture split is the same SEE test on
+                // the same score; re-apply it for classification.
+                cf.stage = pos.see_ge(m, -cf.stageScore / 18)
+                             ? CandidateStage::GoodCapture
+                             : CandidateStage::BadCapture;
+            else
+                // goodQuietThreshold (-14000) split, exact.
+                cf.stage = cf.stageScore > -14000 ? CandidateStage::GoodQuiet
+                                                  : CandidateStage::BadQuiet;
         }
 
         result.push_back(cf);
     }
-
-    std::stable_sort(result.begin(), result.end(), [](const CandidateFeature& a, const CandidateFeature& b) {
-        return a.stageScore > b.stageScore;
-    });
-
     return result;
+}
+
+namespace {
+
+// ---------------------------------------------------------------------------
+// JSON value formatting helpers for internal-counterfactual/1 decision rows.
+// Row STRUCTURE is declared here and in data-schema.md; the file/root/run
+// wrapper rows and caps live in InternalDatasetLog (research_log.cpp).
+// ---------------------------------------------------------------------------
+
+inline std::string jstr(const std::string& s) {
+    std::string o = "\"";
+    for (char c : s)
+    {
+        if (c == '"' || c == '\\')
+            o += '\\';
+        if (c == '\n')
+            o += "\\n";
+        else if (c == '\r')
+            o += "\\r";
+        else
+            o += c;
+    }
+    o += '"';
+    return o;
+}
+
+inline std::string jnum(i64 v) {
+    return std::to_string(v);
+}
+
+inline std::string jnum(u64 v) {
+    return std::to_string(v);
+}
+
+inline std::string jbool(bool b) {
+    return b ? "true" : "false";
+}
+
+inline std::string jdouble(double v) {
+    // Fixed 6 decimals (deterministic, matches run_start formatting).
+    std::ostringstream os;
+    os.setf(std::ios::fixed);
+    os.precision(6);
+    os << v;
+    return os.str();
+}
+
+// Nullable int: censored probes carry no numeric value, ever.
+inline std::string jvalue_or_null(Value v, bool valid) {
+    return valid ? jnum(i64(int(v))) : std::string("null");
+}
+
+inline const char* stop_name(ProbeResult::StopReason r) {
+    switch (r)
+    {
+        case ProbeResult::StopReason::None:     return "none";
+        case ProbeResult::StopReason::Budget:   return "budget";
+        case ProbeResult::StopReason::UserStop: return "user";
+    }
+    return "?";
+}
+
+inline void ds_mix_step(u64& x) {  // same constants as the run/root rows use
+    x ^= x >> 30;
+    x *= 0xBF58476D1CE4E5B9ULL;
+    x ^= x >> 27;
+    x *= 0x94D049BB133111EBULL;
+    x ^= x >> 31;
+}
+
+// Deterministic sub-hash for the uniform hash-sample over the candidate rest.
+inline u64 ds_subhash(u64 h, int ordinal) {
+    u64 x = h ^ 0x9E3779B97F4A7C15ULL;
+    x += u64(ordinal) * 0xD6E8FEB86659FD93ULL;
+    ds_mix_step(x);
+    return x;
+}
+
+// One selected probe: candidate index in MovePicker order + selection prob.
+struct SelectedProbe {
+    int    idx = 0;
+    double prob = 0.0;
+};
+
+}  // namespace
+
+const char* candidate_stage_name(CandidateStage s) {
+    switch (s)
+    {
+        case CandidateStage::TT:          return "tt";
+        case CandidateStage::GoodCapture: return "good_capture";
+        case CandidateStage::BadCapture:  return "bad_capture";
+        case CandidateStage::GoodQuiet:   return "good_quiet";
+        case CandidateStage::BadQuiet:    return "bad_quiet";
+    }
+    return "?";
 }
 
 void on_internal_node_counterfactual(Search::Worker& liveWorker,
@@ -1293,61 +1771,247 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
                                      Depth           depth,
                                      Depth           rootDepth,
                                      Key             rootKey,
-                                     Move            ttMove) {
+                                     Move            ttMove,
+                                     bool            ttHit,
+                                     bool            cutNode,
+                                     bool            improving,
+                                     Value           staticEval) {
+    // Gate chain, cheapest first. All live state must be untouched on return
+    // (asserted at the end); every probe below runs on fully isolated shadow
+    // state (CandidateProbeRunner), never on the live position.
     if (!Research::enabled() || Research::config().mode != Research::Mode::InternalCounterfactual
-        || Research::is_shadow_probe_active() || !liveWorker.is_mainthread())
+        || !liveWorker.is_mainthread() || Research::is_shadow_probe_active())
         return;
 
-    u64 h = Research::config().seed;
-    h += 0x9E3779B97F4A7C15ULL ^ rootKey;
-    h = (h ^ (h >> 30)) * 0xBF58476D1CE4E5B9ULL ^ pos.key();
-    h = (h ^ (h >> 27)) * 0x94D049BB133111EBULL
-        ^ (static_cast<u64>(ss->ply) | (static_cast<u64>(depth) << 16) | (static_cast<u64>(rootDepth) << 32));
-    h ^= (h >> 31);
-    const u32 sampleThreshold =
-      static_cast<u32>(std::clamp(Research::config().sampleRate, 0.0, 1.0) * 1000000.0 + 0.5);
-    if ((h % 1000000ULL) >= sampleThreshold)
+    // Dataset armed and caps allow another row.
+    if (!Research::internal_log().active() || !Research::internal_log().would_record())
+        return;
+
+    // Decision nodes: non-PV null-window (PvNode || alpha == beta - 1 in the
+    // search, so this is exactly NonPV's invariant), not in check (hook
+    // eligibility), no excludedMove (eligibility), positive rootDepth (the
+    // search-context fallback contract, worker_snapshot.h).
+    if (alpha + 1 != beta || rootDepth <= 0)
+        return;
+
+    // Defense in depth (the UCI site already refused unsafe configurations
+    // before arming): internal collection only under the one-thread,
+    // fixed-depth / fixed-node, offline-style limits.
+    if (!IsolatedWorker::is_safe_environment(liveWorker))
+        return;
+    const auto& lim = liveWorker.research_limits();
+    if (!(lim.depth > 0 || lim.nodes > 0) || lim.movetime || lim.infinite
+        || lim.time[WHITE] > 0 || lim.time[BLACK] > 0)
+        return;
+    if (liveWorker.get_threads().stop.load(std::memory_order_relaxed))
         return;
 
     const Key  liveKeyBefore   = pos.key();
     const u64  liveNodesBefore = liveWorker.get_nodes();
     const bool liveStopBefore  = liveWorker.get_threads().stop.load(std::memory_order_relaxed);
+    (void) liveKeyBefore;
+    (void) liveNodesBefore;
+    (void) liveStopBefore;
 
-    auto candidates = enumerate_candidates(pos, liveWorker, ss, ttMove);
-    if (candidates.size() < 2)
+    const auto liveStopped = [&liveWorker]() {
+        return liveWorker.get_threads().stop.load(std::memory_order_relaxed);
+    };
+
+    // Deterministic node sample (pure function of seed + keys + ply/depth;
+    // data-schema.md). Row caps gate above; sampling stops on live stop.
+    u64 h = Research::config().seed;
+    h += 0x9E3779B97F4A7C15ULL ^ rootKey;
+    ds_mix_step(h);
+    h ^= pos.key();
+    h += u64(ss->ply) | (u64(int(depth)) << 16) | (u64(int(rootDepth)) << 32);
+    ds_mix_step(h);
+    const u32 sampleThreshold =
+      static_cast<u32>(std::clamp(Research::config().sampleRate, 0.0, 1.0) * 1000000.0 + 0.5);
+    if ((h % 1000000ULL) >= sampleThreshold)
         return;
 
-    int probeK = (Research::config().topK > 0) ? Research::config().topK : 4;
-    probeK     = std::min(probeK, int(candidates.size()));
+    // Full legal denominator in exact search-visible MovePicker order (real
+    // picker driven to exhaustion; legal-filtered). This is pure read-only
+    // scoring on live tables -- the same reads the node's own step-14 picker
+    // would perform -- with no live mutation.
+    auto candidates = enumerate_candidates(pos, liveWorker, ss, ttMove, depth);
+    const int N = static_cast<int>(candidates.size());
+    if (N < 2)
+        return;
 
-    struct CandidateProbeSummary {
-        Move        move;
-        ProbeResult result;
-    };
-    std::vector<CandidateProbeSummary> probeResults;
-    probeResults.reserve(probeK);
+    // Selection (plan 10.5): 2..8 legal candidates -> probe all (prob 1.0);
+    // more -> top-K (K = min(topK option or 4, N)) at prob 1.0 plus 2
+    // deterministic hash-sampled from the rest at marginal prob 2/(N-K).
+    std::vector<SelectedProbe> sel;
+    std::string                rule = "probe_all";
+    if (N <= 8)
+    {
+        for (int i = 0; i < N; ++i)
+            sel.push_back({i, 1.0});
+    }
+    else
+    {
+        rule = "topK_plus_hash_sample";
+        const int top = std::clamp(Research::config().topK > 0 ? Research::config().topK : 4, 1, N - 1);
+        for (int i = 0; i < top; ++i)
+            sel.push_back({i, 1.0});
+        const int rest = N - top;
+        if (rest == 1)
+            sel.push_back({top, 1.0});
+        else
+        {
+            const double marginal = 2.0 / rest;
+            u64          low1 = ~0ULL, low2 = ~0ULL;
+            int          b1 = -1, b2 = -1;
+            for (int i = top; i < N; ++i)
+            {
+                const u64 sh = ds_subhash(h, i);
+                if (sh < low1)
+                {
+                    low2 = low1;
+                    b2   = b1;
+                    low1 = sh;
+                    b1   = i;
+                }
+                else if (sh < low2)
+                {
+                    low2 = sh;
+                    b2   = i;
+                }
+            }
+            sel.push_back({b1, marginal});
+            sel.push_back({b2, marginal});
+        }
+    }
+    for (const auto& s : sel)
+    {
+        candidates[s.idx].selected       = true;
+        candidates[s.idx].selectionProb  = s.prob;
+    }
 
     CandidateProbeRunner runner(liveWorker, pos, ss);
+    const u64 budget = Research::effective_node_budget(Research::config());  // always finite
 
-    for (int i = 0; i < probeK; ++i)
+    // Baseline (unforced) whole-node replay first, then one forced replay per
+    // selected candidate. Every replay is fully isolated (fresh sync, clone,
+    // stack rebind, empty TT overlay per candidate). Live stop is honored
+    // between probes; an abort drops the row (no partial rows).
+    const ProbeResult baseline = runner.replay_node(alpha, beta, depth, cutNode, budget);
+    if (liveStopped())
+        return;
+
+    std::vector<ProbeResult> forced;
+    forced.reserve(sel.size());
+    for (const auto& s : sel)
     {
-        Move        m   = candidates[i].move;
-        ProbeResult res = runner.probe_candidate(m, alpha, beta, depth, Research::config().nodeBudget);
-        probeResults.push_back({m, res});
+        forced.push_back(
+          runner.replay_node_forced(candidates[s.idx].move, alpha, beta, depth, cutNode, budget));
+        if (liveStopped())
+            return;
     }
 
-    std::stringstream ss_tel;
-    ss_tel << "info string research internal_counterfactual root " << std::hex << rootKey << std::dec
-           << " ply " << ss->ply << " depth " << int(depth) << " alpha " << int(alpha)
-           << " beta " << int(beta) << " candidates " << probeResults.size();
-    for (const auto& pr : probeResults)
-    {
-        ss_tel << " " << UCIEngine::move(pr.move, pos.is_chess960()) << ":" << pr.result.nodes
-               << ":" << int(pr.result.score) << ":"
-               << (pr.result.completed ? "ok" : (pr.result.hit_budget ? "budget" : "stopped"));
-    }
-    sync_cout << ss_tel.str() << sync_endl;
+    // Degenerate-node rule (documented in data-schema.md): a decision row is
+    // only meaningful when at least one forced replay actually reached the
+    // node's main move loop and consumed the force-next arm. If every replay
+    // returned before the loop (deterministic pre-loop cutoffs in the shadow
+    // entry, e.g. step-13 small probCut) the node did not act as a decision
+    // node here and the row is dropped.
+    bool anyDecision = false;
+    for (const auto& r : forced)
+        anyDecision |= r.forced_slot1;
+    if (!anyDecision)
+        return;
 
+    // ---- assemble and write the decision row ----
+    const bool c960 = pos.is_chess960();
+    std::string row;
+    row += "{\"schema\":\"internal-counterfactual/1\",\"type\":\"decision\"";
+    row += ",\"root_key\":" + jnum(u64(rootKey));
+    row += ",\"pos_key\":" + jnum(u64(pos.key()));
+    row += ",\"fen\":" + jstr(pos.fen());
+    row += ",\"ply\":" + jnum(i64(ss->ply));
+    row += ",\"depth\":" + jnum(i64(int(depth)));
+    row += ",\"root_depth\":" + jnum(i64(int(rootDepth)));
+    row += ",\"alpha\":" + jnum(i64(int(alpha)));
+    row += ",\"beta\":" + jnum(i64(int(beta)));
+    row += ",\"static_eval\":" + jvalue_or_null(staticEval, staticEval != VALUE_NONE);
+    row += ",\"improving\":" + jbool(improving);
+    row += ",\"tt_hit\":" + jbool(ttHit);
+    row += ",\"tt_move\":" + jstr(UCIEngine::move(ttMove, c960));
+    row += ",\"cut_node\":" + jbool(cutNode);
+    row += ",\"rule50\":" + jnum(i64(pos.state()->rule50));
+    row += ",\"fullmove\":" + jnum(i64(pos.game_ply() / 2 + 1));
+    row += ",\"sample_seed\":" + jnum(u64(h));
+    row += ",\"sample_rate\":" + jdouble(Research::config().sampleRate);
+    row += ",\"selection\":" + jstr(rule);
+    row += ",\"n_candidates\":" + jnum(i64(N));
+    row += ",\"node_budget\":" + jnum(u64(budget));
+
+    // baseline replay (unforced; the natural-order outcome of the same node)
+    row += ",\"baseline\":{\"nodes\":" + jnum(u64(baseline.nodes));
+    row += ",\"completed\":" + jbool(baseline.completed);
+    row += ",\"stop\":" + jstr(stop_name(baseline.stopReason));
+    row += ",\"budget_hit\":" + jbool(baseline.hit_budget);
+    row += ",\"value\":" + jvalue_or_null(baseline.score, baseline.completed);
+    row += ",\"forced_slot1\":false";
+    row += ",\"fail_high\":" + (baseline.completed
+                                      ? jbool(baseline.score >= beta)
+                                      : std::string("null"));
+    row += "}";
+
+    row += ",\"candidates\":[";
+    for (int i = 0; i < N; ++i)
+    {
+        const auto& cf = candidates[i];
+        if (i > 0)
+            row += ',';
+        row += "{\"move\":" + jstr(UCIEngine::move(cf.move, c960));
+        row += ",\"ordinal\":" + jnum(i64(cf.ordinal));
+        row += ",\"stage\":" + jstr(candidate_stage_name(cf.stage));
+        row += ",\"stage_score\":" + jnum(i64(cf.stageScore));
+        row += ",\"main_hist\":" + jnum(i64(cf.mainHist));
+        row += ",\"capture_hist\":" + jnum(i64(cf.captureHist));
+        row += ",\"pawn_hist\":" + jnum(i64(cf.pawnHist));
+        row += ",\"cont_hist\":" + jnum(i64(cf.contHist));
+        row += ",\"low_ply_hist\":" + jnum(i64(cf.lowPlyHist));
+        row += ",\"see_score\":" + jnum(i64(cf.seeScore));
+        row += ",\"check\":" + jbool(cf.isCheck);
+        row += ",\"capture\":" + jbool(cf.isCapture);
+        row += ",\"tt_move\":" + jbool(cf.isTTMove);
+        row += ",\"prob\":" + jdouble(cf.selected ? cf.selectionProb : 0.0);
+        row += ",\"selected\":" + jbool(cf.selected);
+        row += "}";
+    }
+    row += "]";
+
+    row += ",\"probes\":[";
+    for (usize k = 0; k < sel.size(); ++k)
+    {
+        const auto& pr = forced[k];
+        if (k > 0)
+            row += ',';
+        row += "{\"move\":" + jstr(UCIEngine::move(sel[k].idx >= 0 ? candidates[sel[k].idx].move
+                                                                   : Move::none(),
+                                                    c960));
+        row += ",\"prob\":" + jdouble(sel[k].prob);
+        row += ",\"nodes\":" + jnum(u64(pr.nodes));
+        row += ",\"completed\":" + jbool(pr.completed);
+        row += ",\"stop\":" + jstr(stop_name(pr.stopReason));
+        row += ",\"budget_hit\":" + jbool(pr.hit_budget);
+        row += ",\"value\":" + jvalue_or_null(pr.score, pr.completed);
+        row += ",\"forced_slot1\":" + jbool(pr.forced_slot1);
+        row += ",\"fail_high\":" + (pr.completed ? jbool(pr.score >= beta)
+                                                   : std::string("null"));
+        row += "}";
+    }
+    row += "]";
+    row += "}";
+
+    const bool recorded = Research::internal_log().write_row(row);
+    (void) recorded;  // failure/cap already surfaced by the writer (info string)
+
+    // Non-perturbation invariants (also covered by unit tests): the live
+    // position, node counter, and stop flag are untouched by sampling.
     assert(pos.key() == liveKeyBefore);
     assert(liveWorker.get_nodes() == liveNodesBefore);
     assert(liveWorker.get_threads().stop.load(std::memory_order_relaxed) == liveStopBefore);
