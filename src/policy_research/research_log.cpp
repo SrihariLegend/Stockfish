@@ -328,7 +328,7 @@ MovesLoopCtx Recorder::begin_moves_loop(const Position& pos,
                                         bool improving,
                                         bool ttHit,
                                         bool ttMovePresent) {
-    if (!active_.load(std::memory_order_relaxed) || !rootOpen_)
+    if (!active() || !rootOpen_)
         return MovesLoopCtx{};
 
     const u64 key = pos.key();
@@ -401,7 +401,7 @@ void Recorder::log_move_attempt(const MovesLoopCtx& ctx,
                                 int  valueReturned,
                                 u64  nodesConsumed,
                                 bool stopped) {
-    if (!active_.load(std::memory_order_relaxed) || !rootOpen_ || !ctx.sampled
+    if (!active() || !rootOpen_ || !ctx.sampled
         || ctx.rootKey != rootKey_)
         return;
 

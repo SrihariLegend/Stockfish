@@ -35,10 +35,14 @@ IsolatedWorker::IsolatedWorker(const Search::Worker& liveWorker) {
     const usize threadCount =
       std::max(usize(1), liveWorker.sharedHistory.get_size() / CORRHIST_BASE_SIZE);
 
-    privateSharedHists.emplace(0, threadCount);
+    const NumaIndex numaIdx = liveWorker.numaAccessToken.get_numa_index();
+    privateSharedHists.emplace(numaIdx, threadCount);
+
+    privateThreadPool = std::make_unique<ThreadPool>();
+    privateThreadPool->stop = false;
 
     privateSharedState = std::make_unique<Search::SharedState>(
-      liveWorker.options, liveWorker.threads, liveWorker.tt, privateSharedHists, liveWorker.network);
+      liveWorker.options, *privateThreadPool, liveWorker.tt, privateSharedHists, liveWorker.network);
 
     shadowWorker = make_unique_large_page<Search::Worker>(
       *privateSharedState,
@@ -55,6 +59,18 @@ IsolatedWorker::IsolatedWorker(const Search::Worker& liveWorker) {
 }
 
 IsolatedWorker::~IsolatedWorker() = default;
+
+void IsolatedWorker::stop() {
+    privateThreadPool->stop = true;
+}
+
+void IsolatedWorker::reset_stop() {
+    privateThreadPool->stop = false;
+}
+
+bool IsolatedWorker::is_stopped() const {
+    return privateThreadPool->stop.load(std::memory_order_relaxed);
+}
 
 void IsolatedWorker::sync_from(const Search::Worker& liveWorker) {
     // Worker-local history tables
@@ -291,6 +307,48 @@ bool run_sandbox_unit_tests(Engine& engine) {
             std::cerr << "sandbox_test 1.5 failed: full undo on clonedPos mutated original pos" << std::endl;
             return false;
         }
+
+        // Verification 1.6: Repetition detection on cloned position
+        {
+            Position repPos;
+            std::vector<StateInfo> repStates;
+            pos.clone_to(repPos, repStates);
+
+            // pos is at ply 4: 1. e4 c5 2. Nf3 d6
+            // Play knights back and forth to force a threefold repetition:
+            // 3. Ng1 Nf6 4. Nf3 Ng8
+            const std::vector<std::string> repMoves = {"f3g1", "g8f6", "g1f3", "f6g8"};
+            std::vector<StateInfo> moveStates(repMoves.size());
+            std::vector<Move> appliedRepMoves;
+            for (size_t i = 0; i < repMoves.size(); ++i)
+            {
+                Move m = UCIEngine::to_move(repPos, repMoves[i]);
+                appliedRepMoves.push_back(m);
+                repPos.do_move(m, moveStates[i]);
+            }
+
+            if (!repPos.has_repeated())
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos did not detect threefold repetition" << std::endl;
+                return false;
+            }
+
+            if (pos.has_repeated())
+            {
+                std::cerr << "sandbox_test 1.6 failed: live pos has_repeated was mutated" << std::endl;
+                return false;
+            }
+
+            for (int i = int(appliedRepMoves.size()) - 1; i >= 0; --i)
+            {
+                repPos.undo_move(appliedRepMoves[i]);
+            }
+            if (repPos.has_repeated())
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos still has_repeated after undo" << std::endl;
+                return false;
+            }
+        }
     }
 
     // Part 2: Worker Isolation and History Deep Copy
@@ -300,6 +358,11 @@ bool run_sandbox_unit_tests(Engine& engine) {
         // Seed distinctive values into live worker
         const u16 moveRaw = 100;
         const Square toSq = SQ_E4;
+
+        const i16 origMain = liveWorker->mainHistory[WHITE][moveRaw];
+        const i16 origCapt = liveWorker->captureHistory[W_PAWN][toSq][PAWN];
+        const i16 origCorr = liveWorker->continuationCorrectionHistory[NO_PIECE][0][W_PAWN][toSq];
+        const i16 origCont = liveWorker->continuationHistory[0][0][NO_PIECE][0][W_PAWN][toSq];
 
         liveWorker->mainHistory[WHITE][moveRaw] = i16(123);
         liveWorker->captureHistory[W_PAWN][toSq][PAWN] = i16(456);
@@ -333,11 +396,11 @@ bool run_sandbox_unit_tests(Engine& engine) {
             return false;
         }
 
-        // Clean up live worker
-        liveWorker->mainHistory[WHITE][moveRaw] = i16(0);
-        liveWorker->captureHistory[W_PAWN][toSq][PAWN] = i16(0);
-        liveWorker->continuationCorrectionHistory[NO_PIECE][0][W_PAWN][toSq] = i16(0);
-        liveWorker->continuationHistory[0][0][NO_PIECE][0][W_PAWN][toSq] = i16(0);
+        // Clean up live worker: restore EXACT original values
+        liveWorker->mainHistory[WHITE][moveRaw] = origMain;
+        liveWorker->captureHistory[W_PAWN][toSq][PAWN] = origCapt;
+        liveWorker->continuationCorrectionHistory[NO_PIECE][0][W_PAWN][toSq] = origCorr;
+        liveWorker->continuationHistory[0][0][NO_PIECE][0][W_PAWN][toSq] = origCont;
     }
 
     // Part 3: Stack Window Cloning and Pointer Rebinding
@@ -401,10 +464,14 @@ bool run_sandbox_unit_tests(Engine& engine) {
 
         const Key liveKeyBefore = pos.key();
         const u64 liveNodesBefore = liveWorker->get_nodes();
+        const bool liveStopBefore = engine.get_threads().stop.load();
 
         TranspositionTable& baseTT = engine.get_tt();
         ResearchTTOverlay overlay(baseTT);
-        engine.get_threads().stop = false;
+
+        // Snapshot base TT cluster before search to verify bit-for-bit immutability
+        const usize c_idx = baseTT.cluster_index(pos.key());
+        const Cluster baseClusterBefore = baseTT.get_cluster(c_idx);
 
         IsolatedWorker shadowOwner(*liveWorker);
 
@@ -467,6 +534,12 @@ bool run_sandbox_unit_tests(Engine& engine) {
             std::cerr << "sandbox_test 4.4 failed: overlay recorded 0 cluster copies during search" << std::endl;
             return false;
         }
+        const Cluster baseClusterAfter = baseTT.get_cluster(c_idx);
+        if (std::memcmp(&baseClusterBefore, &baseClusterAfter, sizeof(Cluster)) != 0)
+        {
+            std::cerr << "sandbox_test 4.4 failed: base TT cluster was mutated!" << std::endl;
+            return false;
+        }
 
         // Verification 4.5: Determinism — repeat search with fresh overlay and cloned state
         ResearchTTOverlay overlay2(baseTT);
@@ -508,9 +581,70 @@ bool run_sandbox_unit_tests(Engine& engine) {
             std::cerr << "sandbox_test 4.6 failed: NonPV shadow search returned infinite score" << std::endl;
             return false;
         }
-        if (shadowOwnerNonPV.nodes_searched() == 0)
+        const u64 shadowNodesNonPV = shadowOwnerNonPV.nodes_searched() - liveNodesBefore;
+        if (shadowNodesNonPV == 0)
         {
             std::cerr << "sandbox_test 4.6 failed: NonPV shadow search searched 0 nodes" << std::endl;
+            return false;
+        }
+
+        // Verification 4.7: Independent stop state on shadow worker
+        {
+            IsolatedWorker cancellableOwner(*liveWorker);
+            Position cancelPos;
+            std::vector<StateInfo> cancelStates;
+            pos.clone_to(cancelPos, cancelStates);
+            Search::Stack* cancelSS = cancellableOwner.clone_and_rebind_stack(*liveWorker, dummyLiveSS, 7, 10);
+            ResearchTTOverlay cancelOverlay(baseTT);
+
+            cancellableOwner.stop();
+            if (!cancellableOwner.is_stopped())
+            {
+                std::cerr << "sandbox_test 4.7 failed: shadow worker is not stopped after stop()" << std::endl;
+                return false;
+            }
+
+            // Live thread pool stop flag must NOT be mutated
+            if (engine.get_threads().stop.load() != liveStopBefore)
+            {
+                std::cerr << "sandbox_test 4.7 failed: cancellableOwner.stop() mutated live thread pool stop flag!" << std::endl;
+                return false;
+            }
+
+            const u64 nodesBeforeCancel = cancellableOwner.nodes_searched();
+            cancellableOwner.search<PV>(cancelPos, cancelSS, -100, 100, Depth(5), false, cancelOverlay);
+            const u64 nodesDuringCancel = cancellableOwner.nodes_searched() - nodesBeforeCancel;
+            if (nodesDuringCancel > 2)
+            {
+                std::cerr << "sandbox_test 4.7 failed: stopped shadow search ran " << nodesDuringCancel << " nodes instead of aborting" << std::endl;
+                return false;
+            }
+
+            cancellableOwner.reset_stop();
+            if (cancellableOwner.is_stopped())
+            {
+                std::cerr << "sandbox_test 4.7 failed: shadow worker still stopped after reset_stop()" << std::endl;
+                return false;
+            }
+        }
+
+        // Verification 4.8: ScopedShadowProbe guard integrity
+        if (ScopedShadowProbe::is_active())
+        {
+            std::cerr << "sandbox_test 4.8 failed: ScopedShadowProbe active outside probe scope" << std::endl;
+            return false;
+        }
+        {
+            ScopedShadowProbe guard;
+            if (!ScopedShadowProbe::is_active() || ScopedShadowProbe::depth() != 1)
+            {
+                std::cerr << "sandbox_test 4.8 failed: ScopedShadowProbe not active inside guard" << std::endl;
+                return false;
+            }
+        }
+        if (ScopedShadowProbe::is_active())
+        {
+            std::cerr << "sandbox_test 4.8 failed: ScopedShadowProbe still active after guard destroyed" << std::endl;
             return false;
         }
     }

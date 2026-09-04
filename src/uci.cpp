@@ -271,8 +271,8 @@ void UCIEngine::go(std::istringstream& is) {
     // switch, mode, and log path are validated inside Recorder::on_go().
     if (!limits.perft && limits.depth > 0)
     {
-        const std::string threads = std::string(engine.get_options()["Threads"]);
-        if (threads == "1")
+        const int threads = int(engine.get_options()["Threads"]);
+        if (threads == 1)
             Research::recorder().on_go(engine.fen(), limits.depth, engine_info(true));
         else
             print_info_string(

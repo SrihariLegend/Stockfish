@@ -33,10 +33,12 @@
 #include "../numa.h"
 #include "../position.h"
 #include "../search.h"
+#include "scoped_probe.h"
 #include "tt_overlay.h"
 
 namespace Stockfish {
 class Engine;
+class ThreadPool;
 }
 
 namespace Stockfish::Research {
@@ -56,6 +58,11 @@ class IsolatedWorker {
     const Search::Worker& worker() const { return *shadowWorker; }
 
     u64 nodes_searched() const { return shadowWorker->get_nodes(); }
+
+    // Controls shadow worker stop state independently from the live engine thread pool.
+    void stop();
+    void reset_stop();
+    bool is_stopped() const;
 
     // Synchronizes/copies all mutable history tables and search context from liveWorker.
     void sync_from(const Search::Worker& liveWorker);
@@ -78,12 +85,14 @@ class IsolatedWorker {
                  Depth              depth,
                  bool               cutNode,
                  ResearchTTOverlay& overlay) {
+        ScopedShadowProbe guard;
         return shadowWorker->search<NT, ResearchTTOverlay>(pos, ss, alpha, beta, depth, cutNode,
                                                            overlay);
     }
 
    private:
     std::map<NumaIndex, SharedHistories>                       privateSharedHists;
+    std::unique_ptr<ThreadPool>                                privateThreadPool;
     std::unique_ptr<Search::SharedState>                       privateSharedState;
     LargePagePtr<Search::Worker>                               shadowWorker;
     std::unique_ptr<std::array<Search::Stack, MAX_PLY + 10>>   shadowStack;

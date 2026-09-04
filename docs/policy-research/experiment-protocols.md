@@ -376,7 +376,7 @@ Limitations: n=3 roots is too small for aggregate bootstrap CIs; top-k is a sear
 **Multi-Depth Ladder Results (Full 18-Root Population Evaluation with Fixed D10 Candidates)**:
 - Evaluated all 18 development and validation roots across plies D12, D14, D16 using a fixed candidate set generated at D10 MultiPV-4 (`depth-ladder-dev-val.json` via committed runner `tools/policy_research/p4_depth_ladder.py`).
 - Aggregate positive opportunities expand monotonically with ply depth: **5/18 (27.8%) at D12**, **9/18 (50.0%) at D14**, and **12/18 (66.7%) at D16**.
-- Pooled cumulative savings increase monotonically: **12.1% at D12**, **22.4% at D14**, and **36.9% at D16**.
+- Pooled cumulative savings increase monotonically: **12.1% at D12** (254,354 $\to$ 223,530 nodes), **22.1% at D14** (908,892 $\to$ 707,917 nodes), and **36.9% at D16** (5,060,198 $\to$ 3,194,088 nodes).
 - On `c3-d-004` (CPW4, tactical middlegame):
   - D12 (Ref D14): Baseline 8,269 nodes; forced `b4c5` takes 4,082 nodes (**50.6% cumulative reduction**).
   - D14 (Ref D16): Baseline 69,878 nodes (47,379 incr); forced `g1h1` takes 24,972 nodes (2,473 incr), **64.3% cumulative reduction, 94.8% incremental reduction**.
@@ -387,17 +387,20 @@ Limitations: n=3 roots is too small for aggregate bootstrap CIs; top-k is a sear
   - D16 (Ref D18): Baseline 123,243 nodes; forced `b1c3` takes 68,467 nodes (**44.4% cumulative reduction**).
 
 **Common-Prefix Causal Decomposition (Root Order vs PV-Follow vs Aspiration Depth Control)**:
-Evaluated across 6 conditions using committed runner `tools/policy_research/p4_causal_decomp.py` with verified common prefix (`prev_depth_nodes` 100% byte-for-byte identical across all conditions: 3,671 on `c3-v-001`, 22,499 on `c3-d-004`, 16,131 on `c3-d-002`, 63,292 on `c3-d-007`):
+Evaluated across 7 conditions using committed runner `tools/policy_research/p4_causal_decomp.py` with verified common prefix (`prev_depth_nodes` 100% byte-for-byte identical across all conditions: 3,671 on `c3-v-001`, 22,499 on `c3-d-004`, 16,131 on `c3-d-002`, 63,292 on `c3-d-007`):
 - Added Condition 4 (`PolicyResearchPreservePreviousPV`) which retains the baseline leader's previous PV intact down the tree, decoupling first-slot root move ordering from PV-follow state.
-- On `c3-d-004`: zero aspiration failures occur; Condition 4 (`preserve_previous_pv`) saves **63.6% cumulative / 93.9% incremental nodes** (25,410 vs 69,878 nodes), proving that root first-slot move order dominates over PV-following down the tree.
-- On `c3-v-001`: baseline searches at nominal D14 (20,956 nodes); pure move order with baseline aspiration saves 31.1% (14,450 nodes); preserving baseline previous PV saves 75.0% (5,232 nodes); joint intervention forced to nominal D14 saves 55.6% (9,293 nodes); joint intervention with fail-high depth reduction saves 73.1% (5,643 nodes at D11).
+- Added Condition 7 (`full_control_nominal_depth`) which simultaneously enforces baseline aspiration center, retains previous PV, and disables fail-high depth reduction (full orthogonal control).
+- On `c3-d-004`: zero aspiration failures occur; Condition 4 (`preserve_previous_pv`) saves **63.64% cumulative / 93.86% incremental nodes** (25,410 vs 69,878 nodes), and Condition 7 (`full_control_nominal_depth`) saves **65.39% cumulative / 96.44% incremental nodes** (24,186 vs 69,878 nodes), proving that root first-slot move order dominates over PV-following and aspiration depth control down the tree.
+- On `c3-v-001`: baseline searches at nominal D14 (20,956 nodes); pure move order with baseline aspiration saves 31.05% (14,450 nodes); preserving baseline previous PV saves 75.03% (5,232 nodes); under full control (Condition 7), cumulative savings are 36.71% (13,263 vs 20,956 nodes); joint intervention with fail-high depth reduction saves 73.07% (5,643 nodes at D11).
 - On `c3-d-002` (Kiwipete): fail-high depth reductions prevent search explosion (forcing nominal D14 inflates nodes from 18k to 32k or 78k).
+- On `c3-d-007` (strict candidate `a2a3`): joint intervention saves 46.56% cumulative (69,237 vs 129,556 nodes); under full control (Condition 7), savings are 34.00% cumulative (85,508 vs 129,556 nodes).
 - True no-op control: forcing the **D-1 lead move** (`d_minus_1_lead_move`) is an exact byte-for-byte match to baseline (demonstrated on `c3-d-007`: baseline 129,556 nodes == forced `c1e3` 129,556 nodes). Forcing untreated final best `f2f3` is an active intervention (66,704 nodes) because `f2f3` was not the leader at the start of iteration D14.
 
 **Balanced Latin-Square Multi-Trial Timing Benchmarks**:
 - Tooling supports `--trials N` running a strictly counterbalanced balanced Latin square cyclic design where each treatment appears in each position slot an equal number of times across trials.
-- On `c3-v-001` (12 counterbalanced runs): engine median search time dropped from 18.0 ms (IQR 0.0 ms, mean 18.17±0.39 ms) to 5.0 ms (IQR 1.0 ms, mean 5.33±0.49 ms), an exact **+72.2% engine search speedup**. Wall time median dropped from 322.5 ms to 308.2 ms.
-- On `c3-d-004` (12 counterbalanced runs): engine median search time dropped from 62.0 ms (IQR 0.0 ms, mean 61.75±0.45 ms) to 22.0 ms (IQR 1.0 ms, mean 22.42±0.51 ms), an exact **+64.5% engine search speedup**. Wall time median dropped from 363.2 ms to 324.1 ms.
+- On `c3-v-001` (12 counterbalanced runs): engine median search time dropped from 18.0 ms (IQR 1.0 ms, mean 18.33±0.49 ms) to 5.0 ms (IQR 1.0 ms, mean 5.33±0.49 ms), representing a **72.2% median engine search time reduction** (a **3.60× speedup factor**). Wall time median dropped from 322.5 ms to 308.2 ms.
+- On `c3-d-004` (12 counterbalanced runs): engine median search time dropped from 62.0 ms (IQR 1.0 ms, mean 62.33±0.98 ms) to 22.0 ms (IQR 1.0 ms, mean 22.50±1.17 ms), representing a **64.5% median engine search time reduction** (a **2.82× speedup factor**). Wall time median dropped from 363.2 ms to 324.1 ms.
+- *Caveat*: Measured kernel search times under isolated execution do not include policy inference cost or MovePicker sorting overhead.
 
 **18-Root Canonical Population Statistics (`corpus/v3` Dev + Val, Schema v4)**:
 - 7 Result-preserving savings (38.9%)
@@ -406,6 +409,6 @@ Evaluated across 6 conditions using committed runner `tools/policy_research/p4_c
 - 2 Harmful interventions (11.1%) (`c3-v-003`, `c3-v-004`)
 - 1 No valid candidate (5.6%) (`c3-d-005`)
 - Total positive opportunity: 9 / 18 (50.0%)
-- Macro mean savings: 18.4% cumulative, 34.9% target-iteration.
+- Macro mean savings: 18.3% cumulative, 34.6% target-iteration.
 - Macro median savings: 1.8% cumulative, 7.8% target-iteration.
-- Pooled savings across 18 roots: 22.4% cumulative (908,892 $\to$ 705,384 nodes), 42.8% target-iteration (475,490 $\to$ 271,982 nodes).
+- Pooled savings across 18 roots: 22.1% cumulative (908,892 $\to$ 707,917 nodes), 42.3% target-iteration (475,490 $\to$ 274,515 nodes).

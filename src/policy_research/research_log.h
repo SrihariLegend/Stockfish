@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "../types.h"
+#include "scoped_probe.h"
 
 namespace Stockfish {
 class Position;  // used by Recorder::begin_moves_loop (fen only when sampled)
@@ -87,7 +88,9 @@ struct AttemptAccum {
 
 class Recorder {
    public:
-    bool active() const { return active_.load(std::memory_order_relaxed); }
+    bool active() const {
+        return active_.load(std::memory_order_relaxed) && !is_shadow_probe_active();
+    }
 
     // Called from the UCI `go` handler (main thread) before the search starts,
     // only when logging was actually requested for this root. Finalizes any

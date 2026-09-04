@@ -32,14 +32,22 @@
 
 namespace Stockfish {
 
-// ResearchTTOverlay provides a copy-on-write transposition table view.
-// It wraps an immutable reference to the live TranspositionTable (base TT)
-// and maintains a private map of copied 32-byte clusters.
+// ResearchTTOverlay provides an isolated copy-on-write transposition table view.
+// It wraps a reference to the live TranspositionTable (base TT) and maintains a
+// private map of copied 32-byte clusters.
 //
-// Reads from unwritten clusters fall through directly to the base TT.
-// Writes or penaltizations to a cluster instantiate a private copy of that cluster,
-// so subsequent reads and writes within the shadow probe operate on the private cluster.
+// Implementation note on cluster copying:
+// ResearchTTOverlay employs a copy-on-first-access strategy. Upon the first probe()
+// to a cluster index (whether for reading or potential writing), the 32-byte cluster
+// is copied from the base TT into the overlay's private map. This guarantees that the
+// returned TTWriter points to a valid slot in private storage without requiring a
+// second hash-table lookup or deferred instantiation when a store occurs.
+// All subsequent reads and writes within the shadow probe operate on the private cluster.
 // The base TT is NEVER mutated.
+//
+// Precondition:
+// Base TT access assumes single-threaded execution (Threads=1) with a quiescent base TT,
+// ensuring no concurrent worker writes to base TT clusters during shadow probes.
 class ResearchTTOverlay {
    public:
     explicit ResearchTTOverlay(const TranspositionTable& base_tt) :
