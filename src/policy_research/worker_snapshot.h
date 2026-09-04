@@ -129,12 +129,48 @@ const char* candidate_stage_name(CandidateStage s);
 // when it reaches a node whose (position key, ply) matches. Only the main
 // search move loop consumes; the qsearch loop and all other nodes never match
 // unless armed. Nested arming is a programming error (assert).
+//
+// Frame-token binding (audit item #4): arms are additionally bound to the
+// exact search frame that owns the target node. Same-(posKey, ply) frames can
+// legitimately re-enter the node (singular-extension re-search at depth >= 6
+// with ttPv, null-move verification re-search at depth >= 16); without a
+// frame identity those frames could swallow the prefix, consume the forced
+// emission, or drain the buffer in the wrong context. research_frame_enter()
+// (called at the top of every search() frame in POLICY_RESEARCH builds) binds
+// a pending arm to the FIRST frame that enters its (posKey, ply) -- the
+// replay root itself -- and every arm protocol step requires the current
+// innermost frame token to match.
 // ---------------------------------------------------------------------------
+// Monotonic TLS frame sequence and innermost-frame token. Every search()
+// frame (research builds) constructs a ResearchFrameScope at entry:
+// gResearchCurFrame then names the innermost live search frame while its
+// body runs, and is restored to the parent frame's token on exit.
+inline thread_local u64 gResearchFrameSeq = 0;
+inline thread_local u64 gResearchCurFrame = 0;
+
+inline u64 current_frame_token() { return gResearchCurFrame; }
+
+class ResearchFrameScope {
+   public:
+    ResearchFrameScope() {
+        prev_ = gResearchCurFrame;
+        gResearchCurFrame = ++gResearchFrameSeq;
+    }
+    ~ResearchFrameScope() { gResearchCurFrame = prev_; }
+
+    ResearchFrameScope(const ResearchFrameScope&)            = delete;
+    ResearchFrameScope& operator=(const ResearchFrameScope&) = delete;
+
+   private:
+    u64 prev_;
+};
+
 struct ForceNextState {
     bool armed = false;
     bool consumed = false;
     Key  posKey = 0;
     int  ply = -1;
+    u64  frameToken = 0;  // bound at replay-root frame entry; 0 = not yet bound
     Move forced = Move::none();
     // Prefix buffer: legal natural-order emissions that precede the forced
     // candidate in MovePicker order. Filled while armed (swallowed without
@@ -183,7 +219,8 @@ class ForceNextScope {
 // otherwise; when the emitted move IS the forced candidate the arm is cleared
 // and marked consumed, and the move proceeds as the node's slot-1 move.
 inline int force_next_step(Key posKey, int ply, Move move) {
-    if (!gForceNext.armed || gForceNext.posKey != posKey || gForceNext.ply != ply)
+    if (!gForceNext.armed || gForceNext.posKey != posKey || gForceNext.ply != ply
+        || gForceNext.frameToken != gResearchCurFrame)
         return 0;
     if (move == gForceNext.forced)
     {
@@ -204,12 +241,17 @@ inline int force_next_step(Key posKey, int ply, Move move) {
 }
 
 // Serves buffered pre-forced moves in their original natural order. Only
-// active AFTER the arm was consumed (forced candidate emitted as slot 1), so
-// the forced move is never displaced. Returns false when nothing is buffered
-// or the arm is still waiting for its forced emission; callers then pull the
+// active AFTER the arm was consumed (forced candidate emitted as slot 1) AND
+// at the exact node that was armed (same position key and ply), so the
+// forced move is never displaced and the prefix can never leak into a
+// descendant or transpositional node's move loop (which would emit a stale
+// move whose from-square is empty or enemy-occupied in that node's position).
+// Returns false when nothing is buffered, the arm is still waiting for its
+// forced emission, or the caller is not the armed node; callers then pull the
 // next real MovePicker emission.
-inline bool force_next_buffer_pop(Move& move) {
-    if (gForceNext.armed || gForceNext.prefixIdx >= gForceNext.prefixCount)
+inline bool force_next_buffer_pop(Key posKey, int ply, Move& move) {
+    if (gForceNext.armed || gForceNext.posKey != posKey || gForceNext.ply != ply
+        || gForceNext.frameToken != gResearchCurFrame || gForceNext.prefixIdx >= gForceNext.prefixCount)
         return false;
     move = gForceNext.prefix[gForceNext.prefixIdx++];
     ++gForceNextBufferPops;
@@ -235,6 +277,7 @@ struct DecisionCapture {
     bool  fired = false;       // the target decision point was reached
     Key   posKey = 0;
     int   ply = -1;
+    u64   frameToken = 0;  // bound at replay-root frame entry; 0 = not yet bound
     bool  ttHit = false;
     bool  improving = false;
     Value staticEval = VALUE_NONE;
@@ -265,6 +308,20 @@ class DecisionCaptureScope {
     DecisionCaptureScope& operator=(const DecisionCaptureScope&) = delete;
 };
 
+// Called at the top of every search() frame (right after the frame scope).
+// Binds a pending baseline-capture or force-next arm to this frame when it is
+// the first search frame entering the armed (posKey, ply) -- which by
+// construction is the isolated replay's root frame, since arms are only ever
+// created immediately before a probe starts its own synchronous search.
+inline void research_frame_enter(Key posKey, int ply) {
+    if (gDecisionCapture.armed && gDecisionCapture.frameToken == 0
+        && gDecisionCapture.posKey == posKey && gDecisionCapture.ply == ply)
+        gDecisionCapture.frameToken = gResearchCurFrame;
+    if (gForceNext.armed && gForceNext.frameToken == 0 && gForceNext.posKey == posKey
+        && gForceNext.ply == ply)
+        gForceNext.frameToken = gResearchCurFrame;
+}
+
 // Fired by the main move loop (search.cpp, POLICY_RESEARCH builds) on every
 // node; cheaply no-ops unless a baseline replay armed this exact node.
 void decision_capture_step(Search::Worker& worker, Position& pos, Search::Stack* ss,
@@ -286,33 +343,42 @@ struct LiveOracleEntry {
     int  ply = -1;
     int  entryDepth = 0;
     u64  sampleSeed = 0;
+    u64  sampleId = 0;  // per-visit id, joined with the decision row
+    u64  frameToken = 0;  // search-frame token of the sampled node's frame
     Key  rootKey = 0;
     u64  entryNodes = 0;
     u64  liveNodes = 0;  // filled at pop: live do_moves from entry to exit
 };
 
-inline thread_local std::array<LiveOracleEntry, 16> gLiveOracle{};
-inline thread_local int                             gLiveOracleCount = 0;
+// One slot per ply plus slack: sampled live frames nest along the search
+// path (every eligible ancestor node pushes), and same-(posKey, ply) frame
+// re-entries (singular-extension / null-move-verification re-searches) are
+// separate frames whose tokens never pop a sampled entry, so the tracked
+// stack cannot exceed the node path length plus a small constant.
+inline thread_local std::array<LiveOracleEntry, MAX_PLY + 4> gLiveOracle{};
+inline thread_local int                                      gLiveOracleCount = 0;
 
-inline bool live_oracle_push(Key posKey, int ply, int entryDepth, u64 sampleSeed, Key rootKey,
-                             u64 entryNodes) {
+inline bool live_oracle_push(Key posKey, int ply, int entryDepth, u64 sampleSeed, u64 sampleId,
+                             Key rootKey, u64 entryNodes) {
     if (gLiveOracleCount >= int(gLiveOracle.size()))
         return false;
     gLiveOracle[gLiveOracleCount++] =
-      LiveOracleEntry{posKey, ply, entryDepth, sampleSeed, rootKey, entryNodes, 0};
+      LiveOracleEntry{posKey, ply, entryDepth, sampleSeed, sampleId, gResearchCurFrame, rootKey,
+                      entryNodes, 0};
     return true;
 }
 
 // Called from a node frame's exit (RAII scope in search.cpp). Pops and fills
 // out (when non-null) with a copy of the entry plus its live subtree cost
 // when the exiting frame is the innermost tracked sampled node; returns false
-// otherwise (e.g. shadow-probe frames, which never push, or a non-sampled
-// twin).
+// otherwise (e.g. shadow-probe frames, which never push, a non-sampled twin,
+// or a same-(posKey, ply) re-entry frame -- singular-extension or null-move
+// verification -- whose frame token differs from the sampled node's).
 inline bool live_oracle_pop(Key posKey, int ply, u64 exitNodes, LiveOracleEntry* out) {
     if (gLiveOracleCount <= 0)
         return false;
     LiveOracleEntry& top = gLiveOracle[gLiveOracleCount - 1];
-    if (top.posKey != posKey || top.ply != ply)
+    if (top.posKey != posKey || top.ply != ply || top.frameToken != gResearchCurFrame)
         return false;
     if (out != nullptr)
     {

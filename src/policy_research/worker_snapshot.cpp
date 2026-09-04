@@ -1484,14 +1484,14 @@ bool run_sandbox_unit_tests(Engine& engine) {
             }
             // While the arm is consumed the buffer pops in natural order.
             Move popped = Move::none();
-            if (!force_next_buffer_pop(popped) || popped != other)
+            if (!force_next_buffer_pop(k, 1, popped) || popped != other)
             {
                 std::cerr << "sandbox_test 11.2b failed: buffered prefix move not served after "
                              "arm consumption"
                           << std::endl;
                 return false;
             }
-            if (force_next_buffer_pop(popped))
+            if (force_next_buffer_pop(k, 1, popped))
             {
                 std::cerr << "sandbox_test 11.2c failed: buffer over-served" << std::endl;
                 return false;
@@ -1912,7 +1912,8 @@ void decision_capture_step(Search::Worker& worker, Position& pos, Search::Stack*
                            Key posKey, int ply, bool ttHit, Move ttMove, bool improving,
                            Value staticEval, int decisionDepth) {
     auto& c = gDecisionCapture;
-    if (!c.armed || c.fired || c.posKey != posKey || c.ply != ply)
+    if (!c.armed || c.fired || c.posKey != posKey || c.ply != ply
+        || c.frameToken != gResearchCurFrame)
         return;
     c.fired              = true;
     c.ttHit              = ttHit;
@@ -1949,6 +1950,7 @@ LiveExitScope::~LiveExitScope() {
         row += ",\"ply\":" + jnum(i64(e.ply));
         row += ",\"entry_depth\":" + jnum(i64(e.entryDepth));
         row += ",\"sample_seed\":" + jnum(u64(e.sampleSeed));
+        row += ",\"sample_id\":" + jnum(u64(e.sampleId));
         row += ",\"live_subtree_nodes\":" + jnum(u64(e.liveNodes));
         row += "}";
         // Audit row: never consumes the decision-row cap; suppressed only
@@ -2144,6 +2146,10 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
         return;
 
     // ---- assemble and write the decision row ----
+    // Unique per-visit sample id (monotonic within the run; allocated even if
+    // the row is later dropped by a cap race, so ids never collide across the
+    // decision and node_exit rows of one visit).
+    const u64 sampleId = Research::internal_log().next_sample_id();
     const bool c960 = pos.is_chess960();
     std::string row;
     row += "{\"schema\":\"internal-counterfactual/2\",\"type\":\"decision\"";
@@ -2167,6 +2173,7 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     row += ",\"rule50\":" + jnum(i64(pos.state()->rule50));
     row += ",\"fullmove\":" + jnum(i64(pos.game_ply() / 2 + 1));
     row += ",\"sample_seed\":" + jnum(u64(h));
+    row += ",\"sample_id\":" + jnum(sampleId);
     row += ",\"sample_rate\":" + jdouble(Research::config().sampleRate);
     row += ",\"selection\":" + jstr(rule);
     row += ",\"n_candidates\":" + jnum(i64(N));
@@ -2259,7 +2266,8 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
         // consumers compare the baseline replay node count against the real
         // live subtree (determinism check; TT-eviction/budget truncation can
         // still make them differ).
-        Research::live_oracle_push(pos.key(), ss->ply, int(depth), h, rootKey, liveNodesBefore);
+        Research::live_oracle_push(pos.key(), ss->ply, int(depth), h, sampleId, rootKey,
+                                   liveNodesBefore);
     }
 
     // Non-perturbation invariants (also covered by unit tests): the live

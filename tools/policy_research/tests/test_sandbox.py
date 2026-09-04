@@ -135,11 +135,18 @@ class TestResearchSandbox(unittest.TestCase):
         d = decisions[0]
         for field in ("root_key", "pos_key", "fen", "ply", "depth", "entry_depth",
                       "root_depth", "alpha", "beta", "static_eval", "improving", "tt_hit",
-                      "cut_node", "rule50", "fullmove", "sample_seed", "sample_rate",
-                      "selection", "n_candidates", "node_budget", "baseline", "candidates",
-                      "probes"):
+                      "cut_node", "rule50", "fullmove", "sample_seed", "sample_id",
+                      "sample_rate", "selection", "n_candidates", "node_budget", "baseline",
+                      "candidates", "probes"):
             self.assertIn(field, d, f"decision row missing {field}")
-        self.assertEqual(d["root_key"], d["pos_key"] or d["root_key"])
+        # root_key is the immutable root identity captured at root start (the
+        # decision row's own pos_key is the sampled node's key and differs at
+        # deeper plies).
+        root_start = rows[1]
+        self.assertEqual(root_start["type"], "root_start")
+        for d2 in decisions:
+            self.assertEqual(d2["root_key"], root_start["root_key"],
+                             "decision row root_key must match the root_start row")
         for field in ("nodes", "decision_point_nodes", "completed", "stop", "budget_hit",
                       "value", "fail_high"):
             self.assertIn(field, d["baseline"], f"baseline missing {field}")
@@ -177,15 +184,24 @@ class TestResearchSandbox(unittest.TestCase):
         self.assertFalse(root_end["overflow"])
         self.assertEqual(root_end["target_depth"], rows[1]["target_depth"])
         self.assertEqual(root_end["target_nodes"], rows[1]["target_nodes"])
-        # node_exit audit rows join the recorded decisions on the full identity
-        # key; lifecycle rows bypass the decision-row cap.
+        # node_exit audit rows join the recorded decisions on the per-visit
+        # sample_id (unique within a run; the (pos_key, ply, entry_depth,
+        # sample_seed) identity alone can collide when a position is visited
+        # more than once); lifecycle rows bypass the decision-row cap.
         exits = [r for r in rows if r["type"] == "node_exit"]
-        key = lambda r: (r["root_key"], r["pos_key"], r["ply"], r["entry_depth"],
-                         r["sample_seed"])
-        exit_keys = {key(r) for r in exits}
+        exit_ids = {r["sample_id"] for r in exits}
         self.assertEqual(len(exits), len(decisions))
+        self.assertEqual(len(exit_ids), len(decisions), "duplicate sample_id on node_exit rows")
         for d2 in decisions:
-            self.assertIn(key(d2), exit_keys, "decision row without matching node_exit")
+            self.assertEqual(d2["sample_id"], d2["sample_id"] or d2["sample_id"])
+            self.assertIn(d2["sample_id"], exit_ids, "decision row without matching node_exit")
+            self.assertIn("sample_id", d2, "decision row missing sample_id")
+        for r in exits:
+            for field in ("root_key", "pos_key", "ply", "entry_depth", "sample_seed",
+                          "sample_id", "live_subtree_nodes"):
+                self.assertIn(field, r, f"node_exit row missing {field}")
+            self.assertEqual(r["root_key"], root_start["root_key"],
+                             "node_exit root_key must match the root_start row")
         self.assertIn("target_depth", rows[1])
         self.assertIn("target_nodes", rows[1])
         self.assertIn("achieved_depth", root_end)

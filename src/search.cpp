@@ -980,6 +980,20 @@ Value Search::Worker::search(Position& pos,
     const bool seekMate =
       std::abs(rootMoves[pvIdx].score) >= 750 + 220000 / (rootDepth * rootDepth);
 
+    // Frame identity for the research hooks (POLICY_RESEARCH builds): every
+    // search() frame owns a unique token (restored on exit). Baseline-capture
+    // and force-next arms bind to the first frame entering their (posKey, ply)
+    // -- the isolated replay's root frame -- and the decision-point capture,
+    // force-next protocol, and live-subtree oracle all require the current
+    // innermost frame token to match the token they were bound with. This
+    // keeps same-(posKey, ply) re-entry frames (singular-extension and
+    // null-move-verification re-searches) from consuming arms, draining the
+    // prefix buffer, or popping the oracle in place of the sampled frame.
+#ifdef POLICY_RESEARCH
+    Research::ResearchFrameScope researchFrame;
+    Research::research_frame_enter(pos.key(), ss->ply);
+#endif
+
     // Dive into quiescence search when the depth reaches zero
     if (depth <= 0)
         return qsearch<PvNode ? PV : NonPV>(pos, ss, alpha, beta, ttAccess);
@@ -1080,8 +1094,9 @@ Value Search::Worker::search(Position& pos,
         && ss->excludedMove == Move::none() && is_mainthread() && Research::enabled()
         && Research::config().mode == Research::Mode::InternalCounterfactual
         && !Research::is_shadow_probe_active() && Research::internal_log().active())
-        Research::on_internal_node_counterfactual(*this, pos, ss, alpha, beta, depth, rootDepth,
-                                                  rootPos.key(), cutNode);
+        Research::on_internal_node_counterfactual(
+          *this, pos, ss, alpha, beta, depth, rootDepth,
+          Research::internal_log().current_root_key(), cutNode);
 
     // Live-subtree node oracle: this frame's exit reports the live subtree
     // node cost of the innermost sampled node on this path as a node_exit
@@ -1455,7 +1470,7 @@ moves_loop:  // When in check, search starts here
     // preserved, not deleted. Dead code in macro-off builds.
     while (true)
     {
-        if (!Research::force_next_buffer_pop(move))
+        if (!Research::force_next_buffer_pop(posKey, ss->ply, move))
         {
             if ((move = mp.next_move()) == Move::none())
                 break;

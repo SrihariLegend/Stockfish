@@ -472,12 +472,17 @@ void Position::set_check_info() const {
     Square ksq                              = square<KING>(~sideToMove);
     const auto [bishopAttacks, rookAttacks] = both_attacks_bb(ksq, pieces());
 
+    // Indices 0 (NO_PIECE_TYPE) and PIECE_TYPE_NB - 1 are never used by move
+    // legality but keeps the whole array initialized (defensive: gives_check
+    // and legal() may read index 0 on a stale move whose from-square is empty).
+    st->checkSquares[0]      = 0;
     st->checkSquares[PAWN]   = attacks_bb(PAWN, ksq, ~sideToMove);
     st->checkSquares[KNIGHT] = attacks_bb(KNIGHT, ksq);
     st->checkSquares[BISHOP] = bishopAttacks;
     st->checkSquares[ROOK]   = rookAttacks;
     st->checkSquares[QUEEN]  = st->checkSquares[BISHOP] | st->checkSquares[ROOK];
     st->checkSquares[KING]   = 0;
+    st->checkSquares[PIECE_TYPE_NB - 1] = 0;
 }
 
 

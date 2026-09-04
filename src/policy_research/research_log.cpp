@@ -594,6 +594,7 @@ void InternalDatasetLog::on_root_search_start(u64 rootKey) {
     if (!requested_ || pendingFen_.empty())
         return;
     rootKey_  = rootKey;
+    sampleId_ = 0;  // sample ids are run-scoped: reset at every root start
     rootOpen_ = true;
     active_   = true;
 

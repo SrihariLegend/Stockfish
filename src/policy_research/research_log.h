@@ -300,6 +300,17 @@ class InternalDatasetLog {
     bool root_open() const { return rootOpen_; }
     u64  current_root_key() const { return rootKey_; }
 
+    // Unique per-visit sample id: monotonic within a run, reset at every
+    // root start. Sample ids are allocated by the sampling hook and written
+    // to both the decision row and its node_exit audit row; they join a
+    // visit even when the same (root, pos_key, ply, entry_depth, sample_seed)
+    // identity recurs (repeated visits or collision), which the hash-based
+    // seed cannot guarantee.
+    u64 next_sample_id() {
+        std::lock_guard<std::recursive_mutex> lock(m_);
+        return ++sampleId_;
+    }
+
     // Test hooks to exercise the real pipeline without UCI
     void test_arm_for_unit_tests(const std::string& path, u64 dummyRootKey) {
         std::lock_guard<std::recursive_mutex> lock(m_);
@@ -313,6 +324,7 @@ class InternalDatasetLog {
         }
         requested_ = true;
         rootKey_   = dummyRootKey;
+        sampleId_  = 0;
         rootOpen_  = true;
         overflow_  = false;
         ioFailed_  = false;
@@ -367,6 +379,7 @@ class InternalDatasetLog {
     u32         effCap_ = HARD_MAX_RECORDS;  // effective decision-row cap
     u64         rows_ = 0;                   // rows written in this file
     u64         bytes_ = 0;                  // bytes written in this file
+    u64         sampleId_ = 0;               // per-visit id counter (reset per root)
     u64         rootKey_ = 0;
     std::FILE*  out_ = nullptr;
 };
