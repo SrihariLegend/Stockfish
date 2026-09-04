@@ -449,12 +449,18 @@ def evaluate_root(
         base_score_agrees_ref = False
 
     # 3. Candidate shortlist from depth candidate_depth MultiPV
+    # Methodological constraint: do NOT inject same-depth untreated final best
+    # into the candidate set. Use strictly pre-declared candidates from D-1/prior
+    # depth information, with the D-1 leader as the mandatory exact no-op control.
     if fixed_candidates is not None:
         candidates = list(fixed_candidates)
     else:
         candidates = eng.top_k(fen, candidate_depth, k)
-    if base["best"] not in candidates:
-        candidates.insert(0, base["best"])
+
+    # Ensure D-1 leader is present as the mandatory exact no-op control
+    d_minus_1_lead = base.get("d_minus_1_lead_move")
+    if d_minus_1_lead and d_minus_1_lead not in candidates:
+        candidates.insert(0, d_minus_1_lead)
 
     forced_records = []
     for mv in candidates:

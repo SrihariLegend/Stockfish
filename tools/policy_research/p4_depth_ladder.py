@@ -58,11 +58,10 @@ def run_depth_ladder(
 
         for d in depths:
             rd = d + ref_offset
-            # Ensure untreated base best at depth d is also included
-            base_temp = eng.run_search(fen, d)
+            # Strictly predeclared candidates: do NOT inject same-depth untreated final best
+            # (base_temp["best"]). The D-1 leader is automatically included as no-op control
+            # by evaluate_root if not already in cand_list.
             depth_candidates = list(cand_list)
-            if base_temp["best"] not in depth_candidates:
-                depth_candidates.insert(0, base_temp["best"])
 
             r = p4.evaluate_root(
                 eng=eng,
