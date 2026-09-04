@@ -52,8 +52,7 @@ Engine-side Phase 4 unit (plan §9.1) and follow-up review remediation:
 - Tablebase safety: overrides check `rootMoves[i].tbRank == rootMoves[0].tbRank`
   to prevent disrupting Syzygy contiguous rank grouping (`pvFirst`..`pvLast`).
 - Zero regression: macro-off `bench 16 1 10 default depth` = **453 169 nodes**
-  (standing gate unchanged). Full test suite: 92 tests (7 engine-gated in
-  `TestForceFirstRootOrder`).
+  (standing gate unchanged). Full test suite: 102 tests green.
 
 Tooling & quality validation (`tools/policy_research/p4_force_first.py`):
 - Fails fast at startup if the binary is missing research options.
@@ -131,13 +130,15 @@ methodological findings and recommendations from the expert review:
    - On `c3-v-001` (12 counterbalanced runs): engine median search time dropped from 18.0 ms (IQR 0.0 ms, mean 18.17±0.39 ms) to 5.0 ms (IQR 1.0 ms, mean 5.33±0.49 ms), an exact **+72.2% engine search speedup**.
    - On `c3-d-004` (12 counterbalanced runs): engine median search time dropped from 62.0 ms (IQR 0.0 ms, mean 61.75±0.45 ms) to 22.0 ms (IQR 1.0 ms, mean 22.42±0.51 ms), an exact **+64.5% engine search speedup**.
 5. **Full 18-Root Population Depth Ladder (D12, D14, D16 with Fixed D10 Candidates)**:
-   Evaluated the full 18-root development and validation corpus across depths 12, 14, 16 using a fixed candidate shortlist generated at D10 (`depth-ladder-dev-val.json` via dedicated runner `p4_depth_ladder.py`):
+   Evaluated the full 18-root development and validation corpus across depths 12, 14, 16 using a fixed candidate shortlist generated at D10 (`depth-ladder-dev-val.json` via dedicated runner `p4_depth_ladder.py`).
+   *Methodology note*: In early exploratory runs, candidate lists at depth $D$ included the depth-$D$ untreated final best move. Purging same-depth hindsight injection and using strictly fixed D10 candidate sets (with the $D-1$ leader as the sole exact no-op control) confirms that headline opportunities are robust (9/18 roots positive, ~22.1% pooled cumulative savings vs 22.4% with hindsight injection; e.g. on `c3-d-007` strict candidate `a2a3` yields +46.6% savings vs +48.5% with `f2f3`).
    - Positive opportunity rate expands monotonically with depth: **5/18 (27.8%) at D12**, **9/18 (50.0%) at D14**, and **12/18 (66.7%) at D16**.
    - Pooled cumulative savings increase monotonically: **12.1% at D12**, **22.4% at D14**, and **36.9% at D16**.
    - Confirms persistent positive scaling on key roots: `c3-d-004` (+50.6% D12 $\to$ +64.3% D14 $\to$ +80.6% D16), `c3-d-002` (+25.8% D12 $\to$ +28.7% D14 $\to$ +44.9% D16), `c3-v-005` (+49.4% D12 $\to$ +3.6% D14 $\to$ +34.3% D16).
    - Reveals depth-dependent phase transitions: `c3-v-001` (0% D12 $\to$ +73.1% D14 $\to$ +44.4% D16), `c3-d-006` (0% D12 $\to$ +18.7% D14 $\to$ +82.7% D16).
    - Demonstrates stable baseline-optimality on mate-in-2 tacticals: `c3-d-009` (0.0% at all plies).
 6. **18-Root Canonical Population Distribution (`corpus/v3` Dev + Val, Schema v4)**:
+   *Framing & Generalization Notice*: These statistics represent oracle headroom on the 18 curated test and benchmark roots of `corpus-v3` under an empirical search-informed candidate shortlist. They demonstrate mechanistic feasibility and existence of causal ordering leverage in alpha-beta search, not a deployable policy or population-wide Elo gain. Test roots `c3-t-001`..`c3-t-008` remain strictly quarantined.
    - **7 Result-preserving savings** (38.9%): preserves baseline best move, beats baseline cost.
    - **2 Convergence corrections** (11.1%): corrects baseline suboptimal move to reference best move, beats baseline cost (`c3-d-007`, `c3-v-006`).
    - **6 Baseline optimal** (33.3%): baseline is already the best/cheapest move (regret 0.0; including `c3-d-009` mate in 2).
