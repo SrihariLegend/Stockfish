@@ -46,7 +46,9 @@ Engine-side Phase 4 unit (plan §9.1) and follow-up review remediation:
   At the root, Stockfish sets `ttData.move = rootMoves[0]` and emits it in
   `MovePicker`'s `MAIN_TT` stage. The former index-0 move drops into its
   natural MovePicker stage (captures, quiets scored by history); all other
-  moves keep their relative MovePicker order.
+  moves keep their relative MovePicker order. The causal estimand is therefore:
+  *cost of substituting the root TT move and allowing normal MovePicker / PVS
+  behavior thereafter*, not an exact remainder replay.
 - Tablebase safety: overrides check `rootMoves[i].tbRank == rootMoves[0].tbRank`
   to prevent disrupting Syzygy contiguous rank grouping (`pvFirst`..`pvLast`).
 - Zero regression: macro-off `bench 16 1 10 default depth` = **453 169 nodes**
@@ -62,10 +64,14 @@ Tooling & quality validation (`tools/policy_research/p4_force_first.py`):
   (total search to depth D) and **incremental depth-D nodes** ($\Delta N_D$).
 - Deeper reference search (D16) evaluates plan §9.4 reference agreement: checks
   best-move agreement with reference and score tolerance (<= 50 cp) before
-  calling a candidate quality-valid; distinguishes mild drift (<= 100 cp) from
-  score collapse (> 100 cp).
-- Disentangled time metrics: reports wall time of the node-optimal candidate
-  separately from the overall time-optimal candidate; warns of single-run
+  calling a candidate quality-valid; checks mate score sign agreement;
+  distinguishes mild drift (<= 100 cp) from score collapse (> 100 cp).
+- Dual-baseline comparison: reports candidate score delta relative to both the
+  same-depth baseline ($\Delta\text{base}$) and the deeper reference ($\Delta\text{ref}$).
+- Score tolerance sensitivity analysis: evaluates the frontier across gates
+  $\pm 25, \pm 50, \pm 75, \pm 100\text{ cp}$ to reveal cost-quality tradeoffs.
+- Disentangled time metrics: reports wall time of the node-optimal candidate;
+  reports a distinct alternative only if strictly faster; warns of single-run
   millisecond scheduling jitter.
 - Candidate set framing: depth-10 MultiPV top-k is a search-informed empirical
   shortlist (upper bound for deployable cheap policy, lower bound for all-legal
@@ -80,17 +86,18 @@ Pilot results at depth 14 (reference depth 16, candidate depth 10, k=4):
 **Experiment B: Isolated Target-Depth Override (Pure Counterfactual at Depth 14)**
 | root | set | C_base @ D14 (best) | Ref @ D16 (best) | Quality-valid candidates | R_norm (cumul) | R_norm (incr D14) | R_norm (time) |
 |---|---|---|---|---|---:|---:|---:|
-| c1-d-001 | development | 43 275 / 2 680 incr (e2e4, cp 27) | 75 655 (e2e4, cp 39) | e2e4 (43 275, cp 27) | **+0.000** | **+0.000** | +0.103 |
+| c1-d-001 | development | 43 275 / 2 680 incr (e2e4, cp 27) | 75 655 (e2e4, cp 39) | e2e4 (43 275, cp 27) | **+0.000** | **+0.000** | +0.000 |
 | c1-v-001 | validation | 20 956 / 17 285 incr (d4c5, cp 654) | 123 243 (d4c5, cp 645) | b1c3 (5 643 / 1 972 incr, cp 642) | **+0.731** | **+0.886** | +0.722 |
 | c1-t-001 | test (burned) | 26 292 / 7 742 incr (f1e2, cp 133) | 128 139 (f1e2, cp 168) | f1e2 (26 292, cp 133) | **+0.000** | **+0.000** | −0.056 |
 
 *Notes on isolated mode:*
-- On `c1-d-001` (startpos): baseline best `e2e4` is an exact no-op (43 275 nodes, 2 680 incremental D14 nodes). Other candidates cost more (+78% to +95% incremental regret). Baseline was already optimal.
-- On `c1-v-001` (tactical root): forcing `b1c3` first takes 5 643 cumulative nodes and only 1 972 incremental D14 nodes (score cp 642, within 3 cp of D16 reference). All candidates agree with D16 reference best `d4c5`. Oracle headroom on this tactical root: **73.1% in cumulative nodes, 88.6% in incremental depth-14 nodes**. Wall time at node-optimal dropped to 5 ms, though subject to millisecond jitter.
-- On `c1-t-001`: candidate `f1g2` had mild drift (cp 115 vs 168 ref, −53 cp) while `f3d1` had score collapse (cp 57 vs 168 ref, −111 cp). Filtered out by quality gate. `R_norm (valid) = +0.000`.
+- On `c1-d-001` (startpos): baseline best `e2e4` is an exact no-op (43 275 nodes, 2 680 incremental D14 nodes) because the PV was stable from depth 13. Other candidates cost more (+78% to +95% incremental regret). Baseline was already optimal across all tolerance gates ($\pm 25$ to $\pm 100$ cp).
+- On `c1-v-001` (tactical root): forcing `b1c3` first takes 5 643 cumulative nodes and only 1 972 incremental D14 nodes (score cp 642, within 3 cp of D16 reference). All candidates agree with D16 reference best `d4c5`. Oracle headroom on this tactical root: **73.1% in cumulative nodes, 88.6% in incremental depth-14 nodes**. Wall time at node-optimal dropped to 5 ms (tied for fastest). The gain is invariant across all tolerance gates ($\pm 25$ to $\pm 100$ cp).
+- On `c1-t-001`: sensitivity analysis reveals a cost-quality frontier rather than simple zero opportunity: at $\pm 25$ cp no candidate is valid; at $\pm 50$ cp only baseline best `f1e2` passes ($R_{\text{norm}} = 0.000$); at $\pm 75$ cp candidate `f1g2` enters ($R_{\text{norm}} = +0.171$ cumulative, $+0.580$ incremental, score $-18$ cp vs base and $-53$ cp vs ref); candidate `f3d1` suffered evaluation collapse ($-111$ cp vs ref) and is rejected at all gates.
 
 **Experiment A: Persistent Schedule (Overriding at Depths 1..14)**
 - Demonstrates massive trajectory churn: on `c1-d-001`, forcing `e2e4` drops nodes to 25 317 (−41.5%) because always-first prevents best-move switches. On `c1-v-001`, `b1c3` appears to take 1 600 nodes, but its score drifted to cp 719 (+74 cp vs reference) and fails quality. On `c1-t-001`, forcing `f3d1` causes a 12.2x explosion to 320 781 nodes and collapses score to 0 cp.
+- Incremental node counts in persistent mode reflect each candidate's own divergent trajectory step, not a common-prefix causal delta.
 
 Next increment (P4.2): scale to larger corpus (corpus/v2), evaluate across multiple depths, and compute bootstrap confidence intervals.
 

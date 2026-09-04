@@ -2,34 +2,42 @@
 """Phase 4 root-level counterfactual experiment tool (plan.md section 9).
 
 Addresses Phase 4 expert review findings:
-1. MovePicker root mechanics (Finding 1): Stockfish sets ttData.move = rootMoves[0]
-   and emits it first in MAIN_TT. Subsequent moves follow MovePicker stages.
+1. Root MovePicker mechanics (Finding 1): Stockfish sets ttData.move = rootMoves[0]
+   and emits it first in MAIN_TT. The former lead move falls into its natural
+   MovePicker stage (captures, quiets scored by history).
 2. Two distinct experimental estimands (Finding 2):
    - isolated (default, Experiment B): PolicyResearchForceFirstDepth == depth;
      depths 1..D-1 run under standard baseline conditions so TT and history state
      at the start of depth D are identical across all candidate interventions.
-     Forcing the baseline's own best move at depth D is an exact no-op.
+     Forcing the baseline's own best move at depth D is an exact no-op when the
+     lead move is stable across iterations (depth_D_best == depth_D_minus_1_best).
    - persistent (Experiment A): PolicyResearchForceFirstDepth == 0; overrides
      at all depths 1..D, capturing cumulative iterative-deepening trajectory churn.
-3. Disentangled time metrics & jitter caveat (Finding 3): reports wall time of
-   the node-optimal candidate separately from the overall time-optimal candidate;
-   warns that single-run millisecond times are subject to scheduling jitter.
-4. Continuous score deltas & multi-band tolerance (Finding 4): records exact
-   score difference vs baseline and reference; classifies deviations into
-   exact, within tolerance, mild drift (near boundary), and score collapse.
-5. Incremental vs cumulative node costs (Finding 5): records depth-(D-1) node
-   baseline to report both cumulative (search-to-depth-D) and incremental (depth-D
-   decision only) node savings.
-6. Candidate set framing (Finding 6): clarifies that the top-k candidate set is
-   a search-informed empirical shortlist (oracle-gap proxy, not deployable policy).
-7. Test-root transparency (Finding 7): marks c1-t-001 as burned/exploratory.
-8. Durable provenance (Finding 8): records engine banner, embedded commit, tool
-   commit, and worktree status; writes versioned artifacts.
+     Incremental nodes represent each candidate's own divergent trajectory step.
+3. Mate score sign verification & refined classification (Finding 3):
+   - Checks mate score sign agreement: (cand_val > 0) == (ref_val > 0).
+   - Classifies score status as exact_ref (0 cp), near_ref (<= 25 cp),
+     within_tolerance (<= tolerance cp), mild_drift (<= 100 cp), score_collapse (> 100 cp).
+4. Disentangled time metrics & ties (Finding 4):
+   - Node-optimal candidate wall time reported with scheduling jitter caveat.
+   - Separate time-optimal move only reported if strictly faster than node-optimal.
+5. Dual-baseline comparison & tolerance sensitivity curve (Findings 2, 4):
+   - Compares candidate scores to both same-depth baseline and deeper reference.
+   - Computes sensitivity curve across tolerance gates (25, 50, 75, 100 cp) to
+     show cost-quality frontiers.
+6. Incremental vs cumulative node costs (Finding 5):
+   - Captures depth-(D-1) node baseline to report both cumulative (search-to-depth-D)
+     and incremental (target depth-D iteration only, ΔN_D) node metrics.
+7. Candidate set framing (Finding 6):
+   - Clarifies top-k candidate set is an empirical search-informed shortlist.
+8. Test-root transparency (Finding 7): marks c1-t-001 as burned/exploratory.
+9. Durable provenance (Finding 8): records engine banner, embedded commit, tool
+   commit, worktree cleanliness, and writes versioned artifacts.
 
 Usage:
-  STOCKFISH_ENGINE=/tmp/stockfish-research-clean python3 tools/policy_research/p4_force_first.py \
+  STOCKFISH_ENGINE=src/stockfish python3 tools/policy_research/p4_force_first.py \
       --depth 14 --reference-depth 16 --depth-mode isolated \
-      --ids c1-d-001,c1-v-001,c1-t-001 --out /tmp/p4_isolated.json
+      --ids c1-d-001,c1-v-001,c1-t-001 --out tools/policy_research/runs/my-run/p4-isolated.json
 """
 
 import argparse
@@ -335,14 +343,24 @@ def evaluate_root(
         if r["score_type"] == "cp" and ref["score_type"] == "cp":
             score_diff_ref = r["score_val"] - ref["score_val"]
 
-        # Classification of score stability
-        if score_diff_ref is None:
-            score_status = "mate_eval"
-            score_agrees = (r["score_type"] == ref["score_type"])
+        # Classification of score stability with mate sign check (Finding 3)
+        if r["score_type"] == "mate" and ref["score_type"] == "mate":
+            # Both mate: check sign agreement
+            mate_sign_agree = (r["score_val"] > 0) == (ref["score_val"] > 0)
+            score_agrees = mate_sign_agree
+            score_status = "mate_agree" if mate_sign_agree else "score_collapse"
+        elif r["score_type"] != ref["score_type"]:
+            # One cp and one mate: score collapse
+            score_agrees = False
+            score_status = "score_collapse"
         else:
+            # Both cp: evaluate continuous difference
             diff_abs = abs(score_diff_ref)
-            if diff_abs <= 25:
+            if diff_abs == 0:
                 score_status = "exact_ref"
+                score_agrees = True
+            elif diff_abs <= 25:
+                score_status = "near_ref"
                 score_agrees = True
             elif diff_abs <= score_tolerance_cp:
                 score_status = "within_tolerance"
@@ -354,8 +372,19 @@ def evaluate_root(
                 score_status = "score_collapse"
                 score_agrees = False
 
-        # Quality-valid candidate: agrees with reference best move and score tolerance
-        quality_valid = best_agrees_ref and score_agrees
+        # Multi-band tolerance sensitivity (Findings 2, 4)
+        bands = [25, 50, 75, 100]
+        quality_valid_at_band = {}
+        for b in bands:
+            if score_diff_ref is not None:
+                band_agrees = abs(score_diff_ref) <= b
+            elif r["score_type"] == "mate" and ref["score_type"] == "mate":
+                band_agrees = (r["score_val"] > 0) == (ref["score_val"] > 0)
+            else:
+                band_agrees = False
+            quality_valid_at_band[b] = best_agrees_ref and band_agrees
+
+        quality_valid = quality_valid_at_band[score_tolerance_cp]
 
         inc_nodes = r["incremental_nodes"]
         base_inc_nodes = base["incremental_nodes"]
@@ -385,6 +414,7 @@ def evaluate_root(
             "score_diff_ref": score_diff_ref,
             "score_status": score_status,
             "score_agrees": score_agrees,
+            "quality_valid_at_band": quality_valid_at_band,
             "quality_valid": quality_valid,
         }
         forced_records.append(rec)
@@ -393,6 +423,25 @@ def evaluate_root(
     all_nodes = [c["nodes"] for c in forced_records]
     min_nodes_all = min(all_nodes)
     r_norm_all_nodes = (base["nodes"] - min_nodes_all) / base["nodes"]
+
+    # Sensitivity analysis across tolerance bands (Findings 2, 4)
+    tolerance_sensitivity = {}
+    for b in [25, 50, 75, 100]:
+        v_b = [c for c in forced_records if c["quality_valid_at_band"][b]]
+        if v_b:
+            opt_b = min(v_b, key=lambda c: c["nodes"])
+            r_cumul = (base["nodes"] - opt_b["nodes"]) / base["nodes"]
+            b_inc = base["incremental_nodes"]
+            r_incr = (b_inc - opt_b["incremental_nodes"]) / b_inc if b_inc > 0 else 0.0
+            tolerance_sensitivity[str(b)] = {
+                "move": opt_b["move"],
+                "nodes": opt_b["nodes"],
+                "incremental_nodes": opt_b["incremental_nodes"],
+                "r_norm_cumulative": r_cumul,
+                "r_norm_incremental": r_incr,
+            }
+        else:
+            tolerance_sensitivity[str(b)] = None
 
     valid_records = [c for c in forced_records if c["quality_valid"]]
     if valid_records:
@@ -418,15 +467,17 @@ def evaluate_root(
             else None
         )
 
-        # Time-optimal candidate (reported separately to avoid conflation)
-        cheapest_time_rec = min(valid_records, key=lambda c: c["time_ms"])
-        cheapest_time_mv = cheapest_time_rec["move"]
-        min_time_valid = cheapest_time_rec["time_ms"]
-        r_norm_time_min = (
-            (base["time_ms"] - min_time_valid) / base["time_ms"]
-            if base["time_ms"] and min_time_valid is not None
-            else None
-        )
+        # Time-optimal candidate: only distinct if STRICTLY faster (Finding 4)
+        min_time_rec = min(valid_records, key=lambda c: c["time_ms"] if c["time_ms"] is not None else 999999)
+        min_time_val = min_time_rec["time_ms"]
+        if min_time_val is not None and time_at_min_nodes is not None and min_time_val < time_at_min_nodes:
+            cheapest_time_mv = min_time_rec["move"]
+            min_time_valid = min_time_val
+            r_norm_time_min = (base["time_ms"] - min_time_valid) / base["time_ms"] if base["time_ms"] else None
+        else:
+            cheapest_time_mv = None
+            min_time_valid = time_at_min_nodes
+            r_norm_time_min = r_norm_time_at_min_nodes
     else:
         cheapest_nodes_mv = None
         min_nodes_valid = None
@@ -469,6 +520,7 @@ def evaluate_root(
             "pv": ref["pv"],
         },
         "candidates": forced_records,
+        "tolerance_sensitivity": tolerance_sensitivity,
         "summary": {
             "candidate_count": len(forced_records),
             "valid_candidate_count": len(valid_records),
@@ -483,11 +535,15 @@ def evaluate_root(
                 "time_ms": time_at_min_nodes,
                 "r_norm_time": r_norm_time_at_min_nodes,
             },
-            "time_optimal": {
-                "move": cheapest_time_mv,
-                "time_ms": min_time_valid,
-                "r_norm_time": r_norm_time_min,
-            },
+            "strictly_faster_alternative": (
+                {
+                    "move": cheapest_time_mv,
+                    "time_ms": min_time_valid,
+                    "r_norm_time": r_norm_time_min,
+                }
+                if cheapest_time_mv is not None
+                else None
+            ),
         },
     }
 
@@ -497,19 +553,21 @@ def print_root_report(res: dict):
     ref = res["reference"]
     s = res["summary"]
     opt_node = s["node_optimal"]
-    opt_time = s["time_optimal"]
+    faster_alt = s["strictly_faster_alternative"]
     burned_note = " [EXPLORATORY / BURNED TEST ROOT]" if res["is_burned_test_root"] else ""
     print(f"\n================================================================================")
     print(f"Root: {res['root']} ({res['set']}){burned_note} | Depth Mode: {res['depth_mode'].upper()}")
     print(f"Baseline @ D{res['depth']}: {b['nodes']:,} nodes ({b['incremental_nodes']:,} incr) | {b['time_ms']} ms | score {b['score_type']} {b['score_val']} ({b['score_bound']}) | best: {b['best']}")
     print(f"Reference @ D{ref['depth']}: {ref['nodes']:,} nodes | {ref['time_ms']} ms | score {ref['score_type']} {ref['score_val']} | best: {ref['best']}")
     print(f"--------------------------------------------------------------------------------")
-    print(f"{'Move':<8} {'Nodes(Cum)':>11} {'Delta(Cum)':>11} {'Nodes(Inc)':>11} {'Time':>6} {'Score(Δref)':>17} {'Best':>8} {'Agree':>7} {'Quality':>10}")
+    print(f"{'Move':<8} {'Nodes(Cum)':>11} {'Delta(Cum)':>11} {'Nodes(Inc)':>11} {'Time':>6} {'Score(Δbase/Δref)':>22} {'Best':>8} {'Agree':>7} {'Quality':>10}")
     print(f"--------------------------------------------------------------------------------")
     for c in res["candidates"]:
         star = " *" if c["is_baseline_best"] else "  "
-        score_diff_str = f"{c['score_diff_ref']:+d}cp" if c['score_diff_ref'] is not None else "n/a"
-        score_str = f"{c['score_type']} {c['score_val']:>3} ({score_diff_str:>6})"
+        db_str = f"{c['score_diff_base']:+d}" if c['score_diff_base'] is not None else "?"
+        dr_str = f"{c['score_diff_ref']:+d}" if c['score_diff_ref'] is not None else "?"
+        score_diff_str = f"({db_str}/{dr_str}cp)"
+        score_str = f"{c['score_type']} {c['score_val']:>3} {score_diff_str:>13}"
         agree_str = f"{'B' if c['best_agrees_base'] else '-'}{'R' if c['best_agrees_ref'] else '-'}{'S' if c['score_agrees'] else '-'}"
         if c["quality_valid"]:
             qual_str = "PASS"
@@ -520,17 +578,30 @@ def print_root_report(res: dict):
         else:
             qual_str = "FAIL_BEST"
         delta_str = f"{c['node_delta_vs_base']:+d}"
-        print(f"{c['move'] + star:<8} {c['nodes']:>11,d} {delta_str:>11} {c['incremental_nodes']:>11,d} {c['time_ms']:>4}ms {score_str:>17} {c['best']:>8} {agree_str:>7} {qual_str:>10}")
+        print(f"{c['move'] + star:<8} {c['nodes']:>11,d} {delta_str:>11} {c['incremental_nodes']:>11,d} {c['time_ms']:>4}ms {score_str:>22} {c['best']:>8} {agree_str:>7} {qual_str:>10}")
     print(f"--------------------------------------------------------------------------------")
     print(f"Unconstrained min:  {s['min_nodes_all']:,} nodes  |  R_norm (cumulative): {s['r_norm_all_nodes']:+.3f}")
     if opt_node['move'] is not None:
         print(f"Quality-valid node-optimal:  {opt_node['move']}  |  Cumulative: {opt_node['nodes']:,} nodes (R_norm: {opt_node['r_norm_cumulative_nodes']:+.3f})")
         print(f"                             Incremental D{res['depth']}: {opt_node['incremental_nodes']:,} nodes (R_norm: {opt_node['r_norm_incremental_nodes']:+.3f})")
         print(f"                             Time at node-optimal: {opt_node['time_ms']} ms (R_norm: {opt_node['r_norm_time']:+.3f})")
-        if opt_time['move'] != opt_node['move']:
-            print(f"Separate time-optimal move:  {opt_time['move']}  |  Time: {opt_time['time_ms']} ms (R_norm: {opt_time['r_norm_time']:+.3f})")
+        if faster_alt is not None:
+            print(f"Strictly faster alternative: {faster_alt['move']}  |  Time: {faster_alt['time_ms']} ms (R_norm: {faster_alt['r_norm_time']:+.3f})")
     else:
         print(f"Quality-valid min:  NONE PASSED QUALITY GATES")
+
+    # Tolerance sensitivity printout (Findings 2, 4)
+    print(f"Score tolerance sensitivity:")
+    sens = res.get("tolerance_sensitivity", {})
+    for b_str in ["25", "50", "75", "100"]:
+        item = sens.get(b_str)
+        if item:
+            print(f"  Gate ±{b_str:>3} cp: opt {item['move']} ({item['nodes']:,} nodes, cumul: {item['r_norm_cumulative']:+.3f}, incr: {item['r_norm_incremental']:+.3f})")
+        else:
+            print(f"  Gate ±{b_str:>3} cp: NONE VALID")
+
+    if res['depth_mode'] == 'persistent':
+        print(f"Persistent mode note: incremental nodes represent each candidate's divergent trajectory step; not a common-prefix causal comparison.")
     print(f"Timing caveat: single-run wall times at millisecond resolution (5-35 ms range) are subject to system scheduling jitter.")
     print(f"================================================================================")
 

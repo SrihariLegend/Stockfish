@@ -312,32 +312,38 @@ Artifacts: `tools/policy_research/runs/policy-research-p4-kickoff-d14-h16-202609
   - Baseline: 43 275 cumulative nodes, 2 680 incremental D14 nodes, 39 ms, score cp 27 (exact), best e2e4.
   - Ref @ D16: 75 655 nodes, 60 ms, score cp 39, best e2e4.
   - Forced `e2e4` (best): 43 275 cumulative / 2 680 incremental nodes (**exact 100% no-op parity**), 35 ms, score cp 27 (−12 cp vs ref).
-  - Forced `d2d4`: 45 375 cumulative (+4.8%), 4 780 incremental (+78.4%), 36 ms, score cp 30 (−9 cp vs ref).
-  - Forced `g1f3`: 45 831 cumulative (+5.9%), 5 236 incremental (+95.4%), 36 ms, score cp 28 (−11 cp vs ref).
-  - Forced `c2c4`: 43 481 cumulative (+0.5%), 2 886 incremental (+7.7%), 35 ms, score cp 26 (−13 cp vs ref).
-  - All candidates quality-valid. Baseline best was already optimal: `R_norm (cumul) = +0.000`, `R_norm (incr) = +0.000`.
+  - Forced `d2d4`: 45 375 cumulative (+4.8%), 4 780 incremental (+78.4%), 36 ms, score cp 30 (+3 vs base / −9 vs ref).
+  - Forced `g1f3`: 45 831 cumulative (+5.9%), 5 236 incremental (+95.4%), 36 ms, score cp 28 (+1 vs base / −11 vs ref).
+  - Forced `c2c4`: 43 481 cumulative (+0.5%), 2 886 incremental (+7.7%), 34 ms, score cp 26 (−1 vs base / −13 vs ref).
+  - All candidates quality-valid. Baseline best was already optimal: `R_norm (cumul) = +0.000`, `R_norm (incr) = +0.000` across all gates $\pm 25$ to $\pm 100$ cp.
 - `c1-v-001` (validation, tactical):
   - Baseline: 20 956 cumulative nodes, 17 285 incremental D14 nodes, 18 ms, score cp 654 (exact), best d4c5.
   - Ref @ D16: 123 243 nodes, 102 ms, score cp 645, best d4c5.
-  - Forced `d4c5` (best): 20 956 cumulative / 17 285 incremental nodes (**exact 100% no-op parity**), 18 ms, score cp 654 (+9 cp vs ref).
-  - Forced `b1c3`: **5 643 cumulative nodes, 1 972 incremental D14 nodes, 5 ms**, score cp 642 (−3 cp vs ref).
-  - Forced `e1g1`: 5 752 cumulative, 2 081 incremental, 5 ms, score cp 610 (−35 cp vs ref).
-  - Forced `c4f7`: 6 187 cumulative, 2 516 incremental, 5 ms, score cp 683 (+38 cp vs ref).
+  - Forced `d4c5` (best): 20 956 cumulative / 17 285 incremental nodes (**exact 100% no-op parity**), 19 ms, score cp 654 (+0 vs base / +9 vs ref).
+  - Forced `b1c3`: **5 643 cumulative nodes, 1 972 incremental D14 nodes, 5 ms**, score cp 642 (−12 vs base / −3 vs ref).
+  - Forced `e1g1`: 5 752 cumulative, 2 081 incremental, 5 ms, score cp 610 (−44 vs base / −35 vs ref).
+  - Forced `c4f7`: 6 187 cumulative, 2 516 incremental, 6 ms, score cp 683 (+29 vs base / +38 vs ref).
   - All candidates pass quality gates. Oracle headroom on this tactical root:
     **`R_norm (cumul) = +0.731` (−73.1% cumulative nodes), `R_norm (incr) = +0.886` (−88.6% incremental D14 nodes)**.
-    Wall time dropped from 18 ms to 5 ms, though subject to millisecond scheduling jitter.
+    Wall time dropped from 18 ms to 5 ms (tied for fastest). The gain is invariant across all gates $\pm 25$ to $\pm 100$ cp.
 - `c1-t-001` (test, burned):
   - Baseline: 26 292 cumulative nodes, 7 742 incremental D14 nodes, 18 ms, score cp 133, best f1e2.
-  - Ref @ D16: 128 139 nodes, 101 ms, score cp 168, best f1e2.
-  - Forced `f1e2` (best): 26 292 cumulative / 7 742 incremental nodes (**exact 100% no-op parity**), 19 ms, score cp 133 (−35 cp vs ref).
-  - Forced `f1g2`: 21 802 cumulative (3 252 incremental), score cp 115 (−53 cp vs ref; mild drift beyond 50 cp gate).
-  - Forced `f3d1`: 20 229 cumulative (1 679 incremental), score cp 57 (−111 cp vs ref; severe score collapse).
-  - Cheaper candidates failed quality tolerance; only baseline best was valid: `R_norm (valid) = +0.000`.
+  - Ref @ D16: 128 139 nodes, 95 ms, score cp 168, best f1e2.
+  - Forced `f1e2` (best): 26 292 cumulative / 7 742 incremental nodes (**exact 100% no-op parity**), 19 ms, score cp 133 (+0 vs base / −35 vs ref).
+  - Forced `f1g2`: 21 802 cumulative (3 252 incremental), score cp 115 (−18 vs base / −53 vs ref; mild drift beyond $\pm 50$ cp gate).
+  - Forced `f3d1`: 20 229 cumulative (1 679 incremental), score cp 57 (−76 vs base / −111 vs ref; severe score collapse).
+  - Sensitivity analysis across tolerance gates reveals a cost-quality frontier:
+    - Gate $\pm 25$ cp: NONE VALID (ref baseline differs by 35 cp).
+    - Gate $\pm 50$ cp: only baseline best `f1e2` passes ($R_{\text{norm}} = 0.000$).
+    - Gate $\pm 75$ cp: candidate `f1g2` passes ($R_{\text{norm}} = +0.171$ cumul, $+0.580$ incr).
+    - Gate $\pm 100$ cp: candidate `f1g2` passes ($R_{\text{norm}} = +0.171$ cumul, $+0.580$ incr).
+    - `f3d1` collapses at all gates up to $\pm 100$ cp.
 
 **Experiment A: Persistent Schedule (Overriding at Depths 1..14)**
 - Demonstrates iterative-deepening trajectory churn:
   - On `c1-d-001`: forcing `e2e4` drops nodes to 25 317 (−41.5%) because always-first suppresses best-move switches across depths.
   - On `c1-v-001`: `b1c3` took 1 600 nodes, but score drifted to cp 719 (+74 cp vs reference) and fails quality.
   - On `c1-t-001`: `f3d1` exploded to 320 781 nodes (+1120%) and score collapsed to 0 cp.
+  - Incremental counts reflect divergent trajectory steps, not common-prefix causal comparisons.
 
 Limitations: n=3 roots is too small for aggregate bootstrap CIs; top-k is a search-informed empirical shortlist; `c1-t-001` is burned. P4.2 must scale to corpus/v2.

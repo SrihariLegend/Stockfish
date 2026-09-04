@@ -1007,8 +1007,12 @@ Tooling & quality evaluation (`tools/policy_research/p4_force_first.py`):
 - Captures depth-(D-1) node baseline to report both cumulative nodes and
   incremental depth-D nodes ($\Delta N_D$).
 - Reference search at D16 (plan §9.4): evaluates best-move agreement and score
-  tolerance (<= 50 cp) against deeper reference; distinguishes mild drift
-  (<= 100 cp) from score collapse (> 100 cp).
+  tolerance (<= 50 cp) against deeper reference; verifies mate score signs;
+  distinguishes mild drift (<= 100 cp) from score collapse (> 100 cp).
+- Dual-baseline score comparison: records candidate deltas against both the
+  same-depth baseline ($\Delta\text{base}$) and the deeper reference ($\Delta\text{ref}$).
+- Multi-band tolerance sensitivity analysis: tests gates $\pm 25, \pm 50, \pm 75, \pm 100\text{ cp}$
+  to reveal continuous cost-quality tradeoffs.
 - Disentangles node-optimal candidate from time-optimal candidate; notes that
   single-run millisecond times are subject to scheduling jitter.
 - Canonical artifacts recorded under
@@ -1018,22 +1022,26 @@ Tooling & quality evaluation (`tools/policy_research/p4_force_first.py`):
 Pilot comparison (depth 14, candidate shortlist = depth 10 MultiPV top 4):
 - **Isolated Mode (Experiment B)**:
   - `c1-d-001` (startpos): baseline best `e2e4` is an exact no-op (43,275 nodes,
-    2,680 incremental D14 nodes). Other candidates cost more (+78% to +95%
-    incremental regret). `R_norm (valid) = +0.000`.
+    2,680 incremental D14 nodes) under stable PV iterations. Other candidates
+    cost more (+78% to +95% incremental regret). `R_norm (valid) = +0.000`
+    across all tolerance gates ($\pm 25$ to $\pm 100$ cp).
   - `c1-v-001` (validation): baseline `d4c5` = 20,956 nodes (17,285 incremental).
     Forcing `b1c3` first = 5,643 cumulative nodes (1,972 incremental), score cp 642
     (agrees within 3 cp of D16 reference 645 cp). All candidates agree with
     reference best `d4c5`. Quality-valid oracle headroom on this root:
     **73.1% cumulative nodes (`R_norm = +0.731`), 88.6% incremental D14 nodes
-    (`R_norm = +0.886`)**.
+    (`R_norm = +0.886`)**, invariant across all gates $\pm 25$ to $\pm 100$ cp.
   - `c1-t-001` (burned test root): baseline `f1e2` = 26,292 nodes (7,742 incremental).
-    Cheaper candidate `f1g2` had mild drift (−53 cp vs ref) while `f3d1` had score
-    collapse (−111 cp vs ref). `R_norm (valid) = +0.000`.
+    Sensitivity analysis shows a frontier: at $\pm 50$ cp only baseline best is valid
+    ($R_{\text{norm}} = 0.000$); at $\pm 75$ cp candidate `f1g2` passes
+    ($R_{\text{norm}} = +0.171$ cumul, $+0.580$ incr, $-18$ cp vs base, $-53$ cp vs ref);
+    `f3d1` experienced severe collapse ($-111$ cp vs ref) and fails all gates.
 - **Persistent Mode (Experiment A)**:
   - `c1-d-001`: `c2c4` = 21,146 nodes (`R_norm = +0.511`) due to iterative
     trajectory churn.
   - `c1-v-001`: `b1c3` = 1,600 nodes, but score drifted by +74 cp (fails quality).
   - `c1-t-001`: `f3d1` exploded to 320,781 nodes (+1120%) with score 0 cp.
+  - Incremental counts in persistent mode reflect divergent trajectory steps.
 
 Test root note: `c1-t-001` is marked burned/exploratory; corpus/v2 with
 untouched game-diverse roots is required before aggregate claims. 7 engine-gated
