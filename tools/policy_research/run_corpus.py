@@ -54,6 +54,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import decode_research_log as dlog  # noqa: E402
 
+ALLOWED_CORPUS_SCHEMAS = ("corpus/v1", "corpus/v2")
 SCHEMA_CORPUS = "corpus/v1"
 SCHEMA_RUN = "research-run/1"
 SCHEMA_RESULT = "research-result/1"
@@ -126,8 +127,8 @@ def load_corpus(path: Path) -> tuple[dict, bytes]:
     except json.JSONDecodeError as exc:
         raise ValueError(f"corpus {path} is not valid JSON: {exc}") from exc
 
-    if corpus.get("schema") != SCHEMA_CORPUS:
-        raise ValueError(f"corpus {path}: schema must be {SCHEMA_CORPUS}")
+    if corpus.get("schema") not in ALLOWED_CORPUS_SCHEMAS:
+        raise ValueError(f"corpus {path}: schema must be one of {ALLOWED_CORPUS_SCHEMAS}")
     if not isinstance(corpus.get("corpus_id"), str) or not corpus["corpus_id"]:
         raise ValueError(f"corpus {path}: corpus_id must be a non-empty string")
     positions = corpus.get("positions")

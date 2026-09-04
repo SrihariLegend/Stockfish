@@ -257,11 +257,16 @@ Key features & options:
   history state at the decision boundary. Forcing baseline best is an exact no-op.
 - `--depth-mode persistent`: (Experiment A) forces candidate at all depths
   1..D (`PolicyResearchForceFirstDepth 0`), measuring cumulative trajectory churn.
-- `--reference-depth <depth>`: runs a deeper search (default depth + 2) to check
+- `--reference-depth <depth>`: runs a deeper search (default: target depth + 2) to check
   best-move agreement and score tolerance before declaring a candidate quality-valid.
+- `--corpus <path>`: path to corpus JSON (default: `corpora/corpus-v1.json`, also supports `corpora/corpus-v2.json`).
 - Reports both **cumulative search nodes** and **incremental depth-D nodes**.
+- Dual-dimensional quality gates: evaluates candidate deltas both vs deeper reference
+  ($\Delta\text{ref}$) and relative to baseline ($\Delta\text{base}$), reporting
+  sensitivity across gates $\pm 25, \pm 50, \pm 75, \pm 100\text{ cp}$.
 - Disentangles node-optimal candidate from time-optimal candidate, and records
-  durable provenance (engine banner, embedded commit, tool git state, timestamp).
+  durable provenance (engine banner, executable SHA256, embedded commit, tool git state, timestamp).
+- Schema: `policy-research-p4-counterfactual/3`.
 ```
 
 Pilot semantics and limits are documented in `overview.md` (P4.1) and

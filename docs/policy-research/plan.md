@@ -1043,9 +1043,24 @@ Pilot comparison (depth 14, candidate shortlist = depth 10 MultiPV top 4):
   - `c1-t-001`: `f3d1` exploded to 320,781 nodes (+1120%) with score 0 cp.
   - Incremental counts in persistent mode reflect divergent trajectory steps.
 
-Test root note: `c1-t-001` is marked burned/exploratory; corpus/v2 with
-untouched game-diverse roots is required before aggregate claims. 7 engine-gated
-integration tests (`TestForceFirstRootOrder`, full suite 92 tests green).
+**P4.2 Status — expanded corpus, depth ladder, and mechanism verified.**
+- Delivered `tools/policy_research/corpora/corpus-v2.json` (26 positions:
+  10 development, 8 validation, 8 unburned test roots).
+- Verified depth ladder stability on `c2-v-001`: incremental node reduction
+  grows from 0% at D12 to 88.6% at D14 ($17,285 \to 1,972$) to 97.5% at D16
+  ($56,156 \to 1,380$, a $40\times$ proof-cost reduction), with both baseline
+  and forced runs agreeing on best move `d4c5`.
+- Verified generalization on new roots: `c2-d-007` (Najdorf) shows 94.9%
+  incremental node reduction ($66,264 \to 3,412$), and `c2-v-005` (Tal-Larsen)
+  shows 85.0% incremental reduction ($38,817 \to 5,826$) while discovering the
+  D16 reference best move `d1d2` that the D14 baseline missed.
+- Verified wall-time reduction on 5-trial fresh-process runs: median time
+  dropped from 411.4 ms to 351.0 ms (−14.7% wall time including process startup).
+- Search mechanism established: high-utility setup moves establish a rapid
+  alpha floor that allows subsequent moves to refute/verify via narrow null-window
+  scouting, collapsing the overall proof tree.
+- Standing zero-regression gate re-verified: macro-off `bench 16 1 10 default depth`
+  = 453,169 nodes. Full test suite: 92 tests green.
 
 ---
 

@@ -84,6 +84,21 @@ class TestCorpus(unittest.TestCase):
                 rc.load_corpus(path)
             self.assertIn("must have 6 fields", str(ctx.exception))
 
+    def test_load_corpus_v2(self):
+        v2_path = Path(__file__).resolve().parents[1] / "corpora" / "corpus-v2.json"
+        if v2_path.is_file():
+            corpus, canonical = rc.load_corpus(v2_path)
+            self.assertEqual(corpus.get("schema"), "corpus/v2")
+            self.assertEqual(len(corpus["positions"]), 26)
+            dev = [p for p in corpus["positions"] if p["set"] == "development"]
+            val = [p for p in corpus["positions"] if p["set"] == "validation"]
+            tst = [p for p in corpus["positions"] if p["set"] == "test"]
+            self.assertEqual(len(dev), 10)
+            self.assertEqual(len(val), 8)
+            self.assertEqual(len(tst), 8)
+            # Ensure burned c1-t-001 is not in test
+            self.assertNotIn("c1-t-001", [p["id"] for p in tst])
+
 
 class TestNormalize(unittest.TestCase):
     def test_strips_time_and_nps_keeps_nodes(self):

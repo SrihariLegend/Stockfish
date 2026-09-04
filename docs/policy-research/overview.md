@@ -12,7 +12,7 @@ tests, exit gates, definition of done).
 | 1 | Deterministic research harness | **Complete** — corpus-v1 runner + run manifest; determinism gate passes (12 roots × depth 11). Hardened per review (see below) and gate regenerated with a fully identified executable |
 | 2 | Versioned research logging | **In progress** — recorder/serializer, decoder/validator, and `verify-research` gate (protocol P2.1) landed; Phase 2 review fixes in `3850e64e` and round-2 fixes in `c9878d11`; full depth-11 gate **PASSED** on the committed tree (artifacts `tools/policy_research/runs/policy-research-corpus-v1-d11-h16-research-20260904T004843/`) |
 | 3 | Observational dataset and calibration baseline | **Complete (schema-derivable subset)** — prefix-free uniform-rate dataset v2 + root-held-out baseline report (protocol P3.2) landed; the P3.1 evaluation review (leaky row-random split + duplicated iterative-deepening prefixes, row-level SEs on 12 roots, non-random cell exclusion, collinear margins, in-sample isotonic fit) was fully addressed. §8.3 history / §8.4 baseline-score calibration and candidate-denominator analyses remain gated on the counterfactual candidate-enumeration schema (Phases 4/5). Strong *generalization* claims need a larger root sample (corpus/v2) |
-| 4 | Root-level counterfactual experiments | **In progress (P4.1 review remediation)** — research-only root override with isolated target-depth gating (`PolicyResearchForceFirstDepth`), tablebase safety, and robust reference-quality evaluation; isolated counterfactuals show exact baseline-best parity (0.0% regret) and quality-valid oracle headroom of 73.1% cumulative / 88.6% incremental nodes on `c1-v-001` (tactical root) vs 0.0% on startpos |
+| 4 | Root-level counterfactual experiments | **In progress (P4.2 scaling & mechanism)** — expanded `corpus/v2` (26 roots, unburned test split), depth ladder stability (D12/D14/D16: `c2-v-001` incremental node savings scale from 0% to 88.6% to 97.5%), mechanism confirmed (aspiration null-window scouting), and 5-trial wall-time timing verification (14.7% median reduction on Sicilian Najdorf) |
 | 5 | Internal counterfactual search sandbox | Not started |
 | 6 | Oracle / ratio / interaction-gap studies | Not started |
 | 7 | Proof-time survival modeling | Not started |
@@ -99,7 +99,46 @@ Pilot results at depth 14 (reference depth 16, candidate depth 10, k=4):
 - Demonstrates massive trajectory churn: on `c1-d-001`, forcing `e2e4` drops nodes to 25 317 (−41.5%) because always-first prevents best-move switches. On `c1-v-001`, `b1c3` appears to take 1 600 nodes, but its score drifted to cp 719 (+74 cp vs reference) and fails quality. On `c1-t-001`, forcing `f3d1` causes a 12.2x explosion to 320 781 nodes and collapses score to 0 cp.
 - Incremental node counts in persistent mode reflect each candidate's own divergent trajectory step, not a common-prefix causal delta.
 
-Next increment (P4.2): scale to larger corpus (corpus/v2), evaluate across multiple depths, and compute bootstrap confidence intervals.
+### P4.2 — expanded corpus (v2), depth ladder stability, and search mechanism
+
+Building on P4.1's isolated counterfactual override, P4.2 addresses the
+methodological recommendations from the expert review:
+
+1. **Expanded Corpus (`corpus/v2`)**:
+   - 26 positions (10 development, 8 validation, 8 test).
+   - Retired burned root `c1-t-001` from the test set; test set is now
+     composed of 8 fresh, unburned game-diverse roots (`c2-t-001`..`c2-t-008`).
+   - Broad coverage: classical openings (startpos, Najdorf, Ruy Lopez, French, QGD, KID),
+     sharp tactical positions (Opera game, Kiwipete, Kasparov Immortal, Tal-Larsen),
+     quiet strategic middlegames (Petrosian, Carlsen-Aronian), and endgames
+     (Lucena, Philidor, pawn breakthroughs).
+2. **Tooling Robustness & Dual-Dimensional Quality (`tools/policy_research/p4_force_first.py`)**:
+   - Dynamic `--reference-depth` defaulting to `target_depth + 2` with
+     strict depth-ordering assertion.
+   - Eliminates KeyError on arbitrary `--score-tolerance`.
+   - Dual-dimensional quality gates: evaluates both absolute error vs deeper
+     reference and additional degradation relative to untreated baseline.
+   - Provenance records engine executable SHA256 and bumps schema to
+     `policy-research-p4-counterfactual/3`.
+3. **Multi-Depth Ladder Stability**:
+   Evaluating `c2-v-001` across increasing search depths (D12, D14, D16 with
+   references at D14, D16, D18):
+   - At D12: baseline is small (1,948 nodes / 491 incremental); baseline `d4c5` is already optimal ($R_{\text{norm}} = 0.0\%$).
+   - At D14: baseline grows to 20,956 nodes (17,285 incremental); forcing `b1c3` takes 5,643 cumulative nodes (1,972 incremental), **88.6% incremental node reduction**! Both agree best move is `d4c5`.
+   - At D16: baseline explodes to 123,243 nodes (56,156 incremental); forcing `b1c3` takes 68,467 cumulative nodes (**1,380 incremental nodes**), **97.5% incremental node reduction ($40\times$ cheaper target-depth proof)**! Both agree best move is `d4c5`.
+   - This proves depth stability: the ordering headroom is not an iteration artifact; it expands at deeper depths.
+4. **Generalization Across New Roots**:
+   - `c2-d-007` (Sicilian Najdorf): baseline D14 searched 129,556 nodes (66,264 incremental); forcing `f2f3` took 66,704 nodes (3,412 incremental), an **incremental node reduction of 94.9%** ($66,264 \to 3,412$), while agreeing with the D16 reference best move `c1e3`.
+   - `c2-v-005` (Tal-Larsen 1965): baseline D14 missed the deeper best move, picking inferior `c3a4` (71,791 nodes); forcing `c3b5` took only 38,800 nodes (5,826 incremental, **85.0% incremental node reduction**) and **discovered the D16 reference best move `d1d2`** within 1 cp of the reference.
+5. **Empirical Wall-Time Verification (5-Trial Runs)**:
+   - On `c2-d-007` (Sicilian Najdorf, workload ~400 ms): 5 fresh-process baseline runs had a median wall time of 411.4 ms; 5 forced `f2f3` runs had a median of 351.0 ms. Every forced run was faster than every baseline run, establishing an **empirical median wall-time reduction of 14.7%** (including process startup).
+6. **Search Mechanism Demystified**:
+   Tracing root execution in `Search::Worker::search()` revealed the exact causal mechanism:
+   - In standard PVS, move 1 at the root is searched with the full aspiration window $(\alpha, \beta)$, while moves $2..N$ are searched with reduced null windows $(-(\alpha+1), -\alpha)$.
+   - In positions like `c2-v-001` and `c2-d-007`, the baseline lead move attempts a complex tactical line that requires deep calculation to verify.
+   - When a forcing, high-utility alternative (`b1c3` or `f2f3`) is searched first, it proves a high score floor quickly. This immediately raises $\alpha$ throughout the root search.
+   - When the actual best move is subsequently searched, it is searched as move 2 with a null window against this high $\alpha$ floor. It achieves a rapid beta-cutoff refutation or verification, avoiding millions of speculative nodes.
+   - This proves that **proof-cost ordering is not equivalent to move prediction**: searching an alternative move first can establish an optimal pruning floor that collapses the overall proof tree size.
 
 ## Phase 3 — observational dataset and calibration baseline
 

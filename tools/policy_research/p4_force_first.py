@@ -42,9 +42,11 @@ Usage:
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
+import statistics
 import subprocess
 import sys
 from pathlib import Path
@@ -118,6 +120,7 @@ class Engine:
         self.banner = ""
         self.has_force_move = False
         self.has_force_depth = False
+        self.sha256 = hashlib.sha256(Path(self.path).read_bytes()).hexdigest()
         self._probe()
 
     def _probe(self):
@@ -321,6 +324,13 @@ def evaluate_root(
     # 2. Reference search at ref_depth (clean baseline, no override)
     ref = eng.run_search(fen, ref_depth)
 
+    # Distance of baseline from reference
+    base_diff_ref = (
+        base["score_val"] - ref["score_val"]
+        if base["score_type"] == "cp" and ref["score_type"] == "cp"
+        else None
+    )
+
     # 3. Candidate shortlist from depth candidate_depth MultiPV
     candidates = eng.top_k(fen, candidate_depth, k)
     if base["best"] not in candidates:
@@ -337,24 +347,24 @@ def evaluate_root(
 
         score_diff_base = None
         score_diff_ref = None
+        additional_error_vs_base = None
 
         if r["score_type"] == "cp" and base["score_type"] == "cp":
             score_diff_base = r["score_val"] - base["score_val"]
         if r["score_type"] == "cp" and ref["score_type"] == "cp":
             score_diff_ref = r["score_val"] - ref["score_val"]
+            if base_diff_ref is not None:
+                additional_error_vs_base = max(0, abs(score_diff_ref) - abs(base_diff_ref))
 
         # Classification of score stability with mate sign check (Finding 3)
         if r["score_type"] == "mate" and ref["score_type"] == "mate":
-            # Both mate: check sign agreement
             mate_sign_agree = (r["score_val"] > 0) == (ref["score_val"] > 0)
             score_agrees = mate_sign_agree
             score_status = "mate_agree" if mate_sign_agree else "score_collapse"
         elif r["score_type"] != ref["score_type"]:
-            # One cp and one mate: score collapse
             score_agrees = False
             score_status = "score_collapse"
         else:
-            # Both cp: evaluate continuous difference
             diff_abs = abs(score_diff_ref)
             if diff_abs == 0:
                 score_status = "exact_ref"
@@ -374,17 +384,26 @@ def evaluate_root(
 
         # Multi-band tolerance sensitivity (Findings 2, 4)
         bands = [25, 50, 75, 100]
+        if score_tolerance_cp not in bands:
+            bands.append(score_tolerance_cp)
+            bands.sort()
+
         quality_valid_at_band = {}
+        quality_valid_relative_at_band = {}
         for b in bands:
             if score_diff_ref is not None:
                 band_agrees = abs(score_diff_ref) <= b
+                rel_band_agrees = (additional_error_vs_base or 0) <= b
             elif r["score_type"] == "mate" and ref["score_type"] == "mate":
                 band_agrees = (r["score_val"] > 0) == (ref["score_val"] > 0)
+                rel_band_agrees = band_agrees
             else:
                 band_agrees = False
+                rel_band_agrees = False
             quality_valid_at_band[b] = best_agrees_ref and band_agrees
+            quality_valid_relative_at_band[b] = best_agrees_ref and rel_band_agrees
 
-        quality_valid = quality_valid_at_band[score_tolerance_cp]
+        quality_valid = best_agrees_ref and score_agrees
 
         inc_nodes = r["incremental_nodes"]
         base_inc_nodes = base["incremental_nodes"]
@@ -412,9 +431,11 @@ def evaluate_root(
             "best_agrees_ref": best_agrees_ref,
             "score_diff_base": score_diff_base,
             "score_diff_ref": score_diff_ref,
+            "additional_error_vs_base": additional_error_vs_base,
             "score_status": score_status,
             "score_agrees": score_agrees,
             "quality_valid_at_band": quality_valid_at_band,
+            "quality_valid_relative_at_band": quality_valid_relative_at_band,
             "quality_valid": quality_valid,
         }
         forced_records.append(rec)
@@ -427,21 +448,36 @@ def evaluate_root(
     # Sensitivity analysis across tolerance bands (Findings 2, 4)
     tolerance_sensitivity = {}
     for b in [25, 50, 75, 100]:
-        v_b = [c for c in forced_records if c["quality_valid_at_band"][b]]
-        if v_b:
-            opt_b = min(v_b, key=lambda c: c["nodes"])
-            r_cumul = (base["nodes"] - opt_b["nodes"]) / base["nodes"]
-            b_inc = base["incremental_nodes"]
-            r_incr = (b_inc - opt_b["incremental_nodes"]) / b_inc if b_inc > 0 else 0.0
-            tolerance_sensitivity[str(b)] = {
-                "move": opt_b["move"],
-                "nodes": opt_b["nodes"],
-                "incremental_nodes": opt_b["incremental_nodes"],
-                "r_norm_cumulative": r_cumul,
-                "r_norm_incremental": r_incr,
+        v_abs = [c for c in forced_records if c["quality_valid_at_band"].get(b, False)]
+        v_rel = [c for c in forced_records if c["quality_valid_relative_at_band"].get(b, False)]
+        b_inc = base["incremental_nodes"]
+
+        abs_opt = None
+        if v_abs:
+            opt = min(v_abs, key=lambda c: c["nodes"])
+            abs_opt = {
+                "move": opt["move"],
+                "nodes": opt["nodes"],
+                "incremental_nodes": opt["incremental_nodes"],
+                "r_norm_cumulative": (base["nodes"] - opt["nodes"]) / base["nodes"],
+                "r_norm_incremental": (b_inc - opt["incremental_nodes"]) / b_inc if b_inc > 0 else 0.0,
             }
-        else:
-            tolerance_sensitivity[str(b)] = None
+
+        rel_opt = None
+        if v_rel:
+            opt = min(v_rel, key=lambda c: c["nodes"])
+            rel_opt = {
+                "move": opt["move"],
+                "nodes": opt["nodes"],
+                "incremental_nodes": opt["incremental_nodes"],
+                "r_norm_cumulative": (base["nodes"] - opt["nodes"]) / base["nodes"],
+                "r_norm_incremental": (b_inc - opt["incremental_nodes"]) / b_inc if b_inc > 0 else 0.0,
+            }
+
+        tolerance_sensitivity[str(b)] = {
+            "absolute_gate": abs_opt,
+            "relative_gate": rel_opt,
+        }
 
     valid_records = [c for c in forced_records if c["quality_valid"]]
     if valid_records:
@@ -594,11 +630,20 @@ def print_root_report(res: dict):
     print(f"Score tolerance sensitivity:")
     sens = res.get("tolerance_sensitivity", {})
     for b_str in ["25", "50", "75", "100"]:
-        item = sens.get(b_str)
-        if item:
-            print(f"  Gate ±{b_str:>3} cp: opt {item['move']} ({item['nodes']:,} nodes, cumul: {item['r_norm_cumulative']:+.3f}, incr: {item['r_norm_incremental']:+.3f})")
-        else:
-            print(f"  Gate ±{b_str:>3} cp: NONE VALID")
+        item = sens.get(b_str, {})
+        abs_item = item.get("absolute_gate") if isinstance(item, dict) else None
+        rel_item = item.get("relative_gate") if isinstance(item, dict) else None
+        abs_str = (
+            f"opt {abs_item['move']} ({abs_item['nodes']:,} nodes, cumul: {abs_item['r_norm_cumulative']:+.3f}, incr: {abs_item['r_norm_incremental']:+.3f})"
+            if abs_item
+            else "NONE VALID"
+        )
+        rel_str = (
+            f"opt {rel_item['move']} ({rel_item['r_norm_incremental']:+.3f} incr)"
+            if rel_item
+            else "NONE"
+        )
+        print(f"  Gate ±{b_str:>3} cp: absolute [{abs_str}] | relative vs base [{rel_str}]")
 
     if res['depth_mode'] == 'persistent':
         print(f"Persistent mode note: incremental nodes represent each candidate's divergent trajectory step; not a common-prefix causal comparison.")
@@ -610,7 +655,12 @@ def main():
     ap = argparse.ArgumentParser(description="Phase 4 root-level counterfactual experiment driver.")
     ap.add_argument("--engine", default=None, help="Path to research Stockfish binary.")
     ap.add_argument("--depth", type=int, default=14, help="Target search depth.")
-    ap.add_argument("--reference-depth", type=int, default=16, help="Reference search depth (plan 9.4).")
+    ap.add_argument(
+        "--reference-depth",
+        type=int,
+        default=None,
+        help="Reference search depth (default: target depth + 2).",
+    )
     ap.add_argument("--candidate-depth", type=int, default=10, help="MultiPV depth for candidate shortlist.")
     ap.add_argument("--k", type=int, default=4, help="Number of MultiPV candidates.")
     ap.add_argument(
@@ -621,6 +671,7 @@ def main():
     )
     ap.add_argument("--score-tolerance", type=int, default=50, help="Max score cp delta vs reference.")
     ap.add_argument("--ids", default="c1-d-001,c1-v-001,c1-t-001", help="Comma-separated root IDs.")
+    ap.add_argument("--corpus", default=None, help="Path to corpus JSON (default: corpora/corpus-v1.json).")
     ap.add_argument("--out", default=None, help="Output JSON path.")
     args = ap.parse_args()
 
@@ -630,7 +681,15 @@ def main():
 
     eng = Engine(engine_path)
 
-    corpus_path = Path(__file__).resolve().parents[0] / "corpora" / "corpus-v1.json"
+    ref_depth = args.reference_depth if args.reference_depth is not None else args.depth + 2
+    if ref_depth <= args.depth:
+        sys.exit(f"Error: reference depth ({ref_depth}) must be strictly greater than target depth ({args.depth})")
+
+    corpus_path = (
+        Path(args.corpus).resolve()
+        if args.corpus
+        else Path(__file__).resolve().parents[0] / "corpora" / "corpus-v1.json"
+    )
     corpus, _ = rc.load_corpus(str(corpus_path))
     by_id = {p["id"]: p for p in corpus["positions"]}
     ids = [i.strip() for i in args.ids.split(",") if i.strip()]
@@ -645,7 +704,7 @@ def main():
             root_id=rid,
             root_info=by_id[rid],
             depth=args.depth,
-            ref_depth=args.reference_depth,
+            ref_depth=ref_depth,
             candidate_depth=args.candidate_depth,
             k=args.k,
             depth_mode=args.depth_mode,
@@ -658,6 +717,7 @@ def main():
     provenance = {
         "engine_path": eng.path,
         "engine_banner": eng.banner,
+        "engine_sha256": eng.sha256,
         "engine_embedded_commit": extract_engine_embedded_commit(eng.banner),
         "tool_commit": git_st["commit_short"],
         "tool_dirty": git_st["dirty"],
@@ -666,11 +726,11 @@ def main():
     }
 
     out_data = {
-        "schema": "policy-research-p4-counterfactual/2",
+        "schema": "policy-research-p4-counterfactual/3",
         "provenance": provenance,
         "depth_mode": args.depth_mode,
         "depth": args.depth,
-        "reference_depth": args.reference_depth,
+        "reference_depth": ref_depth,
         "candidate_depth": args.candidate_depth,
         "k": args.k,
         "score_tolerance_cp": args.score_tolerance,
