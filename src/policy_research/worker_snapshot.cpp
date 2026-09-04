@@ -25,7 +25,6 @@
 #include <cstring>
 #include <iostream>
 #include <sstream>
-#include <stdexcept>
 
 #include "../engine.h"
 #include "../misc.h"
@@ -37,8 +36,23 @@
 
 namespace Stockfish::Research {
 
+namespace {
+
+// Release-safe, exception-free fatal path (Stockfish builds with -fno-exceptions;
+// see src/Makefile: CXXFLAGS). All research entry points pre-check
+// is_safe_environment() before constructing an IsolatedWorker (search hook,
+// CandidateProbeRunner, unit tests), so reaching this branch indicates a
+// programming error, not a user misconfiguration.
+[[noreturn]] void research_fatal(const std::string& msg) {
+    std::cerr << "CRITICAL ERROR: " << msg << std::endl;
+    std::exit(EXIT_FAILURE);
+}
+
+}  // namespace
+
 bool IsolatedWorker::is_safe_environment(const Search::Worker& liveWorker) {
-    return int(liveWorker.options["Threads"]) == 1 && liveWorker.threads.num_threads() == 1;
+    return is_safe_configuration(int(liveWorker.options["Threads"]),
+                                 liveWorker.threads.num_threads());
 }
 
 void IsolatedWorker::do_move(Position& pos, Move m, StateInfo& st, Search::Stack* ss) {
@@ -58,11 +72,15 @@ Value IsolatedWorker::evaluate_worker(Search::Worker& w, const Position& pos) {
 }
 
 IsolatedWorker::IsolatedWorker(const Search::Worker& liveWorker) {
+    // Safe isolation requires a single-thread pool (Threads == 1 option AND one
+    // live worker). This is enforced in every build (release and debug alike;
+    // no assert, no C++ exceptions under -fno-exceptions). The search hook, the
+    // sandbox test entry, and CandidateProbeRunner all pre-check
+    // is_safe_environment() before construction, so a violation here is a
+    // programming error and takes the exception-free fatal path.
     if (!is_safe_environment(liveWorker))
-    {
-        std::cerr << "IsolatedWorker error: safe isolation requires Threads == 1 and single-thread pool" << std::endl;
-        throw std::runtime_error("IsolatedWorker requires Threads == 1 for safe isolation");
-    }
+        research_fatal("IsolatedWorker requires Threads == 1 and a single-thread pool for safe "
+                       "isolation");
 
     const usize threadCount =
       std::max(usize(1), liveWorker.sharedHistory.get_size() / CORRHIST_BASE_SIZE);
@@ -248,6 +266,19 @@ bool run_sandbox_unit_tests(Engine& engine) {
     if (!liveWorker)
     {
         std::cerr << "sandbox_test: no live worker available" << std::endl;
+        return false;
+    }
+
+    // Release-mode safety gate (must run before any IsolatedWorker construction):
+    // the whole suite requires a single-thread configuration. Under
+    // `setoption Threads 2` the suite must fail fast with a clear marker instead
+    // of crashing or probing, and the engine must stay alive for the UCI caller.
+    if (!IsolatedWorker::is_safe_environment(*liveWorker))
+    {
+        std::cerr << "sandbox_test: refusing to run: safe isolation requires Threads == 1 and a "
+                     "single-thread pool (option Threads = "
+                  << std::string(engine.get_options()["Threads"])
+                  << ", pool threads = " << engine.get_threads().num_threads() << ")" << std::endl;
         return false;
     }
 
@@ -895,6 +926,23 @@ bool run_sandbox_unit_tests(Engine& engine) {
             std::cerr << "sandbox_test 6.1 failed: live worker does not report safe environment" << std::endl;
             return false;
         }
+
+        // 6.2: the pure configuration predicate rejects both unsafe halves
+        // without touching the live pool (raising the Threads option would
+        // resize the pool and replace Thread objects, dangling liveWorker).
+        // End-to-end runtime rejection with a real 2-thread pool is exercised
+        // by the Python driver on a dedicated engine process.
+        if (!IsolatedWorker::is_safe_configuration(1, 1))
+        {
+            std::cerr << "sandbox_test 6.2 failed: safe configuration misreported unsafe" << std::endl;
+            return false;
+        }
+        if (IsolatedWorker::is_safe_configuration(2, 1)
+            || IsolatedWorker::is_safe_configuration(1, 2))
+        {
+            std::cerr << "sandbox_test 6.2 failed: unsafe configuration misreported safe" << std::endl;
+            return false;
+        }
     }
 
     // Part 7: Structured ProbeResult & Budget Censoring
@@ -923,15 +971,18 @@ bool run_sandbox_unit_tests(Engine& engine) {
         Search::Stack* shadowSS = worker7.clone_and_rebind_stack(*liveWorker, dummySS, 7, 10);
         ResearchTTOverlay overlay7(engine.get_tt());
 
-        // 7.1: Normal unbudgeted search produces completed ProbeResult
+        // 7.1: Normal unbudgeted search produces completed ProbeResult with a value
         ProbeResult resNormal = worker7.probe<PV>(shadowPos, shadowSS, -100, 100, Depth(3), false, overlay7, 0);
-        if (!resNormal.completed || resNormal.hit_budget || resNormal.nodes == 0)
+        if (!resNormal.completed || resNormal.hit_budget || resNormal.nodes == 0
+            || resNormal.score == VALUE_NONE || std::abs(resNormal.score) >= VALUE_INFINITE)
         {
             std::cerr << "sandbox_test 7.1 failed: normal probe not completed" << std::endl;
             return false;
         }
 
-        // 7.2: Budgeted search with tight budget sets hit_budget and completed == false
+        // 7.2: Budgeted search with tight budget sets hit_budget and completed == false,
+        // and the censored probe carries NO value (score == VALUE_NONE, never a numeric
+        // score and never a draw substitute).
         ResearchTTOverlay overlayBudget(engine.get_tt());
         IsolatedWorker workerBudget(*liveWorker);
         Position shadowPosB;
@@ -948,6 +999,36 @@ bool run_sandbox_unit_tests(Engine& engine) {
         if (!resBudget.hit_budget)
         {
             std::cerr << "sandbox_test 7.2 failed: budgeted probe hit_budget is false" << std::endl;
+            return false;
+        }
+        if (resBudget.score != VALUE_NONE)
+        {
+            std::cerr << "sandbox_test 7.2 failed: censored probe carries a score ("
+                      << int(resBudget.score) << ") instead of VALUE_NONE" << std::endl;
+            return false;
+        }
+        if (resBudget.stopReason != ProbeResult::StopReason::Budget)
+        {
+            std::cerr << "sandbox_test 7.2 failed: censored probe stopReason != Budget" << std::endl;
+            return false;
+        }
+
+        // 7.3: User-stop censoring (stop raised before the probe) is censored with
+        // stopReason == UserStop, no value, and does not masquerade as a budget hit.
+        ResearchTTOverlay overlayUserStop(engine.get_tt());
+        IsolatedWorker workerUserStop(*liveWorker);
+        Position shadowPosU;
+        std::vector<StateInfo> shadowStatesU;
+        p7Pos.clone_to(shadowPosU, shadowStatesU);
+        Search::Stack* shadowSSU = workerUserStop.clone_and_rebind_stack(*liveWorker, dummySS, 7, 10);
+        workerUserStop.stop();
+        ProbeResult resUserStop = workerUserStop.probe<PV>(
+          shadowPosU, shadowSSU, -100, 100, Depth(5), false, overlayUserStop, 0);
+        if (resUserStop.completed || resUserStop.score != VALUE_NONE
+            || resUserStop.hit_budget
+            || resUserStop.stopReason != ProbeResult::StopReason::UserStop)
+        {
+            std::cerr << "sandbox_test 7.3 failed: user-stopped probe misreported" << std::endl;
             return false;
         }
     }

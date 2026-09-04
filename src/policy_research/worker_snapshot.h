@@ -26,7 +26,6 @@
 #include <cstddef>
 #include <map>
 #include <memory>
-#include <stdexcept>
 #include <vector>
 
 #include "../history.h"
@@ -47,11 +46,20 @@ namespace Stockfish::Research {
 
 // ProbeResult captures the outcome of an isolated shadow search probe.
 // Distinguishes completed evaluations from budget-censored or aborted probes.
+//
+// Censoring contract (docs/policy-research/plan.md section 10.6, data-schema):
+// a censored probe is NOT a value: score stays VALUE_NONE (never a search value,
+// never negated, never printed as a numeric score), completed == false, and the
+// stop reason records whether the node budget or an explicit stop() ended the
+// search. nodes always reports the do_moves spent, including censored probes.
 struct ProbeResult {
-    Value score      = VALUE_NONE;
-    u64   nodes      = 0;
-    bool  completed  = false;
-    bool  hit_budget = false;
+    enum class StopReason : u8 { None = 0, Budget = 1, UserStop = 2 };
+
+    Value      score      = VALUE_NONE;  // valid only when completed
+    u64        nodes      = 0;           // shadow do_moves spent by this probe
+    bool       completed  = false;       // search returned before any stop
+    bool       hit_budget = false;       // == (stopReason == StopReason::Budget)
+    StopReason stopReason = StopReason::None;
 };
 
 // CandidateFeature captures MovePicker stage and history scores for candidate enumeration (Phase 3 §8.3/§8.4).
@@ -99,6 +107,14 @@ class IsolatedWorker {
     // Precondition verification: safe isolation requires Threads == 1
     static bool is_safe_environment(const Search::Worker& liveWorker);
 
+    // Pure configuration predicate (no engine state touched): safe isolation
+    // requires the Threads option value AND the live pool size to both be 1.
+    // Kept separate so unit tests can exercise both halves without resizing the
+    // live pool (resizing replaces Thread objects and would dangle pointers).
+    static bool is_safe_configuration(int optionThreads, usize poolThreads) {
+        return optionThreads == 1 && poolThreads == 1;
+    }
+
     // Friend-access wrappers to do/undo move with accumulatorStack push/pop on shadowWorker
     void do_move(Position& pos, Move m, StateInfo& st, Search::Stack* ss);
     void undo_move(Position& pos, Move m);
@@ -122,7 +138,22 @@ class IsolatedWorker {
                                           int                   maxDepth     = MAX_PLY);
 
     // Executes a shadow search using ResearchTTOverlay without mutating live state.
-    // Accurately distinguishes completed evaluations from budget-censored or aborted searches.
+    //
+    // Node-budget semantics: with nodeBudget > 0 the shadow search is limited to
+    // nodeBudget shadow do_moves counted from the start of this probe; when the
+    // cap is exhausted the private pool stop flag is raised by the shadow search
+    // entry checks (search.cpp, POLICY_RESEARCH builds) and the probe is reported
+    // censored (completed == false, score == VALUE_NONE, stopReason == Budget).
+    // A probe that returns naturally without the cap being exhausted is completed
+    // even when it consumed exactly nodeBudget-1 do_moves; the boundary case
+    // spent == nodeBudget is only reachable through the entry check and therefore
+    // always censors, which makes the reported budget a strict, safe upper bound.
+    //
+    // nodeBudget == 0 runs an unlimited probe. Internal sampling never does this:
+    // the hook applies Research::effective_node_budget(), whose finite default is
+    // documented in research_options.h; unlimited probes exist only for unit
+    // tests and explicitly unbudgeted diagnostic callers. A probe can also be
+    // censored by stop() raised before/while searching (stopReason == UserStop).
     template<NodeType NT = NonPV>
     ProbeResult probe(Position&          pos,
                       Search::Stack*     ss,
@@ -134,24 +165,24 @@ class IsolatedWorker {
                       u64                nodeBudget = 0) {
         ScopedShadowProbe guard;
         const u64 startNodes = shadowWorker->get_nodes();
-        if (nodeBudget > 0)
-            shadowWorker->limits.nodes = startNodes + nodeBudget;
-        else
-            shadowWorker->limits.nodes = 0;
+        shadowWorker->limits.nodes = (nodeBudget > 0) ? (startNodes + nodeBudget) : 0;
 
         Value val = shadowWorker->search<NT, ResearchTTOverlay>(pos, ss, alpha, beta, depth, cutNode,
                                                                overlay);
 
-        const u64 endNodes  = shadowWorker->get_nodes();
-        const u64 spent     = (endNodes >= startNodes) ? (endNodes - startNodes) : 0;
-        const bool stopped   = is_stopped();
-        const bool hitBudget = (nodeBudget > 0 && spent >= nodeBudget) || (stopped && nodeBudget > 0);
+        const u64 endNodes = shadowWorker->get_nodes();
+        const bool stopped = is_stopped();
 
         ProbeResult result;
-        result.score      = val;
-        result.nodes      = spent;
-        result.completed  = !stopped && !hitBudget;
-        result.hit_budget = hitBudget;
+        result.nodes      = (endNodes >= startNodes) ? (endNodes - startNodes) : 0;
+        result.completed  = !stopped;
+        result.stopReason = stopped
+                              ? (nodeBudget > 0 ? ProbeResult::StopReason::Budget
+                                                : ProbeResult::StopReason::UserStop)
+                              : ProbeResult::StopReason::None;
+        result.hit_budget = result.stopReason == ProbeResult::StopReason::Budget;
+        // Censored probes carry no value (never a numeric score, never a draw):
+        result.score      = result.completed ? val : VALUE_NONE;
         return result;
     }
 

@@ -20,7 +20,15 @@
   - PolicyResearchMaxRecords: 0 means 'no explicit cap set'; the recorder MUST
     still enforce a finite internal hard cap (Phase 2) so collection can never
     be unbounded. The same rule applies to PolicyResearchTopK and
-    PolicyResearchNodeBudget (0 = not set, not literally unlimited).
+    PolicyResearchNodeBudget (0 = not set, not literally unlimited). For
+    internal counterfactual probing, PolicyResearchNodeBudget == 0 means the
+    sampler applies DEFAULT_NODE_BUDGET below: every internal probe is always
+    bounded by a finite node cap in every configuration, so no shadow search
+    can ever run unbounded.
+  - Internal counterfactual collection (PolicyResearchMode=internal_counterfactual)
+    additionally requires Threads == 1; unsafe configurations are rejected
+    before the search starts (info string diagnostic) and re-checked inside the
+    search hook and IsolatedWorker construction (release-safe, exception-free).
   - Validation errors are surfaced as 'info string' diagnostics AND the option
     value is rolled back to its previous value, so the option map and
     Research::config() never disagree (ucioption.cpp, POLICY_RESEARCH builds).
@@ -69,6 +77,16 @@ struct Config {
     int          ablationDepth = 0;        // PolicyResearchAblationDepth (0 = use forceFirstDepth).
     bool         preservePreviousPV = false; // PolicyResearchPreservePreviousPV (keep baseline lead move's previousPV).
 };
+
+// Finite internal guard rail for internal counterfactual probing (Phase 5).
+// PolicyResearchNodeBudget == 0 means "not set": the sampler applies
+// DEFAULT_NODE_BUDGET per probe, so an unconfigured collector is still bounded.
+constexpr u64 DEFAULT_NODE_BUDGET = 50000;  // shadow do_moves per probe
+
+// Effective per-probe node budget applied by the internal sampling hook.
+inline u64 effective_node_budget(const Config& c) {
+    return c.nodeBudget > 0 ? c.nodeBudget : DEFAULT_NODE_BUDGET;
+}
 
 // Parsing helpers. All return an error string on invalid input; Stockfish
 // builds with -fno-exceptions, so errors are reported through option callbacks.
