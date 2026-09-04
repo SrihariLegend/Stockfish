@@ -550,6 +550,52 @@ class TestForceFirstRootOrder(unittest.TestCase):
         self.assertEqual(r_df["best"], "d4c5")
         self.assertGreater(r_df["nodes"], 0)
 
+    def test_effort_attribution_move_identity(self):
+        self._skip_if_no_engine()
+        import tools.policy_research.p4_force_first as p4
+        eng = p4.Engine(self.ENGINE)
+        fen = "r1bqk2r/pppp1ppp/2n5/2b5/2BPn3/5N2/PP3PPP/RNBQK2R w KQkq - 0 7"
+        r = eng.run_search(fen, depth=14, force_move="b1c3", force_depth=14)
+        tel = r["root_telemetry"]
+        self.assertIsNotNone(tel)
+        sum_incr = sum(m["effort_incremental"] for m in tel["moves"].values())
+        self.assertEqual(sum_incr, r["incremental_nodes"],
+                         f"Sum of move effort_incremental ({sum_incr}) must equal incremental_nodes ({r['incremental_nodes']})")
+
+    def test_causal_common_prefix_preservation(self):
+        self._skip_if_no_engine()
+        import tools.policy_research.p4_force_first as p4
+        eng = p4.Engine(self.ENGINE)
+        fen = "r1bqk2r/pppp1ppp/2n5/2b5/2BPn3/5N2/PP3PPP/RNBQK2R w KQkq - 0 7"
+        prev_counts = []
+        for name, pa, df in [
+            ("1_baseline", False, False),
+            ("2_joint", False, False),
+            ("3_preserve_aspiration", True, False),
+            ("4_disable_fail_high_reduction", False, True),
+            ("5_pure_order_nominal_depth", True, True),
+        ]:
+            fm = "b1c3" if name != "1_baseline" else None
+            fd = 14 if fm else 0
+            res = eng.run_search(fen, depth=14, force_move=fm, force_depth=fd, preserve_aspiration=pa, disable_fail_high_reduction=df)
+            prev_counts.append(res["prev_depth_nodes"])
+        self.assertTrue(all(p == prev_counts[0] for p in prev_counts),
+                        f"All 5 conditions must have identical prev_depth_nodes: {prev_counts}")
+
+    def test_mate_score_taxonomy_classification(self):
+        self._skip_if_no_engine()
+        import tools.policy_research.p4_force_first as p4
+        eng = p4.Engine(self.ENGINE)
+        fen = "2rr3k/pp3pp1/1nnqbN1p/3pN3/2pP4/2P3Q1/PPB4P/R4RK1 w - - 0 1"
+        root_info = {
+            "fen": fen,
+            "set": "development",
+            "is_burned_test_root": False,
+        }
+        res = p4.evaluate_root(eng, "c3-d-009", root_info, depth=14, ref_depth=16, candidate_depth=10, k=4, depth_mode="isolated", score_tolerance_cp=50)
+        self.assertEqual(res["summary"]["outcome_category"], "baseline_optimal")
+        self.assertEqual(res["summary"]["node_optimal"]["r_norm_cumulative_nodes"], 0.0)
+
     def test_score_tolerance_below_25(self):
         # Unit test verifying Finding 8: score tolerance below 25 cp rejects larger deltas
         tolerance = 10

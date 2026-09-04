@@ -472,7 +472,8 @@ bool Search::Worker::iterative_deepening() {
 #ifdef POLICY_RESEARCH
             if (is_mainthread() && multiPV == 1 && Research::enabled()
                 && Research::config().mode == Research::Mode::RootCounterfactual
-                && Research::config().preserveAspiration)
+                && Research::config().preserveAspiration
+                && (Research::config().forceFirstDepth == 0 || rootDepth == Research::config().forceFirstDepth))
             {
                 avg   = baselineAvgScore;
                 delta = 5 + threadIdx % 8 + std::abs(baselineMssScore) / 10193;
@@ -502,9 +503,10 @@ bool Search::Worker::iterative_deepening() {
                 std::string result;
             };
             std::vector<AspAttempt> aspAttempts;
-            std::vector<u64> depthStartEffort(rootMoves.size(), 0);
+            std::vector<std::pair<Move, u64>> depthStartEffort;
+            depthStartEffort.reserve(rootMoves.size());
             for (size_t i = 0; i < rootMoves.size(); ++i)
-                depthStartEffort[i] = rootMoves[i].effort;
+                depthStartEffort.emplace_back(rootMoves[i].pv[0], rootMoves[i].effort);
 #endif
             while (true)
             {
@@ -515,7 +517,8 @@ bool Search::Worker::iterative_deepening() {
 #ifdef POLICY_RESEARCH
                 if (is_mainthread() && multiPV == 1 && Research::enabled()
                     && Research::config().mode == Research::Mode::RootCounterfactual
-                    && Research::config().disableFailHighReduction)
+                    && Research::config().disableFailHighReduction
+                    && (Research::config().forceFirstDepth == 0 || rootDepth == Research::config().forceFirstDepth))
                 {
                     adjustedDepth = std::max(1, rootDepth - 3 * (searchAgainCounter + 1) / 4);
                 }
@@ -612,10 +615,18 @@ bool Search::Worker::iterative_deepening() {
                 ss_tel << " moves";
                 for (size_t i = 0; i < rootMoves.size(); ++i)
                 {
-                    u64 incrEff = (rootMoves[i].effort >= depthStartEffort[i])
-                                  ? (rootMoves[i].effort - depthStartEffort[i])
-                                  : rootMoves[i].effort;
-                    ss_tel << " " << UCIEngine::move(rootMoves[i].pv[0], rootPos.is_chess960())
+                    Move m = rootMoves[i].pv[0];
+                    u64 startEff = 0;
+                    for (const auto& entry : depthStartEffort)
+                    {
+                        if (entry.first == m)
+                        {
+                            startEff = entry.second;
+                            break;
+                        }
+                    }
+                    u64 incrEff = (rootMoves[i].effort >= startEff) ? (rootMoves[i].effort - startEff) : 0;
+                    ss_tel << " " << UCIEngine::move(m, rootPos.is_chess960())
                            << ":" << rootMoves[i].effort
                            << ":" << incrEff
                            << ":" << int(rootMoves[i].score);

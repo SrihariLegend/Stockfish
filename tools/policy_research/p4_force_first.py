@@ -415,9 +415,14 @@ def evaluate_root(
         if base["score_type"] == "cp" and ref["score_type"] == "cp"
         else None
     )
-    base_score_agrees_ref = (
-        abs(base_diff_ref) <= score_tolerance_cp if base_diff_ref is not None else False
-    )
+    if base["score_type"] == "mate" and ref["score_type"] == "mate":
+        mate_sign_agree = (base["score_val"] > 0) == (ref["score_val"] > 0)
+        mate_dist_diff = abs(base["score_val"] - ref["score_val"])
+        base_score_agrees_ref = mate_sign_agree and (mate_dist_diff <= 1)
+    elif base_diff_ref is not None:
+        base_score_agrees_ref = abs(base_diff_ref) <= score_tolerance_cp
+    else:
+        base_score_agrees_ref = False
 
     # 3. Candidate shortlist from depth candidate_depth MultiPV
     candidates = eng.top_k(fen, candidate_depth, k)
@@ -451,11 +456,19 @@ def evaluate_root(
             if base_diff_ref is not None:
                 additional_error_vs_base = max(0, abs(score_diff_ref) - abs(base_diff_ref))
 
-        # Classification of score stability with mate sign check (Finding 3, 8)
+        # Classification of score stability with mate sign check and distance tolerance
         if r["score_type"] == "mate" and ref["score_type"] == "mate":
             mate_sign_agree = (r["score_val"] > 0) == (ref["score_val"] > 0)
-            score_agrees = mate_sign_agree
-            score_status = "mate_agree" if mate_sign_agree else "score_collapse"
+            mate_dist_diff = abs(r["score_val"] - ref["score_val"])
+            score_agrees = mate_sign_agree and (mate_dist_diff <= 1)
+            if not mate_sign_agree:
+                score_status = "score_collapse"
+            elif mate_dist_diff == 0:
+                score_status = "exact_mate"
+            elif mate_dist_diff <= 1:
+                score_status = "near_mate"
+            else:
+                score_status = "mate_distance_drift"
         elif r["score_type"] != ref["score_type"]:
             score_agrees = False
             score_status = "score_collapse"
@@ -486,7 +499,7 @@ def evaluate_root(
                 band_agrees = abs(score_diff_ref) <= b
                 rel_band_agrees = (additional_error_vs_base or 0) <= b
             elif r["score_type"] == "mate" and ref["score_type"] == "mate":
-                band_agrees = (r["score_val"] > 0) == (ref["score_val"] > 0)
+                band_agrees = (r["score_val"] > 0) == (ref["score_val"] > 0) and abs(r["score_val"] - ref["score_val"]) <= 1
                 rel_band_agrees = band_agrees
             else:
                 band_agrees = False
@@ -572,24 +585,32 @@ def evaluate_root(
             "relative_gate": rel_opt,
         }
 
-    # Multi-trial timing benchmark with counterbalanced randomized order (Findings 4, 6)
+    # Multi-trial timing benchmark with balanced Latin-square counterbalanced order
     timing_trials = None
     if trials > 1:
         import random
-        # Seed PRNG deterministically per root
         prng = random.Random(int(hashlib.md5(fen.encode()).hexdigest(), 16) & 0xFFFFFFFF)
         actions = ["__baseline__"] + [mv for mv in candidates if mv != base["best"]]
+        m_actions = len(actions)
+
+        # Generate a balanced Latin square order across trials
+        # Randomize initial action assignment, then cyclically permute
+        base_perm = list(actions)
+        prng.shuffle(base_perm)
 
         eng_times = {a: [] for a in actions}
         wall_times = {a: [] for a in actions}
         execution_orders = []
+        pos_counts = {a: [0] * m_actions for a in actions}
 
-        for trial_idx in range(1, trials + 1):
-            shuffled_actions = list(actions)
-            prng.shuffle(shuffled_actions)
-            execution_orders.append(list(shuffled_actions))
+        for trial_idx in range(trials):
+            shift = trial_idx % m_actions
+            trial_actions = [base_perm[(i + shift) % m_actions] for i in range(m_actions)]
+            execution_orders.append(list(trial_actions))
+            for slot_idx, act in enumerate(trial_actions):
+                pos_counts[act][slot_idx] += 1
 
-            for act in shuffled_actions:
+            for act in trial_actions:
                 if act == "__baseline__":
                     r_act = eng.run_search(
                         fen,
@@ -624,8 +645,11 @@ def evaluate_root(
             }
 
         timing_trials = {
+            "design": "balanced_latin_square",
             "trials_count": trials,
-            "randomized_orders": execution_orders,
+            "actions": actions,
+            "positional_counts": pos_counts,
+            "orders": execution_orders,
             "baseline": {
                 "engine_stats": compute_stats(eng_times["__baseline__"]),
                 "wall_stats": compute_stats(wall_times["__baseline__"]),
@@ -679,7 +703,10 @@ def evaluate_root(
         time_at_min_nodes = base["time_ms"]
         r_norm_time_at_min_nodes = 0.0
     else:
-        outcome_category = "no_valid_candidate"
+        if base["best"] == ref["best"] and base_score_agrees_ref:
+            outcome_category = "baseline_optimal"
+        else:
+            outcome_category = "no_valid_candidate"
         cheapest_nodes_mv = base["best"]
         min_nodes_valid = base["nodes"]
         r_norm_nodes_valid = 0.0
@@ -807,7 +834,7 @@ def print_root_report(res: dict):
         b_tt = tt["baseline"]
         b_eng = b_tt["engine_stats"]
         b_wall = b_tt["wall_stats"]
-        print(f"Randomized multi-trial timing ({tt['trials_count']} counterbalanced runs):")
+        print(f"Balanced Latin-square multi-trial timing ({tt['trials_count']} counterbalanced runs):")
         print(f"  Baseline: engine median {b_eng['median']:.1f} ms (IQR: {b_eng['iqr']:.1f}, mean: {b_eng['mean']:.1f}±{b_eng['std']:.1f} ms) | wall median {b_wall['median']:.1f} ms")
         if opt_node["move"] and opt_node["move"] in tt["candidates"]:
             c_tt = tt["candidates"][opt_node["move"]]
@@ -979,6 +1006,10 @@ def main():
             "macro_median_incremental_saving": round(statistics.median(oracle_inc_savings), 4),
             "pooled_cumulative_saving": round(pooled_cum_saving, 4),
             "pooled_incremental_saving": round(pooled_inc_saving, 4),
+            "pooled_baseline_cumulative_nodes": base_nodes_total,
+            "pooled_optimal_cumulative_nodes": opt_nodes_total,
+            "pooled_baseline_incremental_nodes": base_inc_total,
+            "pooled_optimal_incremental_nodes": opt_inc_total,
         }
 
         print("\n================================================================================")
@@ -996,6 +1027,18 @@ def main():
         print("================================================================================\n")
 
     git_st = rc.git_state(rc.repo_root())
+    corpus_p = Path(corpus_path).resolve() if corpus_path else None
+    corpus_sha = None
+    corpus_schema = None
+    if corpus_p and corpus_p.is_file():
+        cb = corpus_p.read_bytes()
+        corpus_sha = hashlib.sha256(cb).hexdigest()
+        try:
+            corpus_schema = json.loads(cb.decode("utf-8")).get("schema")
+        except Exception:
+            pass
+
+    import platform
     provenance = {
         "engine_path": eng.path,
         "engine_banner": eng.banner,
@@ -1004,11 +1047,17 @@ def main():
         "tool_commit": git_st["commit_short"],
         "tool_dirty": git_st["dirty"],
         "tool_dirty_file_count": git_st["dirty_file_count"],
+        "corpus_path": str(corpus_p) if corpus_p else None,
+        "corpus_sha256": corpus_sha,
+        "corpus_schema": corpus_schema,
+        "command_line": " ".join(sys.argv),
+        "python_version": sys.version.split()[0],
+        "platform": platform.platform(),
         "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
     out_data = {
-        "schema": "policy-research-p4-counterfactual/3",
+        "schema": "policy-research-p4-counterfactual/4",
         "provenance": provenance,
         "depth_mode": args.depth_mode,
         "preserve_aspiration": args.preserve_aspiration,
