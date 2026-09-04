@@ -60,7 +60,7 @@ def run_causal_decomposition(
         ref_best = ref["best"]
         ref_score = ref["score_val"]
 
-        # Run 7 causal conditions with depth-gated ablation
+        # Run 9 causal conditions (full 2^3 factorial of forced interventions plus baseline)
         r_base = eng.run_search(fen, target_depth)
         r_joint = eng.run_search(
             fen, target_depth, force_move=opt_mv, force_depth=target_depth
@@ -89,12 +89,30 @@ def run_causal_decomposition(
             disable_fail_high_reduction=True,
             ablation_depth=target_depth,
         )
+        r_pres_asp_pv = eng.run_search(
+            fen,
+            target_depth,
+            force_move=opt_mv,
+            force_depth=target_depth,
+            preserve_aspiration=True,
+            preserve_previous_pv=True,
+            ablation_depth=target_depth,
+        )
         r_pres_asp_fhr = eng.run_search(
             fen,
             target_depth,
             force_move=opt_mv,
             force_depth=target_depth,
             preserve_aspiration=True,
+            disable_fail_high_reduction=True,
+            ablation_depth=target_depth,
+        )
+        r_pres_pv_fhr = eng.run_search(
+            fen,
+            target_depth,
+            force_move=opt_mv,
+            force_depth=target_depth,
+            preserve_previous_pv=True,
             disable_fail_high_reduction=True,
             ablation_depth=target_depth,
         )
@@ -115,8 +133,10 @@ def run_causal_decomposition(
             "3_preserve_aspiration": r_pres_asp,
             "4_preserve_previous_pv": r_pres_pv,
             "5_disable_fail_high_reduction": r_dis_fhr,
-            "6_preserve_asp_and_fhr": r_pres_asp_fhr,
-            "7_full_control_nominal_depth": r_full_control,
+            "6_preserve_asp_and_pv": r_pres_asp_pv,
+            "7_preserve_asp_and_fhr": r_pres_asp_fhr,
+            "8_preserve_pv_and_fhr": r_pres_pv_fhr,
+            "9_full_control_nominal_depth": r_full_control,
         }
 
         b_nodes = r_base["nodes"]
@@ -219,7 +239,7 @@ def main():
     )
 
     output = {
-        "schema": "policy-research-causal-decomposition/3",
+        "schema": "policy-research-causal-decomposition/4",
         "provenance": provenance,
         "depth": args.depth,
         "ref_depth": args.ref_depth,

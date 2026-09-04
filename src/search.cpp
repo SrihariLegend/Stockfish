@@ -40,6 +40,7 @@
 #ifdef POLICY_RESEARCH
 #include "policy_research/research_log.h"
 #include "policy_research/research_options.h"
+#include "policy_research/scoped_probe.h"
 #include "policy_research/tt_overlay.h"
 #endif
 #include "misc.h"
@@ -470,6 +471,11 @@ bool Search::Worker::iterative_deepening() {
                                           : Research::config().forceFirstDepth;
             const bool ablationActive = (targetAblationDepth == 0 || rootDepth == targetAblationDepth);
 
+            // Phase 4 causal decomposition: PolicyResearchPreservePreviousPV overrides
+            // lastIterationIdxPV with baselinePreviousPV. When a candidate move differs from
+            // the baseline leader, (ss - 1)->currentMove at ply 1 will not match
+            // lastIterationIdxPV[0], so ss->followPV evaluates to false. This decouples
+            // the candidate search from the baseline leader's PV line down the tree.
             if (pvIdx == 0 && is_mainthread() && multiPV == 1 && Research::enabled()
                 && Research::config().mode == Research::Mode::RootCounterfactual
                 && Research::config().preservePreviousPV
@@ -486,6 +492,10 @@ bool Search::Worker::iterative_deepening() {
             delta     = 5 + threadIdx % 8 + std::abs(rootMoves[pvIdx].meanSquaredScore) / 10193;
             Value avg = rootMoves[pvIdx].averageScore;
 #ifdef POLICY_RESEARCH
+            // Phase 4 causal decomposition: PolicyResearchPreserveAspiration resets avg and delta
+            // to baseline values. Note that in Stockfish, optimism is coupled to avg
+            // (optimism[us] = 114 * avg / (abs(avg) + 85)), so preserving avg preserves both the
+            // aspiration window center/width and baseline root optimism.
             if (is_mainthread() && multiPV == 1 && Research::enabled()
                 && Research::config().mode == Research::Mode::RootCounterfactual
                 && Research::config().preserveAspiration
@@ -1015,6 +1025,11 @@ Value Search::Worker::search(Position& pos,
 
     if (!rootNode)
     {
+#ifdef POLICY_RESEARCH
+        // Shadow-search automatic node budget check:
+        if (Research::is_shadow_probe_active() && limits.nodes && u64(nodes) >= limits.nodes)
+            threads.stop.store(true, std::memory_order_relaxed);
+#endif
         // Step 2. Check for aborted search or immediate draw
         if (threads.stop.load(std::memory_order_relaxed) || pos.is_draw(ss->ply)
             || ss->ply >= MAX_PLY)
@@ -1987,6 +2002,14 @@ Value Search::Worker::qsearch(Position& pos, Stack* ss, Value alpha, Value beta,
         selDepth = ss->ply + 1;
 
     // Step 2. Check for an immediate draw or maximum ply reached
+#ifdef POLICY_RESEARCH
+    if (Research::is_shadow_probe_active() && (threads.stop.load(std::memory_order_relaxed)
+        || (limits.nodes && u64(nodes) >= limits.nodes)))
+    {
+        threads.stop.store(true, std::memory_order_relaxed);
+        return (ss->ply >= MAX_PLY && !ss->inCheck) ? evaluate(pos) : VALUE_DRAW;
+    }
+#endif
     if (pos.is_draw(ss->ply) || ss->ply >= MAX_PLY)
         return (ss->ply >= MAX_PLY && !ss->inCheck) ? evaluate(pos) : VALUE_DRAW;
 

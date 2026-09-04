@@ -64,6 +64,15 @@ class IsolatedWorker {
     void reset_stop();
     bool is_stopped() const;
 
+    // Precondition verification: safe isolation requires Threads == 1
+    static bool is_safe_environment(const Search::Worker& liveWorker);
+
+    // Evaluates a position using shadowWorker's private accumulatorStack and network
+    Value evaluate(const Position& pos);
+
+    // Friend-access helper to evaluate on a live worker for fidelity comparisons
+    static Value evaluate_worker(Search::Worker& w, const Position& pos);
+
     // Synchronizes/copies all mutable history tables and search context from liveWorker.
     void sync_from(const Search::Worker& liveWorker);
 
@@ -77,6 +86,8 @@ class IsolatedWorker {
                                           int                   maxDepth     = MAX_PLY);
 
     // Executes a shadow search using ResearchTTOverlay without mutating live state.
+    // If nodeBudget > 0, the shadow search automatically halts once nodeBudget nodes
+    // have been searched.
     template<NodeType NT = NonPV>
     Value search(Position&          pos,
                  Search::Stack*     ss,
@@ -84,8 +95,13 @@ class IsolatedWorker {
                  Value              beta,
                  Depth              depth,
                  bool               cutNode,
-                 ResearchTTOverlay& overlay) {
+                 ResearchTTOverlay& overlay,
+                 u64                nodeBudget = 0) {
         ScopedShadowProbe guard;
+        if (nodeBudget > 0)
+            shadowWorker->limits.nodes = shadowWorker->get_nodes() + nodeBudget;
+        else
+            shadowWorker->limits.nodes = 0;
         return shadowWorker->search<NT, ResearchTTOverlay>(pos, ss, alpha, beta, depth, cutNode,
                                                            overlay);
     }

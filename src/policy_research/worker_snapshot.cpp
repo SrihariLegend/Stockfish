@@ -28,10 +28,26 @@
 #include "../engine.h"
 #include "../thread.h"
 #include "../uci.h"
+#include "research_log.h"
 
 namespace Stockfish::Research {
 
+bool IsolatedWorker::is_safe_environment(const Search::Worker& liveWorker) {
+    return int(liveWorker.options["Threads"]) == 1;
+}
+
+Value IsolatedWorker::evaluate(const Position& pos) {
+    return shadowWorker->evaluate(pos);
+}
+
+Value IsolatedWorker::evaluate_worker(Search::Worker& w, const Position& pos) {
+    return w.evaluate(pos);
+}
+
 IsolatedWorker::IsolatedWorker(const Search::Worker& liveWorker) {
+    assert(is_safe_environment(liveWorker)
+           && "IsolatedWorker requires Threads == 1 for safe isolation");
+
     const usize threadCount =
       std::max(usize(1), liveWorker.sharedHistory.get_size() / CORRHIST_BASE_SIZE);
 
@@ -126,6 +142,7 @@ Search::Stack* IsolatedWorker::clone_and_rebind_stack(const Search::Worker& live
                                                       int                   maxDepth) {
     const int targetPly = liveSS->ply;
     assert(targetPly >= 0 && targetPly < MAX_PLY);
+    (void) maxDepth;
 
     Search::Stack* shadowSS = &(*shadowStack)[7 + targetPly];
 
@@ -182,12 +199,14 @@ Search::Stack* IsolatedWorker::clone_and_rebind_stack(const Search::Worker& live
         }
     }
 
-    // Initialize future forward frames
-    for (int k = 1; k <= maxDepth + 2 && (7 + targetPly + k < MAX_PLY + 10); ++k)
+    // Initialize ALL future forward frames up to the end of the stack array
+    // so that selective extensions and quiescence searches to any ply have
+    // valid sentinel pointers, correct ply values, and clean state.
+    for (int idx = 7 + targetPly + 1; idx < MAX_PLY + 10; ++idx)
     {
-        Search::Stack* future                 = shadowSS + k;
-        future->ply                           = targetPly + k;
-        future->pv                            = &(*shadowPV)[7 + targetPly + k];
+        Search::Stack* future                 = &(*shadowStack)[idx];
+        future->ply                           = idx - 7;
+        future->pv                            = &(*shadowPV)[idx];
         future->continuationHistory           = &shadowWorker->continuationHistory[0][0][NO_PIECE][0];
         future->continuationCorrectionHistory = &shadowWorker->continuationCorrectionHistory[NO_PIECE][0];
         future->staticEval                    = VALUE_NONE;
@@ -199,6 +218,8 @@ Search::Stack* IsolatedWorker::clone_and_rebind_stack(const Search::Worker& live
         future->followPV                      = false;
         future->cutoffCnt                     = 0;
         future->reduction                     = 0;
+        future->excludedMove                  = Move::none();
+        future->currentMove                   = Move::none();
     }
 
     return shadowSS;
@@ -308,25 +329,74 @@ bool run_sandbox_unit_tests(Engine& engine) {
             return false;
         }
 
-        // Verification 1.6: Repetition detection on cloned position
+        // Verification 1.6: Repetition detection on cloned position (twofold and true threefold)
         {
             Position repPos;
             std::vector<StateInfo> repStates;
             pos.clone_to(repPos, repStates);
 
             // pos is at ply 4: 1. e4 c5 2. Nf3 d6
-            // Play knights back and forth to force a threefold repetition:
-            // 3. Ng1 Nf6 4. Nf3 Ng8
-            const std::vector<std::string> repMoves = {"f3g1", "g8f6", "g1f3", "f6g8"};
+            // Play knights back and forth twice to test twofold and true threefold repetition:
+            // Cycle 1: 3. Ng1 Nf6 4. Nf3 Ng8 (2nd occurrence: distance 4)
+            // Cycle 2: 5. Ng1 Nf6 6. Nf3 Ng8 (3rd occurrence: distance -4, true 3-fold!)
+            const std::vector<std::string> repMoves = {
+              "f3g1", "g8f6", "g1f3", "f6g8",
+              "f3g1", "g8f6", "g1f3", "f6g8"
+            };
             std::vector<StateInfo> moveStates(repMoves.size());
             std::vector<Move> appliedRepMoves;
-            for (size_t i = 0; i < repMoves.size(); ++i)
+
+            // Apply cycle 1 (moves 0..3)
+            for (size_t i = 0; i < 4; ++i)
             {
                 Move m = UCIEngine::to_move(repPos, repMoves[i]);
                 appliedRepMoves.push_back(m);
                 repPos.do_move(m, moveStates[i]);
             }
 
+            // At 2nd occurrence: repetition distance is positive (+4)
+            if (repPos.state()->repetition != 4)
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos 2nd occurrence repetition distance != 4 ("
+                          << repPos.state()->repetition << ")" << std::endl;
+                return false;
+            }
+            if (!repPos.has_repeated())
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos did not detect twofold repetition" << std::endl;
+                return false;
+            }
+            if (repPos.is_draw(0))
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos is_draw(0) should be false for twofold at root" << std::endl;
+                return false;
+            }
+            if (!repPos.is_draw(5))
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos is_draw(5) should be true for twofold after root" << std::endl;
+                return false;
+            }
+
+            // Apply cycle 2 (moves 4..7)
+            for (size_t i = 4; i < 8; ++i)
+            {
+                Move m = UCIEngine::to_move(repPos, repMoves[i]);
+                appliedRepMoves.push_back(m);
+                repPos.do_move(m, moveStates[i]);
+            }
+
+            // At 3rd occurrence: repetition distance must be negative (-4) in Stockfish
+            if (repPos.state()->repetition != -4)
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos 3rd occurrence repetition distance != -4 ("
+                          << repPos.state()->repetition << ")" << std::endl;
+                return false;
+            }
+            if (!repPos.is_draw(0))
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos is_draw(0) should be true for threefold" << std::endl;
+                return false;
+            }
             if (!repPos.has_repeated())
             {
                 std::cerr << "sandbox_test 1.6 failed: repPos did not detect threefold repetition" << std::endl;
@@ -339,13 +409,29 @@ bool run_sandbox_unit_tests(Engine& engine) {
                 return false;
             }
 
-            for (int i = int(appliedRepMoves.size()) - 1; i >= 0; --i)
-            {
+            // Undo all 8 moves step-by-step
+            for (int i = int(appliedRepMoves.size()) - 1; i >= 4; --i)
                 repPos.undo_move(appliedRepMoves[i]);
-            }
-            if (repPos.has_repeated())
+
+            // Back at cycle 1: repetition distance must be +4 again
+            if (repPos.state()->repetition != 4)
             {
-                std::cerr << "sandbox_test 1.6 failed: repPos still has_repeated after undo" << std::endl;
+                std::cerr << "sandbox_test 1.6 failed: repPos repetition distance != 4 after partial undo ("
+                          << repPos.state()->repetition << ")" << std::endl;
+                return false;
+            }
+
+            for (int i = 3; i >= 0; --i)
+                repPos.undo_move(appliedRepMoves[i]);
+
+            if (repPos.has_repeated() || repPos.state()->repetition != 0)
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos still has_repeated after full undo" << std::endl;
+                return false;
+            }
+            if (repPos.key() != keyAfter4 || repPos.fen() != fenAfter4)
+            {
+                std::cerr << "sandbox_test 1.6 failed: repPos key/fen mismatch after full undo" << std::endl;
                 return false;
             }
         }
@@ -469,9 +555,9 @@ bool run_sandbox_unit_tests(Engine& engine) {
         TranspositionTable& baseTT = engine.get_tt();
         ResearchTTOverlay overlay(baseTT);
 
-        // Snapshot base TT cluster before search to verify bit-for-bit immutability
-        const usize c_idx = baseTT.cluster_index(pos.key());
-        const Cluster baseClusterBefore = baseTT.get_cluster(c_idx);
+        // Snapshot the ENTIRE base TT byte buffer before search to verify 100% whole-table immutability
+        std::vector<u8> wholeTTBefore(baseTT.byte_size());
+        std::memcpy(wholeTTBefore.data(), baseTT.cluster_data(), baseTT.byte_size());
 
         IsolatedWorker shadowOwner(*liveWorker);
 
@@ -528,16 +614,15 @@ bool run_sandbox_unit_tests(Engine& engine) {
             return false;
         }
 
-        // Verification 4.4: Overlay captured writes, base TT untouched
+        // Verification 4.4: Overlay captured writes, base TT untouched across 100% of its clusters
         if (overlay.overlay_cluster_count() == 0)
         {
             std::cerr << "sandbox_test 4.4 failed: overlay recorded 0 cluster copies during search" << std::endl;
             return false;
         }
-        const Cluster baseClusterAfter = baseTT.get_cluster(c_idx);
-        if (std::memcmp(&baseClusterBefore, &baseClusterAfter, sizeof(Cluster)) != 0)
+        if (std::memcmp(wholeTTBefore.data(), baseTT.cluster_data(), baseTT.byte_size()) != 0)
         {
-            std::cerr << "sandbox_test 4.4 failed: base TT cluster was mutated!" << std::endl;
+            std::cerr << "sandbox_test 4.4 failed: base TT was mutated during shadow search!" << std::endl;
             return false;
         }
 
@@ -645,6 +730,144 @@ bool run_sandbox_unit_tests(Engine& engine) {
         if (ScopedShadowProbe::is_active())
         {
             std::cerr << "sandbox_test 4.8 failed: ScopedShadowProbe still active after guard destroyed" << std::endl;
+            return false;
+        }
+
+        // Verification 4.9: Automatic node budget in shadow search
+        {
+            IsolatedWorker budgetOwner(*liveWorker);
+            Position bPos;
+            std::vector<StateInfo> bStates;
+            pos.clone_to(bPos, bStates);
+            Search::Stack* bSS = budgetOwner.clone_and_rebind_stack(*liveWorker, dummyLiveSS, 7, 10);
+            ResearchTTOverlay bOverlay(baseTT);
+
+            const u64 bLiveNodesBefore = liveWorker->get_nodes();
+            // Search with a budget of 15 nodes on a depth 5 search
+            const u64 nodeBudget = 15;
+            budgetOwner.search<PV>(bPos, bSS, -100, 100, Depth(5), false, bOverlay, nodeBudget);
+
+            // Shadow search must have stopped when reaching budget
+            if (!budgetOwner.is_stopped())
+            {
+                std::cerr << "sandbox_test 4.9 failed: shadow worker did not stop after reaching budget" << std::endl;
+                return false;
+            }
+            const u64 bNodesSearched = budgetOwner.nodes_searched() - bLiveNodesBefore;
+            if (bNodesSearched == 0 || bNodesSearched > 40)
+            {
+                std::cerr << "sandbox_test 4.9 failed: nodes searched (" << bNodesSearched
+                          << ") not cleanly bounded by budget (" << nodeBudget << ")" << std::endl;
+                return false;
+            }
+            // Live thread pool stop flag must NOT be mutated
+            if (engine.get_threads().stop.load() != liveStopBefore)
+            {
+                std::cerr << "sandbox_test 4.9 failed: budget search mutated live thread pool stop flag!" << std::endl;
+                return false;
+            }
+        }
+
+        // Verification 4.10: End-to-end recorder suppression during shadow search
+        {
+            Recorder& rec = recorder();
+            rec.test_arm_for_unit_tests(0x12345678ULL);
+
+            if (!rec.active() || !rec.is_root_open())
+            {
+                std::cerr << "sandbox_test 4.10 failed: recorder not active outside probe" << std::endl;
+                rec.test_disarm_for_unit_tests();
+                return false;
+            }
+
+            const u64 recDecBefore = rec.get_run_decision_total();
+            const u64 recAttBefore = rec.get_run_attempt_total();
+
+            // Run shadow search under active recorder arming
+            IsolatedWorker recShadowOwner(*liveWorker);
+            Position recPos;
+            std::vector<StateInfo> recStates;
+            pos.clone_to(recPos, recStates);
+            Search::Stack* recSS = recShadowOwner.clone_and_rebind_stack(*liveWorker, dummyLiveSS, 7, 10);
+            ResearchTTOverlay recOverlay(baseTT);
+
+            recShadowOwner.search<PV>(recPos, recSS, -100, 100, Depth(3), false, recOverlay);
+
+            // Verify that zero records were emitted and recorder state was completely untouched
+            if (rec.get_run_decision_total() != recDecBefore || rec.get_run_attempt_total() != recAttBefore)
+            {
+                std::cerr << "sandbox_test 4.10 failed: shadow search emitted recorder events!" << std::endl;
+                rec.test_disarm_for_unit_tests();
+                return false;
+            }
+
+            // Verify ScopedShadowProbe directly inside probe scope
+            {
+                ScopedShadowProbe shadowGuard;
+                if (rec.active())
+                {
+                    std::cerr << "sandbox_test 4.10 failed: recorder still active inside ScopedShadowProbe" << std::endl;
+                    rec.test_disarm_for_unit_tests();
+                    return false;
+                }
+            }
+
+            rec.test_disarm_for_unit_tests();
+        }
+    }
+
+    // Part 5: Active Internal-Node NNUE Evaluation and Accumulator Fidelity
+    {
+        StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
+        Position nnuePos;
+        nnuePos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false, &states->back());
+        Move m1 = UCIEngine::to_move(nnuePos, "e2e4");
+        states->emplace_back();
+        nnuePos.do_move(m1, states->back());
+
+        Position shadowNnuePos;
+        std::vector<StateInfo> shadowNnueStates;
+        nnuePos.clone_to(shadowNnuePos, shadowNnueStates);
+
+        IsolatedWorker shadowOwner(*liveWorker);
+
+        // Verification 5.1: Bit-for-bit NNUE evaluation agreement between live and shadow workers
+        const Value liveVal = IsolatedWorker::evaluate_worker(*liveWorker, nnuePos);
+        const Value shadowVal = shadowOwner.evaluate(shadowNnuePos);
+
+        if (liveVal != shadowVal)
+        {
+            std::cerr << "sandbox_test 5.1 failed: NNUE evaluation mismatch ("
+                      << liveVal << " vs " << shadowVal << ")" << std::endl;
+            return false;
+        }
+
+        // Verification 5.2: State mutation and undo on cloned position preserves NNUE fidelity
+        Move testMove = UCIEngine::to_move(shadowNnuePos, "c7c5");
+        StateInfo testSt;
+        shadowNnuePos.do_move(testMove, testSt);
+        const Value shadowValMoved = shadowOwner.evaluate(shadowNnuePos);
+        if (shadowValMoved == VALUE_NONE || std::abs(shadowValMoved) >= VALUE_INFINITE)
+        {
+            std::cerr << "sandbox_test 5.2 failed: NNUE evaluation invalid after move ("
+                      << shadowValMoved << ")" << std::endl;
+            return false;
+        }
+
+        shadowNnuePos.undo_move(testMove);
+        const Value shadowValRestored = shadowOwner.evaluate(shadowNnuePos);
+        if (shadowValRestored != liveVal)
+        {
+            std::cerr << "sandbox_test 5.2 failed: NNUE evaluation after undo mismatch ("
+                      << shadowValRestored << " vs " << liveVal << ")" << std::endl;
+            return false;
+        }
+
+        // Verification 5.3: Live worker evaluation is completely untouched
+        const Value liveValAfter = IsolatedWorker::evaluate_worker(*liveWorker, nnuePos);
+        if (liveValAfter != liveVal)
+        {
+            std::cerr << "sandbox_test 5.3 failed: live worker NNUE evaluation mutated!" << std::endl;
             return false;
         }
     }

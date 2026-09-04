@@ -139,6 +139,26 @@ class Recorder {
     // Engine shutdown (UCI `quit`). Writes RUN_END and closes the file.
     void on_run_end();
 
+    // Inspection accessors for testing and diagnostics
+    u64  get_run_data_records() const { return runDataRecords_; }
+    u64  get_run_decision_total() const { return runDecisionTotal_; }
+    u64  get_run_attempt_total() const { return runAttemptTotal_; }
+    bool is_root_open() const { return rootOpen_; }
+
+    // Test hooks to verify scoped suppression under simulated active recording
+    void test_arm_for_unit_tests(u64 dummyRootKey) {
+        std::lock_guard<std::recursive_mutex> lock(m_);
+        active_.store(true, std::memory_order_relaxed);
+        rootOpen_ = true;
+        rootKey_  = dummyRootKey;
+    }
+    void test_disarm_for_unit_tests() {
+        std::lock_guard<std::recursive_mutex> lock(m_);
+        active_.store(false, std::memory_order_relaxed);
+        rootOpen_ = false;
+        rootKey_  = 0;
+    }
+
    private:
     void open_run();
     void finish_run();
