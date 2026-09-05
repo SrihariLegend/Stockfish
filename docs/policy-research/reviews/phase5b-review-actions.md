@@ -65,19 +65,21 @@ Note: the /2 evidence corpora (and all node-cost tables derived from them)
 are pre-fix and superseded for node counts; regeneration under /3 on the
 fixed engine is in progress (see overview.md).
 
-## R3 — Statistical design (breadth, clustering, declared seeds) — IN PROGRESS
+## R3 — Statistical design (breadth, clustering, declared seeds) — PARTLY DONE
 
 Finding: only two independent roots; rows dominated by shallow small nodes;
 tail weighting noisy; single seed.
 
 Actions:
 - Regenerate the canonical four corpora under /3 on the fixed engine
-  (root A d8 seeds 0/1, root B d8/d10 seed 0) — in progress.
-- Build a breadth corpus of many independent root positions across
-  openings/middlegames/endgames at depth 8, several declared seeds, with
-  root-clustered and Hájek/HT estimates and intervals (next milestone).
-- Phase-6 go/no-go report: oracle savings, candidate-level q/e ratio study,
-  interaction gap for top-K permutations, stratified by subtree size/depth.
+  (root A d8 seeds 0/1, root B d8/d10 seed 0) — DONE (`11032847`).
+- Breadth corpus: ten more independent roots across openings, depth 8,
+  seed 0 (`2d77b835`, 12,999 rows; 12 independent roots total with the
+  canonicals). Root-clustered analysis over 12 roots: promotion ratio mean
+  2.16 sd 0.20; oracle savings mean 23.1% sd 3.6%.
+- Remaining: middlegame/endgame roots, more declared seeds per root (tail
+  Hájek/HT intervals with known denominators), and the formal Phase-6
+  go/no-go report with clustered intervals.
 
 ## R4 — Cost as paired delta — DONE with measurement A
 
@@ -102,13 +104,18 @@ the whole node and the candidate's own subtree; analysis scripts in the Phase
 - README "warm TT artifacts" explanation replaced with the R2 root-cause
   narrative (supersession note marks the /2 corpora pre-fix for node counts).
 
-## Vision / Phase-6 staging — IN PROGRESS
+## Vision / Phase-6 staging — PRELIMINARY GO (corrected /3 evidence)
 
-Top-four local-oracle headroom (post hoc on /2) revised the outlook: a
-classification-preserving cheapest-first rule saves 19.6-29.0% of baseline
-nodes (9.0-18.9% under exact-value equivalence), while blind fixed-ordinal
-promotion costs 20-35%. With measurement A landed, the Phase-6 oracle/q-e
-studies can be computed directly from /3 evidence. The universal
-context-conditioned proof-scheduler endpoint remains the target; next
-milestones are the /3 evidence regeneration, breadth corpus, and the formal
-go/no-go report.
+The corrected /3 measurements sharpen both sides of the economics: blind
+promotion costs ~2.2x (not 1.2-1.35x as the pre-fix /2 corpora suggested)
+while the classification-preserving local oracle still saves 19-28% of
+baseline nodes (21-34% on baseline >= 10-node rows; 9-18% under exact-value
+equivalence) — consistent across 12 independent roots. Measurement A shows
+the causal core: natural order cuts on its ordinal-0 move in 85-92% of
+move-loop cutoffs, and a forced ordinal-1..3 candidate proves the bound on
+only 27-35%/19-21%/11-13% of rows after a full unreduced slot-1 search.
+The universal context-conditioned proof-scheduler endpoint remains the
+target; the decisive Phase-6 question is what share of the oracle gap a
+learnable entry-state policy can realize (q/e study), whether top-K
+interactions preserve the local savings, and whether inference cost stays
+sub-MovePicker-scale.
