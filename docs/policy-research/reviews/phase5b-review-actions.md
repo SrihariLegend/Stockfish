@@ -106,14 +106,17 @@ the whole node and the candidate's own subtree; analysis scripts in the Phase
 
 ## Vision / Phase-6 staging — PRELIMINARY GO (corrected /3 evidence)
 
-The corrected /3 measurements sharpen both sides of the economics: blind
-promotion costs ~2.2x (not 1.2-1.35x as the pre-fix /2 corpora suggested)
-while the classification-preserving local oracle still saves 19-28% of
-baseline nodes (21-34% on baseline >= 10-node rows; 9-18% under exact-value
-equivalence) — consistent across 12 independent roots. Measurement A shows
-the causal core: natural order cuts on its ordinal-0 move in 85-92% of
+The corrected /3 measurements support the adaptive-selection hypothesis
+with honest magnitudes: blind promotion costs +22.6/+25.9/+29.5% of
+AGGREGATE nodes at ordinals 1-3 (ratio-of-sums; the 2.19/2.29/2.40 mean-of-
+row-ratios quoted in the first v3 write-ups overstate aggregate cost by
+overweighting tiny subtrees and must not be used as the cost multiplier),
+while the classification-preserving local oracle still saves 19-30% of
+baseline nodes per root (12.75% pooled under exact-value equivalence) —
+consistent across 12 separately executed root positions. Measurement A
+shows the causal core: natural order cuts on its ordinal-0 move in ~87% of
 move-loop cutoffs, and a forced ordinal-1..3 candidate proves the bound on
-only 27-35%/19-21%/11-13% of rows after a full unreduced slot-1 search.
+only 28.0%/18.6%/12.7% of rows after a full unreduced slot-1 search.
 The universal context-conditioned proof-scheduler endpoint remains the
 target; the decisive Phase-6 question is what share of the oracle gap a
 learnable entry-state policy can realize (q/e study), whether top-K

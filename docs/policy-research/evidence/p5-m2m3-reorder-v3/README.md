@@ -58,31 +58,44 @@ high; `FH->FL`/`FL->FH` = whole-node fail-high flips vs the baseline replay.
 Top ordinals 0-3 are a census (probe-all); tail ordinals are the
 hash-sampled marginals (Hájek/HT weighting with `1/prob`).
 
-| file | ord | FH% | FH->FL% | FL->FH% | forced/baseline node ratio |
-|---|---|---|---|---|---|
-| seed_a1 | 0 | 58.8 | 0.0 | 0.0 | 1.000 |
-| seed_a1 | 1 | 58.6 | 1.4 | 1.2 | 2.170 |
-| seed_a1 | 2 | 58.3 | 1.5 | 1.0 | 2.366 |
-| seed_a1 | 3 | 58.1 | 1.6 | 1.0 | 2.557 |
-| root_b_d8 | 0 | 61.8 | 0.0 | 0.0 | 1.000 |
-| root_b_d8 | 1 | 61.0 | 1.8 | 0.9 | 2.303 |
-| root_b_d8 | 2 | 61.6 | 1.8 | 1.6 | 2.265 |
-| root_b_d8 | 3 | 61.7 | 1.8 | 1.7 | 2.400 |
-| root_b_d10 | 0 | 60.3 | 0.0 | 0.0 | 1.000 |
-| root_b_d10 | 1 | 59.7 | 1.4 | 0.8 | 2.179 |
-| root_b_d10 | 2 | 60.0 | 1.5 | 1.2 | 2.143 |
-| root_b_d10 | 3 | 60.2 | 1.4 | 1.4 | 2.286 |
+| file | ord | FH% | FH->FL% | FL->FH% | aggregate ratio | mean row ratio |
+|---|---|---|---|---|---|---|
+| seed_a1 | 0 | 58.8 | 0.0 | 0.0 | 1.000 | 1.000 |
+| seed_a1 | 1 | 58.6 | 1.4 | 1.2 | 1.312 | 2.170 |
+| seed_a1 | 2 | 58.3 | 1.5 | 1.0 | 1.301 | 2.366 |
+| seed_a1 | 3 | 58.1 | 1.6 | 1.0 | 1.339 | 2.557 |
+| root_b_d8 | 0 | 61.8 | 0.0 | 0.0 | 1.000 | 1.000 |
+| root_b_d8 | 1 | 61.0 | 1.8 | 0.9 | 1.279 | 2.303 |
+| root_b_d8 | 2 | 61.6 | 1.8 | 1.6 | 1.269 | 2.265 |
+| root_b_d8 | 3 | 61.7 | 1.8 | 1.7 | 1.314 | 2.400 |
+| root_b_d10 | 0 | 60.3 | 0.0 | 0.0 | 1.000 | 1.000 |
+| root_b_d10 | 1 | 59.7 | 1.4 | 0.8 | 1.219 | 2.179 |
+| root_b_d10 | 2 | 60.0 | 1.5 | 1.2 | 1.217 | 2.143 |
+| root_b_d10 | 3 | 60.2 | 1.4 | 1.4 | 1.230 | 2.286 |
 
-**Corrected cost picture (important).** With the sibling-context fix, blind
-promotion is substantially costlier than the pre-fix /2 corpora suggested:
-pooled forced/baseline node ratios are ~2.14-2.56 at ordinals 1-3 (the /2
-files showed ~1.20-1.35). The whole-node fail-high rate stays flat because
-the natural lead move still cuts off after the forced candidate fails low
-(prefix re-search); the extra ~110-140% is the price of always searching the
-promoted candidate at full slot-1 depth (no LMR, moveCount == 1) before the
-natural cutoff is found. Per-visit: at ordinal 1, forcing is cheaper on
-17.6-19.9% of rows, equal on 28.6-30.8%, costlier on 49.3-53.6%; at
-ordinals 2-3 cheaper on 11-15%, costlier on 63-77%.
+**Cost aggregation (plan §11.1).** Two different ratios are shown because
+they answer different questions and the plan requires summing costs before
+dividing. `aggregate ratio` = (sum of forced nodes over rows) / (sum of
+baseline nodes over rows) for the ordinal's census probes — the correct
+estimate of the total search-node cost change under always-promote.
+`mean row ratio` = the arithmetic mean of per-row ratios; it is a purely
+descriptive per-visit statistic and heavily overweights tiny subtrees
+(turning a 1-node baseline into 3 is 3x on that row but costs 2 nodes), so
+it must NOT be read as the aggregate cost multiplier.
+
+**Corrected cost picture.** Blind slot-1 promotion costs **+22-34% of
+aggregate search nodes** (aggregate ratios 1.22-1.34 at ordinals 1-3) —
+not the 2.1-2.6x that the mean-row-ratio column might suggest. The
+sibling-context fix (`08cb5cdb`) changed the *per-visit distribution* of
+replay costs (live-faithful LMR context) but left the aggregate promotion
+cost essentially where the /2 corpora placed it (~1.20-1.35). The whole-node
+fail-high rate stays flat because the natural lead move still cuts off
+after the forced candidate fails low (prefix re-search); the extra ~20-35%
+is the price of always searching the promoted candidate at full slot-1
+depth (no LMR, moveCount == 1) before the natural cutoff is found.
+Per-visit (pooled, 12-root set): at ordinal 1, forcing is cheaper on 19.0%
+of rows, equal on 29.9%, costlier on 51.1%; at ordinals 2-3 cheaper on
+12-14%, costlier on 65-73%.
 
 ## Measurement-A attribution (first results)
 
@@ -100,7 +113,8 @@ candidate itself cuts off (`cutoff_by_first`) on only **27-35% (ord 1),
 the bound only about a quarter of the time even at ordinal 1, and the whole-
 node outcome is then decided by the natural lead move re-searched at a
 shifted slot. This is the direct causal confirmation of the flat-FH pattern
-and the driver of the promotion cost.
+and the reason promotion costs aggregate nodes even though it changes
+outcomes only rarely.
 
 ## Corrected local-oracle headroom (top four ordinals, post hoc)
 
@@ -115,12 +129,14 @@ allowed only when its fail-high status matches the baseline):
 - Exact-value equivalence (forced value == baseline value): 9.0% / 13.1% /
   17.7% saved.
 
-Blind fixed-ordinal promotion costs 114-156% while the classification-
-preserving local oracle saves 19-28%: the adaptive-selection hypothesis
-(learn a per-candidate, context-conditioned policy that preserves natural
-order on most nodes and promotes where cheaper) survives the corrected
-measurements; the interaction-gap between the oracle and any learnable rule
-is the Phase-6 go/no-go question.
+Blind fixed-ordinal promotion costs +22-34% of aggregate nodes (the
+2.1-2.6x figure is the mean of per-row ratios and overweights tiny subtrees;
+see the aggregation note above) while the classification-preserving local
+oracle saves 19-28%: the adaptive-selection hypothesis (learn a per-
+candidate, context-conditioned policy that preserves natural order on most
+nodes and promotes where cheaper) survives the corrected measurements; the
+interaction gap between the oracle and any learnable rule is the Phase-6
+go/no-go question.
 
 ## Files
 
