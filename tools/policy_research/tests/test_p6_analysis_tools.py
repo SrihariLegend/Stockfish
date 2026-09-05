@@ -227,3 +227,50 @@ class P5bTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class P6LearnabilitySmoke(unittest.TestCase):
+    """Smoke test: the LOO learnability probe runs end-to-end on synthetic
+    roots and reproduces exact-cost accounting for the BASE policy."""
+
+    def test_loo_smoke_and_base_accounting(self):
+        import subprocess
+        from tests.test_p6_analysis_tools import make_row
+        d = tempfile.mkdtemp()
+        paths = []
+        # three tiny "roots" with distinguishable patterns; seed fixed so
+        # per-root behavior differs via cost values
+        for root in range(3):
+            rows = []
+            for i in range(12):
+                base = 100 + root * 50 + i
+                own = {1: (i % 3) == 0}
+                r = make_row(base_nodes=base, own=own,
+                             cost={o: base * (1 + (o + root) * 0.2)
+                                   for o in (1, 2, 3)},
+                             value={1: 60})
+                r["root_key"] = root
+                r["sample_id"] = i + 1
+                rows.append(r)
+            p = os.path.join(d, f"syn_root{root}.jsonl.gz")
+            with gzip.open(p, "wt") as fh:
+                for r in rows:
+                    fh.write(json.dumps(r) + "\n")
+            paths.append(p)
+        out = os.path.join(d, "out.json")
+        r = subprocess.run(
+            [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                          "..", "p6_learnability.py"),
+             *paths, "--json", out],
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        with open(out) as fh:
+            rep = json.load(fh)
+        self.assertEqual(set(rep["pooled"]),
+                         {"BASE", "Q", "CHEAP", "CHEAP_SAFE", "QE",
+                          "ORACLE_CLS"})
+        self.assertEqual(rep["pooled"]["BASE"]["policy_nodes"],
+                         rep["pooled"]["BASE"]["baseline_nodes"])
+        self.assertGreater(rep["pooled"]["BASE"]["baseline_nodes"], 0)
+        self.assertEqual(rep["pooled"]["BASE"]["fhfl"], 0)

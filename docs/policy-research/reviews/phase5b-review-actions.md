@@ -168,3 +168,27 @@ commits of this round:
    game-split holdout, Threads=1 fixed-depth only); Phase-6.3 corpus adds
    real breadth; stronger generalization claims wait on a representative
    corpus.
+
+## R7 — Learnability probe (root-held-out, abstaining, feature-only) — DONE
+
+Review recommendation ("the best next decisive result is a root-held-out,
+abstaining, entry-feature-only policy evaluated on the exact measured top-1
+costs") implemented as `tools/policy_research/p6_learnability.py`, evidence
+in `evidence/p6-learnability/`:
+
+- Leave-one-root-out over the 12 roots; ridge logistic q-hat and ridge
+  log-cost c-hat on pre-search row features; thresholds tuned by total
+  measured cost on training roots with full abstention in the grid;
+  evaluation charges each row's measured cost of the chosen ordinal.
+- Result: NO positive capture. Tuned q-gates and cost-gated rules choose
+  full abstention on every fold (0.0%); CHEAP -16.4% (promotes 67% of
+  rows), QE -4.3%, CHEAP_SAFE ~0; in-sample tuned rules also <= 0. On the
+  baseline >= 10 stratum (oracle 28.3%) the same rules lose 0.7-1.0%.
+  Held-out ranking diagnostics are strong (q AUC 0.87, cost Spearman
+  0.70): the features rank well but do not resolve the choice-value
+  quantity (whether a later candidate beats THIS row's natural cost) at the
+  precision the asymmetric promotion penalty requires.
+- The ex-post oracle headroom (~24%) therefore remains UNREALIZED by cheap
+  linear predictors on this corpus; model-class and corpus caveats are
+  documented. Plan 21.1 fallback options are now the live comparison for
+  the go/no-go.
