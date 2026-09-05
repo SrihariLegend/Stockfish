@@ -131,7 +131,7 @@ class TestResearchSandbox(unittest.TestCase):
         decisions = [r for r in rows if r["type"] == "decision"]
         self.assertGreater(len(decisions), 0, "No decision rows collected")
         for r in rows:
-            self.assertEqual(r["schema"], "internal-counterfactual/2")
+            self.assertEqual(r["schema"], "internal-counterfactual/3")
         d = decisions[0]
         for field in ("root_key", "pos_key", "fen", "ply", "depth", "entry_depth",
                       "root_depth", "alpha", "beta", "static_eval", "improving", "tt_hit",
@@ -147,8 +147,8 @@ class TestResearchSandbox(unittest.TestCase):
         for d2 in decisions:
             self.assertEqual(d2["root_key"], root_start["root_key"],
                              "decision row root_key must match the root_start row")
-        for field in ("nodes", "decision_point_nodes", "completed", "stop", "budget_hit",
-                      "value", "fail_high"):
+        for field in ("nodes", "decision_point_nodes", "ss1_cutoff_cnt", "completed", "stop",
+                      "budget_hit", "value", "fail_high", "first", "cutoff"):
             self.assertIn(field, d["baseline"], f"baseline missing {field}")
         b = d["baseline"]
         self.assertGreaterEqual(b["nodes"], 0)
@@ -168,7 +168,8 @@ class TestResearchSandbox(unittest.TestCase):
                 self.assertIsNotNone(cand["cont_hist"])
         for probe in d["probes"]:
             for field in ("move", "prob", "nodes", "completed", "stop", "budget_hit",
-                          "value", "forced_slot1", "fail_high"):
+                          "value", "forced_slot1", "fail_high", "first", "cutoff",
+                          "prefix_pops"):
                 self.assertIn(field, probe, f"probe missing {field}")
             if probe["completed"]:
                 self.assertIsNotNone(probe["value"])

@@ -219,7 +219,7 @@ class Recorder {
     bool rootOpen_ = false;
 };
 
-// Internal counterfactual dataset (JSONL, schema internal-counterfactual/2).
+// Internal counterfactual dataset (JSONL, schema internal-counterfactual/3).
 //
 // Phase 5: whole-node decision replays with slot-1 forced candidates are
 // emitted as versioned JSONL rows. This artifact is SEPARATE from the

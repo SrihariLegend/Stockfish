@@ -1077,7 +1077,7 @@ Value Search::Worker::search(Position& pos,
 
 #ifdef POLICY_RESEARCH
     // Phase 5 internal-node counterfactual search hook (entry capture,
-    // internal-counterfactual/2): eligible NonPV null-window decision nodes
+    // internal-counterfactual/3): eligible NonPV null-window decision nodes
     // are sampled HERE -- at their true search entry, before the node's own
     // TT probe, static evaluation, and pre-loop pruning work -- so the
     // isolated whole-node replays (baseline + slot-1 forced per candidate)
@@ -1447,7 +1447,7 @@ moves_loop:  // When in check, search starts here
         return probCutBeta;
 
 #ifdef POLICY_RESEARCH
-    // Phase 5 decision-point capture (internal-counterfactual/2): the armed
+    // Phase 5 decision-point capture (internal-counterfactual/3): the armed
     // isolated BASELINE replay of a sampled node fires this once when it
     // reaches its own main move loop (after all pre-loop pruning, including
     // the small ProbCut above). It records the decision-point metadata and
@@ -1521,6 +1521,14 @@ moves_loop:  // When in check, search starts here
 #endif
 
         ss->moveCount = ++moveCount;
+
+#ifdef POLICY_RESEARCH
+        // Measurement-A slot-1 emission tracking (armed only during whole-node
+        // replays; no-op on live nodes): records the root's first emission --
+        // the forced candidate in forced replays, natural ordinal 0 in the
+        // baseline -- and the shadow node counter at that point.
+        Research::probe_attribution_emission(posKey, ss->ply, move, u64(nodes));
+#endif
 
         if (rootNode && is_mainthread() && nodes > NODES_LIMIT_OUTPUT)
         {
@@ -1834,6 +1842,13 @@ moves_loop:  // When in check, search starts here
         assert(value > -VALUE_INFINITE && value < VALUE_INFINITE);
 
 #ifdef POLICY_RESEARCH
+        // Measurement-A slot-1 child-search attribution (armed only during
+        // whole-node replays): records the slot-1 move's own subtree cost and
+        // parent-relative returned value once its search completed.
+        Research::probe_attribution_child_done(posKey, ss->ply, move, value, u64(nodes));
+#endif
+
+#ifdef POLICY_RESEARCH
         // Research: record the quiet-move attempt outcome (survival data). Only
         // quiet moves (no capture, no promotion) that were actually searched
         // reach this hook, so an outcome is never attached to an unsearched
@@ -1952,6 +1967,12 @@ moves_loop:  // When in check, search starts here
                     // (*Scaler) Infrequent and small updates scale well
                     ss->cutoffCnt += (extension < 2) || PvNode;
                     assert(value >= beta);  // Fail high
+#ifdef POLICY_RESEARCH
+                    // Measurement-A final-cutoff attribution (armed only during
+                    // whole-node replays): records which move cut off in the
+                    // root's own move loop and whether it was the slot-1 move.
+                    Research::probe_attribution_cutoff(posKey, ss->ply, move, value);
+#endif
                     break;
                 }
 

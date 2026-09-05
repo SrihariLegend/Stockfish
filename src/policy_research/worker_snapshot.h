@@ -52,6 +52,23 @@ namespace Stockfish::Research {
 // never negated, never printed as a numeric score), completed == false, and the
 // stop reason records whether the node budget or an explicit stop() ended the
 // search. nodes always reports the do_moves spent, including censored probes.
+
+// Measurement-A attribution payload (schema internal-counterfactual/3), see the
+// channel below. Declared before ProbeResult so results can carry it.
+struct MoveAttribution {
+    bool  firstEmitted = false;    // a slot-1 emission occurred at the root
+    Move  firstMove = Move::none();
+    bool  firstSearched = false;   // slot-1 move had a child search (not pruned)
+    u64   firstChildNodes = 0;     // shadow do_moves inside the slot-1 child search
+    Value firstValue = VALUE_NONE;  // parent-relative value the slot-1 search returned
+    u64   firstStartNodes = 0;     // internal: shadow counter at slot-1 emission
+    bool  firstNoted = false;      // internal: child return already recorded
+    bool  cutoffSeen = false;      // root move loop ended with a cutoff (break)
+    Move  cutoffMove = Move::none();
+    Value cutoffValue = VALUE_NONE;
+    bool  cutoffByFirst = false;   // the cutoff happened on the slot-1 move
+};
+
 struct ProbeResult {
     enum class StopReason : u8 { None = 0, Budget = 1, UserStop = 2 };
 
@@ -67,6 +84,11 @@ struct ProbeResult {
     // per-move prunes, which is exactly the live slot-1 semantics). False for
     // unforced replays and for replays that returned before the move loop.
     bool forced_slot1 = false;
+
+    // Measurement-A attribution for this probe's root node (schema
+    // internal-counterfactual/3): slot-1 move outcome plus final move-loop
+    // cutoff attribution. Populated by replay_impl's AttributionScope.
+    MoveAttribution attribution;
 };
 
 // CandidateStage mirrors the REAL MovePicker emission classes observed by
@@ -312,6 +334,90 @@ class DecisionCaptureScope {
     DecisionCaptureScope& operator=(const DecisionCaptureScope&) = delete;
 };
 
+// ---------------------------------------------------------------------------
+// Measurement-A attribution channel (schema internal-counterfactual/3). One
+// scope is armed around EVERY whole-node replay (baseline and forced): it
+// records, for the replay-root node only, (1) the first emitted (slot-1)
+// move -- the forced candidate in forced replays, the natural ordinal-0 move
+// in the baseline replay -- whether it was actually searched (passed the
+// per-move prunes), the shadow do_moves spent by its child search, the
+// parent-relative value it returned, and whether the node's final move-loop
+// cutoff happened on that move; and (2) the final cutoff attribution: which
+// move cut off (value >= beta) in the root's own move loop and its value.
+// Rows whose root returns without a move-loop cutoff (pre-loop cutoffs,
+// fail lows, stop) carry empty cutoff fields. gProbe.fail_high remains the
+// whole-node outcome; these fields are the per-candidate attribution the
+// q/e studies need (which candidate cut off, at what natural ordinal, and
+// what its slot-1 subtree cost and returned value were).
+// ---------------------------------------------------------------------------
+// Control state for the attribution channel (TLS, armed exactly like the
+// decision-capture / force-next channels and bound to the replay-root frame
+// token by research_frame_enter()).
+inline thread_local bool gAttrArmed = false;
+inline thread_local Key  gAttrPosKey = 0;
+inline thread_local int  gAttrPly = -1;
+inline thread_local u64  gAttrToken = 0;
+inline thread_local MoveAttribution gAttr;
+
+class AttributionScope {
+   public:
+    AttributionScope(Key posKey, int ply) {
+        assert(!gAttrArmed);
+        gAttr      = MoveAttribution{};
+        gAttrArmed = true;
+        gAttrPosKey = posKey;
+        gAttrPly    = ply;
+        gAttrToken  = 0;
+    }
+    ~AttributionScope() {
+        gAttrArmed = false;
+        gAttr      = MoveAttribution{};
+    }
+
+    AttributionScope(const AttributionScope&)            = delete;
+    AttributionScope& operator=(const AttributionScope&) = delete;
+};
+
+// Fired by the main move loop right after an emission is accepted at the
+// root (slot-1 emission: the forced move in forced replays, the natural
+// ordinal-0 move in the baseline). Cheap no-op when unarmed or not at the
+// armed node.
+inline void probe_attribution_emission(Key posKey, int ply, Move move, u64 nodes) {
+    if (!gAttrArmed || gAttrPosKey != posKey || gAttrPly != ply || gAttrToken != gResearchCurFrame
+        || gAttr.firstEmitted)
+        return;
+    gAttr.firstEmitted   = true;
+    gAttr.firstMove      = move;
+    gAttr.firstStartNodes = nodes;
+}
+
+// Fired right after a move's child search returned and the move was undone
+// (value is the parent-relative result that the move loop uses for its
+// cutoff check). Records the slot-1 move's own subtree cost and value when
+// this emission is the recorded first move.
+inline void probe_attribution_child_done(Key posKey, int ply, Move move, Value value,
+                                         u64 endNodes) {
+    if (!gAttrArmed || gAttrPosKey != posKey || gAttrPly != ply || gAttrToken != gResearchCurFrame
+        || !gAttr.firstEmitted || gAttr.firstNoted || move != gAttr.firstMove)
+        return;
+    gAttr.firstNoted      = true;
+    gAttr.firstSearched   = true;
+    gAttr.firstChildNodes = endNodes >= gAttr.firstStartNodes ? endNodes - gAttr.firstStartNodes : 0;
+    gAttr.firstValue      = value;
+}
+
+// Fired right before the move loop's cutoff break (value >= beta at the
+// root). Records the final cutoff move and whether it was the slot-1 move.
+inline void probe_attribution_cutoff(Key posKey, int ply, Move move, Value value) {
+    if (!gAttrArmed || gAttrPosKey != posKey || gAttrPly != ply || gAttrToken != gResearchCurFrame
+        || gAttr.cutoffSeen)
+        return;
+    gAttr.cutoffSeen    = true;
+    gAttr.cutoffMove    = move;
+    gAttr.cutoffValue   = value;
+    gAttr.cutoffByFirst = gAttr.firstSearched && move == gAttr.firstMove;
+}
+
 // Called at the top of every search() frame (right after the frame scope).
 // Binds a pending baseline-capture or force-next arm to this frame when it is
 // the first search frame entering the armed (posKey, ply) -- which by
@@ -324,6 +430,8 @@ inline void research_frame_enter(Key posKey, int ply) {
     if (gForceNext.armed && gForceNext.frameToken == 0 && gForceNext.posKey == posKey
         && gForceNext.ply == ply)
         gForceNext.frameToken = gResearchCurFrame;
+    if (gAttrArmed && gAttrToken == 0 && gAttrPosKey == posKey && gAttrPly == ply)
+        gAttrToken = gResearchCurFrame;
 }
 
 // Fired by the main move loop (search.cpp, POLICY_RESEARCH builds) on every
@@ -590,7 +698,7 @@ class IsolatedWorker {
 // search stack, and a re-synchronized worker snapshot, eliminating
 // candidate-order contamination.
 //
-// The force-next estimand (plan §10.6, internal-counterfactual/2):
+// The force-next estimand (plan §10.6, internal-counterfactual/3):
 // replay_node_forced() re-runs the whole decision node's search from its
 // captured entry state with the candidate armed as slot-1 move (see
 // ForceNextScope); the replay applies the node's exact step-1..step-13

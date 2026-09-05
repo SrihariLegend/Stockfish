@@ -1355,7 +1355,7 @@ bool run_sandbox_unit_tests(Engine& engine) {
 
         Research::config().nodeBudget = 200000;
 
-        // Entry-hook invocation (internal-counterfactual/2 signature): the
+        // Entry-hook invocation (internal-counterfactual/3 signature): the
         // orchestrator samples the node at its search entry, replays it
         // (baseline, capture-armed), and writes the decision row with the
         // captured decision-point metadata and full candidate enumeration.
@@ -1419,7 +1419,7 @@ bool run_sandbox_unit_tests(Engine& engine) {
                 const std::string line = content.substr(pos, eol - pos);
                 pos = eol + 1;
                 ++lineNo;
-                if (line.find("\"schema\":\"internal-counterfactual/2\"") == std::string::npos
+                if (line.find("\"schema\":\"internal-counterfactual/3\"") == std::string::npos
                     || line.find("\"type\":\"decision\"") == std::string::npos
                     || line.find("\"baseline\":{") == std::string::npos
                     || line.find("\"candidates\":[") == std::string::npos
@@ -1700,6 +1700,12 @@ ProbeResult CandidateProbeRunner::replay_impl(Move  forced,
 
     ResearchTTOverlay overlay(liveWorker.get_tt());
 
+    // Measurement-A attribution channel (schema internal-counterfactual/3):
+    // armed for every replay, baseline and forced, so both carry the slot-1
+    // and final-cutoff attribution of their root node.
+    AttributionScope attrScope(livePos.key(), liveSS->ply);
+
+    ProbeResult result;
     if (forced == Move::none())
     {
         // Baseline replay: arm the decision-point capture for this exact node
@@ -1707,16 +1713,22 @@ ProbeResult CandidateProbeRunner::replay_impl(Move  forced,
         // decision_capture_step() at its main move loop and the orchestrator
         // reads the result after this call returns.
         DecisionCaptureScope captureScope(livePos.key(), liveSS->ply);
-        return isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode,
-                                           overlay, nodeBudget);
+        result = isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode,
+                                             overlay, nodeBudget);
+    }
+    else
+    {
+        // Armed only for the duration of this synchronous replay; the live move
+        // loop consumes it at the matching (position key, ply) node. The baseline
+        // capture stays disarmed so forced replays never overwrite it.
+        ForceNextScope scope(livePos.key(), liveSS->ply, forced);
+        result = isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode,
+                                             overlay, nodeBudget);
     }
 
-    // Armed only for the duration of this synchronous replay; the live move
-    // loop consumes it at the matching (position key, ply) node. The baseline
-    // capture stays disarmed so forced replays never overwrite it.
-    ForceNextScope scope(livePos.key(), liveSS->ply, forced);
-    return isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode, overlay,
-                                       nodeBudget);
+    // Copy the attribution content before the scope teardown clears the TLS.
+    result.attribution = gAttr;
+    return result;
 }
 
 std::vector<CandidateFeature> enumerate_candidates(const Position&            pos,
@@ -1818,7 +1830,7 @@ std::vector<CandidateFeature> enumerate_candidates(const Position&            po
 namespace {
 
 // ---------------------------------------------------------------------------
-// JSON value formatting helpers for internal-counterfactual/2 decision rows.
+// JSON value formatting helpers for internal-counterfactual/3 decision rows.
 // Row STRUCTURE is declared here and in data-schema.md; the file/root/run
 // wrapper rows and caps live in InternalDatasetLog (research_log.cpp).
 // ---------------------------------------------------------------------------
@@ -1959,7 +1971,7 @@ LiveExitScope::~LiveExitScope() {
     if (Research::internal_log().active())
     {
         std::string row;
-        row += "{\"schema\":\"internal-counterfactual/2\",\"type\":\"node_exit\"";
+        row += "{\"schema\":\"internal-counterfactual/3\",\"type\":\"node_exit\"";
         row += ",\"root_key\":" + jnum(u64(e.rootKey));
         row += ",\"pos_key\":" + jnum(u64(e.posKey));
         row += ",\"ply\":" + jnum(i64(e.ply));
@@ -2045,6 +2057,56 @@ void live_oracle_tt_probe_diag(Key posKey, int ply, bool ttHit, Move ttMove, int
     row += ",\"rule50\":" + jnum(i64(rule50));
     row += "}";
     Research::internal_log().write_row(row, false);
+}
+
+// Measurement-A serialization helpers (schema internal-counterfactual/3).
+// attr_json: the slot-1 (first emitted) move attribution. attr_cutoff_json:
+// the final move-loop cutoff attribution, with the cutoff move's natural
+// ordinal resolved against the row's enumerated candidate list (a cutoff
+// move is always a legal emission of the same node, hence always found).
+inline std::string attr_json(const MoveAttribution& a, bool c960) {
+    std::string s;
+    s += "{\"emitted\":" + jbool(a.firstEmitted);
+    s += ",\"move\":" + (a.firstMove != Move::none()
+                             ? jstr(UCIEngine::move(a.firstMove, c960))
+                             : std::string("null"));
+    s += ",\"searched\":" + jbool(a.firstSearched);
+    if (a.firstSearched)
+    {
+        s += ",\"child_nodes\":" + jnum(u64(a.firstChildNodes));
+        s += ",\"value\":" + jvalue_or_null(a.firstValue, true);
+    }
+    else
+        s += ",\"child_nodes\":null,\"value\":null";
+    s += "}";
+    return s;
+}
+
+inline std::string attr_cutoff_json(const MoveAttribution&  a,
+                                    bool                     c960,
+                                    const std::vector<CandidateFeature>& candidates) {
+    std::string s;
+    int ordinal = -1;
+    if (a.cutoffSeen && a.cutoffMove != Move::none())
+        for (usize i = 0; i < candidates.size(); ++i)
+            if (candidates[i].move == a.cutoffMove)
+            {
+                ordinal = candidates[i].ordinal;
+                break;
+            }
+    s += "{\"cutoff_seen\":" + jbool(a.cutoffSeen);
+    s += ",\"cutoff_move\":" + (a.cutoffSeen && a.cutoffMove != Move::none()
+                                    ? jstr(UCIEngine::move(a.cutoffMove, c960))
+                                    : std::string("null"));
+    s += ",\"cutoff_ordinal\":" +
+         (a.cutoffSeen && ordinal >= 0 ? jnum(i64(ordinal)) : std::string("null"));
+    if (a.cutoffSeen)
+        s += ",\"cutoff_value\":" + jvalue_or_null(a.cutoffValue, true);
+    else
+        s += ",\"cutoff_value\":null";
+    s += ",\"cutoff_by_first\":" + jbool(a.cutoffByFirst);
+    s += "}";
+    return s;
 }
 
 void on_internal_node_counterfactual(Search::Worker& liveWorker,
@@ -2210,13 +2272,19 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     // One forced (slot-1 reorder) whole-node replay per selected candidate.
     // Every replay is fully isolated (fresh sync, clone, stack rebind, empty
     // TT overlay per candidate). Live stop is honored between probes; an
-    // abort drops the row (no partial rows).
+    // abort drops the row (no partial rows). gForceNextBufferPops is reset by
+    // each arm (ForceNextScope), so reading it right after each replay yields
+    // that replay's prefix-pop count (prefix moves re-searched after the
+    // forced candidate failed low).
     std::vector<ProbeResult> forced;
+    std::vector<int>         forcedPops;
     forced.reserve(sel.size());
+    forcedPops.reserve(sel.size());
     for (const auto& s : sel)
     {
         forced.push_back(
           runner.replay_node_forced(candidates[s.idx].move, alpha, beta, depth, cutNode, budget));
+        forcedPops.push_back(gForceNextBufferPops);
         if (liveStopped())
             return;
     }
@@ -2240,7 +2308,7 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     const u64 sampleId = Research::internal_log().next_sample_id();
     const bool c960 = pos.is_chess960();
     std::string row;
-    row += "{\"schema\":\"internal-counterfactual/2\",\"type\":\"decision\"";
+    row += "{\"schema\":\"internal-counterfactual/3\",\"type\":\"decision\"";
     row += ",\"root_key\":" + jnum(u64(rootKey));
     row += ",\"pos_key\":" + jnum(u64(pos.key()));
     row += ",\"fen\":" + jstr(pos.fen());
@@ -2280,6 +2348,8 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     row += ",\"fail_high\":" + (baseline.completed
                                       ? jbool(baseline.score >= beta)
                                       : std::string("null"));
+    row += ",\"first\":" + attr_json(baseline.attribution, c960);
+    row += ",\"cutoff\":" + attr_cutoff_json(baseline.attribution, c960, candidates);
     row += "}";
 
     row += ",\"candidates\":[";
@@ -2342,6 +2412,9 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
         row += ",\"forced_slot1\":" + jbool(pr.forced_slot1);
         row += ",\"fail_high\":" + (pr.completed ? jbool(pr.score >= beta)
                                                    : std::string("null"));
+        row += ",\"first\":" + attr_json(pr.attribution, c960);
+        row += ",\"cutoff\":" + attr_cutoff_json(pr.attribution, c960, candidates);
+        row += ",\"prefix_pops\":" + jnum(i64(k < forcedPops.size() ? forcedPops[k] : 0));
         row += "}";
     }
     row += "]";

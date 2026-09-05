@@ -457,7 +457,7 @@ void Recorder::on_run_end() {
 }
 
 // ---------------------------------------------------------------------------
-// InternalDatasetLog (internal-counterfactual/2, JSONL)
+// InternalDatasetLog (internal-counterfactual/3, JSONL)
 //
 // One self-contained dataset file per root. Row content is JSONL: numeric and
 // constrained string fields only (FEN and UCI move strings never contain
@@ -601,7 +601,7 @@ void InternalDatasetLog::on_root_search_start(u64 rootKey) {
     // run_start row: provenance + sampler configuration for this file.
     {
         std::string row;
-        row += "{\"schema\":\"internal-counterfactual/2\",\"type\":\"run_start\"";
+        row += "{\"schema\":\"internal-counterfactual/3\",\"type\":\"run_start\"";
         row += ",\"engine\":";
         json_quote_append(row, engineInfo_);
         row += ",\"seed\":" + json_num(seed_);
@@ -615,7 +615,7 @@ void InternalDatasetLog::on_root_search_start(u64 rootKey) {
     // root_start row: root identity + start position + collection targets.
     {
         std::string row;
-        row += "{\"schema\":\"internal-counterfactual/2\",\"type\":\"root_start\"";
+        row += "{\"schema\":\"internal-counterfactual/3\",\"type\":\"root_start\"";
         row += ",\"root_key\":" + json_num(rootKey_);
         row += ",\"target_depth\":" + json_num(u64(pendingDepth_));
         row += ",\"target_nodes\":" + json_num(pendingNodes_);
@@ -659,7 +659,7 @@ void InternalDatasetLog::on_root_search_end(u64                 rootKey,
         // pass); the loop guard is pure defensive.
         std::string row;
         const auto build = [&](u64 bytesClaim) {
-            row = "{\"schema\":\"internal-counterfactual/2\",\"type\":\"root_end\"";
+            row = "{\"schema\":\"internal-counterfactual/3\",\"type\":\"root_end\"";
             row += ",\"root_key\":" + json_num(rootKey_);
             row += ",\"rows\":" + json_num(rows_);
             row += ",\"bytes\":" + json_num(bytesClaim);
