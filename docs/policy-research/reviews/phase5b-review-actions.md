@@ -169,6 +169,21 @@ commits of this round:
    real breadth; stronger generalization claims wait on a representative
    corpus.
 
+## R8 — Shared-permutation interaction gap + final go/no-go — DONE
+
+Engine mode implemented and validated (`1870e277`; schema /4 battery with
+identity/control/reverse/rotation/swaps/cheapest-first orders, per-slot
+attribution); first corpus (4 roots, 5,282 rows, `8c994eea`): probes equal
+controls on 99.86% of rows (values 100%), identity equals baseline on
+99.7%, canonical reruns byte-identical to /3, zero censoring. Interaction
+gap small: cheapest-first shared order 9.8% pooled (24.2% per-row),
+per-row best shared permutation 29.4% vs scalar oracle 23.3% - scalar
+whole-node costs predict shared-order costs almost fully. Final
+plan-11.5 go/no-go (`evidence/p6-final-go-nogo.md`): GO (research-scoped)
+to Phases 7-9; NO-GO to Phase 10+ production until positive root-held-out
+capture on a broader corpus or gated-context viability + live wall-time
+experiment; Phases 11-13 unstarted.
+
 ## R7 — Learnability probe (root-held-out, abstaining, feature-only) — DONE
 
 Review recommendation ("the best next decisive result is a root-held-out,
