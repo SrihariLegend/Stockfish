@@ -240,6 +240,19 @@ Search::Stack* IsolatedWorker::clone_and_rebind_stack(const Search::Worker& live
     // Initialize ALL future forward frames up to the end of the stack array
     // so that selective extensions and quiescence searches to any ply have
     // valid sentinel pointers, correct ply values, and clean state.
+    //
+    // R2 fix (frame-token audit, docs/policy-research/reviews/): cutoffCnt of
+    // the sampled node's own (ss + 1) frame is NOT reset by the node itself
+    // (only (ss + 2) is zeroed at node entry); it accumulates the fail-high
+    // count of every child searched at the next ply under this node's parent
+    // -- including children of the node's EARLIER SIBLINGS. The main move
+    // loop reads (ss + 1)->cutoffCnt for LMR adjustments, so zeroing future
+    // frames here made the isolated replay's reductions diverge from the
+    // live continuation whenever the live node followed cutting siblings
+    // (observed as tt_hit-only baseline-vs-live node-count mismatches, live
+    // subtree up to hundreds of do_moves smaller). Mirror the live stack's
+    // cutoffCnt values instead; deeper future frames are re-zeroed by the
+    // replayed node's own (ss + 2) reset before any read.
     for (int idx = 7 + targetPly + 1; idx < MAX_PLY + 10; ++idx)
     {
         Search::Stack* future                 = &(*shadowStack)[idx];
@@ -254,7 +267,8 @@ Search::Stack* IsolatedWorker::clone_and_rebind_stack(const Search::Worker& live
         future->ttPv                          = false;
         future->ttHit                         = false;
         future->followPV                      = false;
-        future->cutoffCnt                     = 0;
+        future->cutoffCnt =
+          (liveSS + (idx - (7 + targetPly)))->cutoffCnt;  // mirror live sibling leftovers
         future->reduction                     = 0;
         future->excludedMove                  = Move::none();
         future->currentMove                   = Move::none();
@@ -1921,6 +1935,7 @@ void decision_capture_step(Search::Worker& worker, Position& pos, Search::Stack*
     c.staticEval         = staticEval;
     c.ttMove             = ttMove;
     c.decisionDepth      = decisionDepth;
+    c.nextPlyCutoffCnt   = (ss + 1)->cutoffCnt;
     const u64 shadowNow  = worker.get_nodes();
     c.decisionPointNodes = shadowNow >= gProbeStartNodes ? shadowNow - gProbeStartNodes : 0;
     c.candidates =
@@ -1957,6 +1972,79 @@ LiveExitScope::~LiveExitScope() {
         // when collection already ended (overflow/io failure).
         Research::internal_log().write_row(row, false);
     }
+
+    // R2 exit-replay diagnostic (bit 1 of PolicyResearchDiagMode): re-run one
+    // fresh baseline replay from the frame-exit state (fresh sync, clone, and
+    // overlay over the CURRENT base TT) using the entry window captured by
+    // the hook. Comparing (hook-time baseline nodes, live subtree nodes,
+    // exit-time replay nodes) tells us whether the replay-vs-live node-count
+    // mismatches are explained by state the live node's own subtree search
+    // changed before it returned (exit replay should then track the live
+    // count), by TT content differences at node entry, or by an oracle
+    // measurement boundary artifact (exit replay should track the hook-time
+    // baseline instead). Audit rows: never consume the decision-row cap.
+    if (Research::config().diagMode & 2)
+    {
+        CandidateProbeRunner runner(*worker_, *pos_, ss_);
+        const u64 budget = Research::effective_node_budget(Research::config());
+        const ProbeResult exitBase =
+          runner.replay_node(e.alpha, e.beta, Depth(e.entryDepth), e.cutNode, budget);
+        const DecisionCapture& ec = gDecisionCapture;  // content survives scope teardown
+        std::string row;
+        row += "{\"schema\":\"internal-counterfactual-diag/1\",\"type\":\"diag_exit_replay\"";
+        row += ",\"root_key\":" + jnum(u64(e.rootKey));
+        row += ",\"pos_key\":" + jnum(u64(e.posKey));
+        row += ",\"ply\":" + jnum(i64(e.ply));
+        row += ",\"entry_depth\":" + jnum(i64(e.entryDepth));
+        row += ",\"sample_id\":" + jnum(u64(e.sampleId));
+        row += ",\"baseline_nodes\":" + jnum(u64(e.hookBaselineNodes));
+        row += ",\"live_nodes\":" + jnum(u64(e.liveNodes));
+        row += ",\"exit_replay_nodes\":" + jnum(u64(exitBase.nodes));
+        row += ",\"exit_completed\":" + jbool(exitBase.completed);
+        row += ",\"exit_value\":" + jvalue_or_null(exitBase.score, exitBase.completed);
+        row += ",\"exit_tt_hit\":" + jbool(ec.fired && ec.ttHit);
+        if (ec.fired && ec.ttMove != Move::none())
+            row += ",\"exit_tt_move\":" + jstr(UCIEngine::move(ec.ttMove, pos_->is_chess960()));
+        else
+            row += ",\"exit_tt_move\":null";
+        row += ",\"exit_decision_point_nodes\":" +
+               jnum(u64(ec.fired ? ec.decisionPointNodes : 0));
+        row += "}";
+        Research::internal_log().write_row(row, false);
+    }
+}
+
+// R2 diagnostic (bit 0 of PolicyResearchDiagMode): see worker_snapshot.h.
+// No-ops unless the probed live frame is exactly the innermost tracked
+// sampled node (its own post-hook Step-4 TT probe); shadow frames never match
+// (frame tokens differ from the stored live token), so this dumps live state
+// only. Rows join decision rows by sample_id.
+void live_oracle_tt_probe_diag(Key posKey, int ply, bool ttHit, Move ttMove, int ttDepth,
+                               int ttBound, int ttValue, int ttEval, bool chess960,
+                               int rule50, int ss1CutoffCnt) {
+    if (!(Research::config().diagMode & 1) || gLiveOracleCount <= 0
+        || !Research::internal_log().active())
+        return;
+    LiveOracleEntry& top = gLiveOracle[gLiveOracleCount - 1];
+    if (top.posKey != posKey || top.ply != ply || top.frameToken != gResearchCurFrame)
+        return;
+    std::string row;
+    row += "{\"schema\":\"internal-counterfactual-diag/1\",\"type\":\"diag_live_tt\"";
+    row += ",\"root_key\":" + jnum(u64(top.rootKey));
+    row += ",\"sample_id\":" + jnum(u64(top.sampleId));
+    row += ",\"ss1_cutoff_cnt\":" + jnum(i64(ss1CutoffCnt));
+    row += ",\"tt_hit\":" + jbool(ttHit);
+    if (ttMove != Move::none())
+        row += ",\"tt_move\":" + jstr(UCIEngine::move(ttMove, chess960));
+    else
+        row += ",\"tt_move\":null";
+    row += ",\"tt_depth\":" + jnum(i64(ttDepth));
+    row += ",\"tt_bound\":" + jnum(i64(ttBound));
+    row += ",\"tt_value\":" + jnum(i64(ttValue));
+    row += ",\"tt_eval\":" + jnum(i64(ttEval));
+    row += ",\"rule50\":" + jnum(i64(rule50));
+    row += "}";
+    Research::internal_log().write_row(row, false);
 }
 
 void on_internal_node_counterfactual(Search::Worker& liveWorker,
@@ -2184,6 +2272,7 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     // pre-loop work; decision_point_nodes splits off the pre-loop cost).
     row += ",\"baseline\":{\"nodes\":" + jnum(u64(baseline.nodes));
     row += ",\"decision_point_nodes\":" + jnum(u64(cap.decisionPointNodes));
+    row += ",\"ss1_cutoff_cnt\":" + jnum(i64(cap.nextPlyCutoffCnt));
     row += ",\"completed\":" + jbool(baseline.completed);
     row += ",\"stop\":" + jstr(stop_name(baseline.stopReason));
     row += ",\"budget_hit\":" + jbool(baseline.hit_budget);
@@ -2267,7 +2356,7 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
         // live subtree (determinism check; TT-eviction/budget truncation can
         // still make them differ).
         Research::live_oracle_push(pos.key(), ss->ply, int(depth), h, sampleId, rootKey,
-                                   liveNodesBefore);
+                                   liveNodesBefore, alpha, beta, cutNode, baseline.nodes);
     }
 
     // Non-perturbation invariants (also covered by unit tests): the live

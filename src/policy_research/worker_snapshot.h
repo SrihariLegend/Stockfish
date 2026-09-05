@@ -284,6 +284,10 @@ struct DecisionCapture {
     Move  ttMove = Move::none();
     int   decisionDepth = 0;   // search depth at the decision point (post-IIR)
     u64   decisionPointNodes = 0;  // shadow do_moves spent up to the decision point
+    // Fail-high count accumulated on this node's (ss + 1) frame (children of
+    // this node's earlier siblings included). Mirrored from the live stack at
+    // clone_and_rebind_stack; recorded to verify replay-vs-live parity (R2).
+    int   nextPlyCutoffCnt = 0;
     std::vector<CandidateFeature> candidates;  // full legal denominator, emission order
 };
 
@@ -348,6 +352,12 @@ struct LiveOracleEntry {
     Key  rootKey = 0;
     u64  entryNodes = 0;
     u64  liveNodes = 0;  // filled at pop: live do_moves from entry to exit
+    // Entry window/context captured by the hook and used to re-run a fresh
+    // baseline replay at frame exit (R2 exit-replay diagnostic):
+    Value alpha = VALUE_NONE;
+    Value beta = VALUE_NONE;
+    bool  cutNode = false;
+    u64   hookBaselineNodes = 0;  // hook-time baseline replay node count
 };
 
 // One slot per ply plus slack: sampled live frames nest along the search
@@ -358,13 +368,31 @@ struct LiveOracleEntry {
 inline thread_local std::array<LiveOracleEntry, MAX_PLY + 4> gLiveOracle{};
 inline thread_local int                                      gLiveOracleCount = 0;
 
+// True when at least one sampled live node is currently being tracked (i.e.
+// the running frame is inside the live subtree of a sampled node). Cheap gate
+// for per-node diagnostics; only live frames push, so shadow-probe frames see
+// the same count as the live path they re-execute.
+inline bool live_oracle_tracked() { return gLiveOracleCount > 0; }
+
+// R2 diagnostic (bit 0 of PolicyResearchDiagMode): called from the live
+// search right after the sampled node's own Step-4 TT probe; writes a
+// diag_live_tt row when the probed frame is exactly the tracked sampled
+// node's frame, so the live TT probe result can be compared with the baseline
+// replay's decision-capture ttHit/ttMove recorded for the same node entry.
+void live_oracle_tt_probe_diag(Key posKey, int ply, bool ttHit, Move ttMove, int ttDepth,
+                               int ttBound, int ttValue, int ttEval, bool chess960,
+                               int rule50, int ss1CutoffCnt);
+
 inline bool live_oracle_push(Key posKey, int ply, int entryDepth, u64 sampleSeed, u64 sampleId,
-                             Key rootKey, u64 entryNodes) {
+                             Key rootKey, u64 entryNodes, Value alpha, Value beta, bool cutNode,
+                             u64 hookBaselineNodes) {
     if (gLiveOracleCount >= int(gLiveOracle.size()))
         return false;
     gLiveOracle[gLiveOracleCount++] =
-      LiveOracleEntry{posKey, ply, entryDepth, sampleSeed, sampleId, gResearchCurFrame, rootKey,
-                      entryNodes, 0};
+      LiveOracleEntry{posKey,       ply,          entryDepth,   sampleSeed,
+                      sampleId,     gResearchCurFrame, rootKey, entryNodes,
+                      0,            alpha,        beta,         cutNode,
+                      hookBaselineNodes};
     return true;
 }
 

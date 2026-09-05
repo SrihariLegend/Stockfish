@@ -76,6 +76,15 @@ struct Config {
     bool         disableFailHighReduction = false; // PolicyResearchDisableFailHighReduction (fixed nominal depth).
     int          ablationDepth = 0;        // PolicyResearchAblationDepth (0 = use forceFirstDepth).
     bool         preservePreviousPV = false; // PolicyResearchPreservePreviousPV (keep baseline lead move's previousPV).
+    // R2 diagnostics (PolicyResearchDiagMode, bitmask; default 0 = off).
+    // bit 0: dump the sampled node's live Step-4 TT probe (diag_live_tt rows),
+    //        to compare against the baseline replay's decision-capture ttHit/
+    //        ttMove for the same node entry.
+    // bit 1: at the sampled node's frame exit, re-run one fresh baseline
+    //        replay from the exit-time state (diag_exit_replay rows) so the
+    //        live subtree cost can be compared with both the hook-time
+    //        baseline replay and an exit-time replay.
+    int          diagMode = 0;              // PolicyResearchDiagMode.
 };
 
 // Finite internal guard rail for internal counterfactual probing (Phase 5).
@@ -179,6 +188,11 @@ inline void register_options(OptionsMap& options) {
 
     options.add("PolicyResearchSeed", Option(0, 0, 2147483647, [](const Option& o) {
                     config().seed = static_cast<u64>(static_cast<int>(o));
+                    return std::nullopt;
+                }));
+
+    options.add("PolicyResearchDiagMode", Option(0, 0, 3, [](const Option& o) {
+                    config().diagMode = static_cast<int>(o);
                     return std::nullopt;
                 }));
 

@@ -1125,6 +1125,20 @@ Value Search::Worker::search(Position& pos,
     ss->ttPv     = excludedMove ? ss->ttPv : PvNode || (ttHit && ttData.is_pv);
     ttCapture    = ttData.move && pos.capture_stage(ttData.move);
 
+#ifdef POLICY_RESEARCH
+    // R2 diagnostic (bit 0 of PolicyResearchDiagMode): dump this frame's own
+    // live Step-4 TT probe when it is exactly a tracked sampled node, so the
+    // live probe result can be compared with the baseline replay's decision
+    // capture for the same node entry. Cheap no-op when unarmed (the oracle
+    // is only non-empty inside live subtrees of sampled nodes).
+    if (Research::live_oracle_tracked())
+        Research::live_oracle_tt_probe_diag(posKey, ss->ply, ttHit, ttData.move,
+                                            int(ttData.depth), int(ttData.bound),
+                                            int(ttData.value), int(ttData.eval),
+                                            pos.is_chess960(), pos.state()->rule50,
+                                            (ss + 1)->cutoffCnt);
+#endif
+
     // Step 5. Static evaluation of the position
     Value unadjustedStaticEval = VALUE_NONE;
 
