@@ -7,6 +7,29 @@ nondeterminism root-cause fix (see "Determinism root cause and fix" below).
 The earlier seed-0 dataset shipped at `fe046e92` measured forced-probe rows
 corrupted by the stale-prefix-pop defect and is superseded by this file set.
 
+**Supersession note (post-`08cb5cdb` / post-`5da89d37`):** the corpora in
+this directory were collected on the engine BEFORE two later fixes, so their
+replay node counts and all node-cost tables below are pre-fix numbers:
+
+1. `08cb5cdb` root-caused the residual baseline-vs-live subtree mismatches
+   ("warm-TT artifacts" below) to missing sibling fail-high context: a
+   node's move loop reads `(ss+1)->cutoffCnt` (children of earlier siblings
+   included) for LMR adjustments, and the replay's future-frame zeroing made
+   every replay diverge from the live continuation whenever the live node
+   followed cutting siblings (tt_hit cut nodes; live counts up to hundreds of
+   do_moves smaller). The frame rebind now mirrors the live future-frame
+   `cutoffCnt`, and replay node counts equal live subtree counts on every
+   row (860/860 in the fix-validation smoke run; per-row parity field
+   `baseline.ss1_cutoff_cnt`). Node-cost comparisons from these /2 files are
+   therefore approximate (pre-fix replays were marginally cheaper on the
+   affected rows); outcome classifications (FH stability) are unaffected.
+2. `5da89d37` bumped the dataset schema to `internal-counterfactual/3` and
+   added the measurement-A attribution (`first`/`cutoff` per replay,
+   `prefix_pops`), which this file set does not contain.
+
+Regeneration of the corpus set under schema /3 on the fixed engine is the
+next evidence milestone (see `docs/policy-research/overview.md`).
+
 ## Run provenance
 
 - Engine: research build at `c186fc9e` + remediation commit `bdd94d32`
@@ -79,15 +102,17 @@ unchanged (453,169).
   lifecycle rows at ply > 0).
 - Decision/node_exit join: one `node_exit` per `decision` on the per-visit
   `sample_id` (monotonic 1..N per run). The former 5-field identity key
-  collides for 120/1,356 root-A visits (repeated visits of the same node at
-  equal depth), which is why `sample_id` was added.
+  collides for 120/1,356 root-A identity keys (305 visits, i.e. 185
+  duplicate occurrences from repeated visits of the same node at equal
+  depth), which is why `sample_id` was added.
 - Live-vs-replay node determinism (baseline nodes vs live subtree from the
-  oracle): root A 98.3% exact (max |delta| 18; residual deltas are
-  warm-TT artifacts, |delta| <= 1 in 21/23 cases); root B (transposition-rich
-  QGD line) 94.6-94.9% exact with deltas up to a few hundred, all on
-  `tt_hit` nodes where the warm live TT cuts the subtree the cold replay must
-  re-derive (documented divergence; the oracle audit row exists for this
-  comparison).
+  oracle): root A 98.3% exact (max |delta| 18), root B 94.6-94.9% exact
+  with deltas up to a few hundred, all on `tt_hit` nodes. **Post-`08cb5cdb`
+  this is understood and fixed**: the deltas were sibling `(ss+1)->cutoffCnt`
+  LMR context the replay's zero-initialized future frames lacked (the live
+  continuation had it), not warm-TT artifacts; the rebind now mirrors the
+  live values and replay node counts match the live subtree on every row.
+  The tables below predate that fix (see the supersession note above).
 
 ## Ordinal outcome shape under genuine slot-1 reorder (root A, seed 0, depth 8)
 
@@ -148,10 +173,13 @@ always, exactly what prefix-preserving reorder semantics predicts.
 ## Files
 
 - `seed_a1.jsonl.gz` — root A, seed 0, depth 8: 1,356 decision + 1,356
-  node_exit rows + lifecycle rows (raw 13,367,786 bytes; gzip 803,095).
+  node_exit rows + lifecycle rows (raw 13,431,039 bytes; gzip 803,095).
   First line `run_start`, second `root_start`, last `root_end`;
   `root_end.rows == 1356`, `root_end.bytes` == decompressed size,
   `overflow == false`, `io_failed == false`.
 - `seed_a2.jsonl.gz` — root A, seed 1, depth 8 (1,356 rows).
 - `root_b_d8.jsonl.gz` — root B, seed 0, depth 8 (1,470 rows).
 - `root_b_d10.jsonl.gz` — root B, seed 0, depth 10 (2,744 rows).
+
+All four files carry schema `internal-counterfactual/2` (pre-fix replay node
+counts; see the supersession note above).

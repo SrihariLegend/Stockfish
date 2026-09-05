@@ -242,7 +242,18 @@ For fixed-depth, single-thread runs of one executable:
 
 ---
 
-# Internal counterfactual dataset (JSONL, schema `internal-counterfactual/2`)
+# Internal counterfactual dataset (JSONL, schema `internal-counterfactual/3`)
+
+Version 3 adds the measurement-A per-candidate attribution (slot-1 outcome +
+final move-loop cutoff attribution on every replay, `baseline.first`,
+`baseline.cutoff`, per-probe `first`/`cutoff`/`prefix_pops`) and the
+`baseline.ss1_cutoff_cnt` field (replay/live stack-state parity check), and
+fixes the replay/live determinism gap documented under node_exit (sibling
+(ss+1)->cutoffCnt mirroring). Version 2 corpora remain readable under their
+own schema; consumers must treat pre-`08cb5cdb` forced-probe evidence
+(especially `fe046e92`) as superseded and pre-`08cb5cdb` node-count evidence
+as pre-fix (replays lacked the sibling fail-high context, so replay node
+counts diverged from live subtrees on tt_hit cut nodes).
 
 Separate versioned artifact from the binary recorder above. Produced by the
 phase-5 internal counterfactual instrument (`PolicyResearchMode=internal_counterfactual`),
@@ -263,21 +274,21 @@ audit row, written later when that live node's search frame exits.
 
 ### run_start
 ```json
-{"schema":"internal-counterfactual/2","type":"run_start",
+{"schema":"internal-counterfactual/3","type":"run_start",
  "engine":"<engine_info(true)>","seed":<u64>,"sample_rate":<0<r<=1 double>,
  "top_k":<int>,"node_budget":<u64>,"max_records":<u32 effective cap>}
 ```
 
 ### root_start
 ```json
-{"schema":"internal-counterfactual/2","type":"root_start",
+{"schema":"internal-counterfactual/3","type":"root_start",
  "root_key":<u64>,"target_depth":<int, 0 for fixed-node go>,
  "target_nodes":<u64, 0 for fixed-depth go>,"fen":"<root FEN>"}
 ```
 
 ### root_end
 ```json
-{"schema":"internal-counterfactual/2","type":"root_end","root_key":<u64>,
+{"schema":"internal-counterfactual/3","type":"root_end","root_key":<u64>,
  "rows":<u64 decision rows in file>,"bytes":<u64 total file bytes incl. lifecycle>,
  "overflow":<bool>,"io_failed":<bool>,"target_depth":<int>,"achieved_depth":<int>,
  "target_nodes":<u64>,"searched_nodes":<u64>,"completed":<bool>,
@@ -336,9 +347,11 @@ entry is the estimand vehicle, and its pre-loop work is observable.
 
 ### baseline
 ```json
-{"nodes":<u64>,"decision_point_nodes":<u64>,"completed":<bool>,
- "stop":"none|budget|user","budget_hit":<bool>,"value":<int|null>,
- "fail_high":<bool|null>}
+{"nodes":<u64>,"decision_point_nodes":<u64>,"ss1_cutoff_cnt":<int>,
+ "completed":<bool>,"stop":"none|budget|user","budget_hit":<bool>,
+ "value":<int|null>,"fail_high":<bool|null>,
+ "first":<measurement-A slot-1 attribution>,
+ "cutoff":<final-cutoff attribution>}
 ```
 Unforced whole-node replay of the same node from its true entry state
 (measurement-B reference; ordinal-0 forced replay is bit-identical).
@@ -347,6 +360,48 @@ all strictly below the target node); `decision_point_nodes` splits off the
 replay-relative do_moves spent before the main move loop head
 (`0 <= decision_point_nodes <= nodes`). `value` null iff the replay was
 censored or stopped; `fail_high` null under the same conditions.
+`ss1_cutoff_cnt` is the fail-high count the replay's own move loop observed
+on its `(ss + 1)` frame at the decision point (mirrored from the live stack
+by the frame rebind; equals the live value on every row by construction
+post-`08cb5cdb`). `first`/`cutoff` are the measurement-A attribution objects
+described under the next heading.
+
+### Measurement-A attribution (schema /3; present on baseline and every probe)
+
+`probe.fail_high` is the whole reordered node's final outcome; it does NOT by
+itself prove the forced candidate cut off. The `first` object describes the
+node's slot-1 emission -- the forced candidate in forced replays, the natural
+ordinal-0 move in the baseline replay -- and the `cutoff` object describes
+the final move-loop cutoff:
+```json
+"first":{"emitted":<bool>,"move":"<uci|null>","searched":<bool>,
+         "child_nodes":<u64|null>,"value":<int|null>}
+"cutoff":{"cutoff_seen":<bool>,"cutoff_move":"<uci|null>",
+          "cutoff_ordinal":<int|null>,"cutoff_value":<int|null>,
+          "cutoff_by_first":<bool>}
+```
+- `first.emitted`: the root's move loop accepted a slot-1 emission (always
+true for kept rows, which require the move loop).
+- `first.searched`: the slot-1 move passed the ordinary per-move prunes and
+its child search ran; a pruned slot-1 candidate is emitted-but-not-searched
+(that IS its slot-1 outcome).
+- `first.child_nodes` (non-null iff searched): shadow do_moves from the
+slot-1 emission through its child search (includes the move's own do_move
+and any singular-extension verification work, matching the attempt-logger
+convention). `first.value`: the parent-relative value the slot-1 child
+search returned (the value the move loop then used for its cutoff check).
+- `cutoff.cutoff_seen`: true only when the root's own move loop ended in a
+cutoff (`value >= beta` break), the dominant fail-high path. Fail highs
+produced before/outside the move loop (TT cutoffs, razor/futility/ProbCut
+returns) leave `cutoff_seen == false` with a null cutoff move; they remain
+distinguishable from fail lows via `fail_high == true`.
+- `cutoff.cutoff_move`/`cutoff_ordinal`: which legal candidate cut off and
+its natural MovePicker ordinal (resolved against the row's `candidates`).
+- `cutoff.cutoff_by_first`: the cutoff happened on the slot-1 move itself,
+i.e. the forced candidate (or the natural lead move in the baseline)
+actually proved the bound. The whole-node `fail_high` can hold while
+`cutoff_by_first == false` (the slot-1 move failed low and a later move --
+possibly a re-searched prefix/suffix emission -- produced the cutoff).
 
 ### candidates
 Full legal denominator in exact MovePicker emission order, ordinal = search-
@@ -364,16 +419,21 @@ pawn/continuation/low-ply history; low-ply history only below
 `LOW_PLY_HISTORY_SIZE`). `see_bucket` is the SEE bucket of the stage
 (−1/0/+1 for see < 0 / ~0 / > 0). `prob` is the **marginal inclusion
 probability** of the candidate in the selection: 1.0 for probe-all members and
-top-K members, 2/(N−K) for the two hash-sampled members (1.0 when only one
-member exists), 0.0 for unselected candidates. `selected` marks the members
-actually replayed this row.
+top-K members, 2/(N−K) for every member of the hash-sampled rest when `N > 8`
+(1.0 when only one rest member exists). Every rest member carries its
+positive marginal probability -- including members that were not drawn -- so
+Hájek/HT estimation with the known rest size can use every row; there is no
+`prob == 0` row content. `selected` marks the members actually replayed this
+row.
 
 ### probes
 One entry per executed forced replay (baseline excluded), in selection order:
 ```json
 {"move":"<uci>","prob":<double>,"nodes":<u64>,"completed":<bool>,
  "stop":"none|budget|user","budget_hit":<bool>,
- "value":<int|null>,"forced_slot1":<bool>,"fail_high":<bool|null>}
+ "value":<int|null>,"forced_slot1":<bool>,"fail_high":<bool|null>,
+ "first":<measurement-A slot-1 attribution>,
+ "cutoff":<final-cutoff attribution>,"prefix_pops":<int>}
 ```
 Each forced replay runs the whole node from its true entry with the candidate
 emitted as slot 1 (force-next reorder: the candidate is searched first; every
@@ -383,11 +443,17 @@ re-searched after the forced move fails low — prefix-preserving semantics).
 iff the replay reached the main move loop and consumed the force-next arm.
 Censored probes (budget or live stop) carry `value == null` and
 `fail_high == null`. Rows whose every probe has `forced_slot1 == false` are
-degenerate and are dropped, never written.
+degenerate and are dropped, never written. `first` describes the forced
+candidate's own slot-1 outcome; `cutoff` the final move-loop cutoff with
+`cutoff.cutoff_by_first == true` iff the forced candidate itself cut off
+(see the measurement-A heading above). `prefix_pops` counts the buffered
+prefix moves the node re-searched after the forced candidate failed low
+(0 when the candidate cut off, when no natural emission preceded it, or when
+the node returned before the move loop).
 
 ### node_exit (audit; one per recorded decision)
 ```json
-{"schema":"internal-counterfactual/2","type":"node_exit","root_key":<u64>,
+{"schema":"internal-counterfactual/3","type":"node_exit","root_key":<u64>,
  "pos_key":<u64>,"ply":<int>,"entry_depth":<int>,"sample_seed":<u64>,
  "sample_id":<u64>,"live_subtree_nodes":<u64>}
 ```
@@ -396,8 +462,25 @@ Written by `LiveExitScope` when the recorded live node's search frame exits
 join `node_exit` to `decision` on `sample_id` within the file's root (one
 sample id per decision row; ids are unique per run and repeated visits never
 collide — the `(pos_key, ply, entry_depth, sample_seed)` identity alone can
-collide when the same node is visited twice at equal depth). It records the
-real live subtree node count so live-vs-replay cost can be validated.
+collide when the same node is visited more than once at equal depth (e.g. 120
+identity keys covering 305 root-A visits). It records the real live subtree
+node count so live-vs-replay cost can be validated.
+
+**Live-vs-replay determinism (post-`08cb5cdb`):** the baseline replay node
+count matches the live subtree node count on every row. The pre-fix
+mismatches (observed only on `tt_hit` nodes; live counts up to hundreds of
+do_moves smaller) were NOT warm-vs-cold TT artifacts: a node's move loop
+reads `(ss+1)->cutoffCnt` for LMR adjustments, and that frame accumulates the
+fail-high count of every child searched at the next ply under the node's
+parent — including children of the node's EARLIER SIBLINGS — while only
+`(ss+2)` is zeroed at node entry. The frame rebind zero-initialized future
+frames, so replays ran with `cutoffCnt == 0` while the live node saw the
+sibling leftover, shifting LMR depths whenever the node followed cutting
+siblings (concentrated on cut/tt_hit nodes, matching the old evidence
+pattern). `clone_and_rebind_stack` now mirrors the live future-frame
+`cutoffCnt` values (deeper frames are re-zeroed by the replayed node's own
+`(ss+2)` reset before any read), and `baseline.ss1_cutoff_cnt` makes the
+parity verifiable per row.
 Like other non-decision rows it bypasses the decision cap, but it only exists
 for recorded decisions (a skipped decision never pushes the oracle).
 
@@ -414,7 +497,7 @@ emissions at probability 1 plus one/two marginal candidate(s) at
 ## Validation rules (decoder/tests)
 
 - Line 1 `run_start`, line 2 `root_start`, last line `root_end`; type sequence
-  otherwise free, all rows carry `schema == "internal-counterfactual/2"`.
+  otherwise free, all rows carry `schema == "internal-counterfactual/3"`.
 - `root_end.rows` equals the number of `decision` rows in the file;
   `root_end.bytes` equals the file size; `root_end.overflow`/`io_failed`
   consistent with row presence and diagnostics; `root_end` targets
