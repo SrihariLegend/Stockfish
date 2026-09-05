@@ -104,21 +104,20 @@ the whole node and the candidate's own subtree; analysis scripts in the Phase
 - README "warm TT artifacts" explanation replaced with the R2 root-cause
   narrative (supersession note marks the /2 corpora pre-fix for node counts).
 
-## Vision / Phase-6 staging — PRELIMINARY GO (corrected /3 evidence)
+## Remaining / next steps (vision recommendations)
 
-The corrected /3 measurements support the adaptive-selection hypothesis
-with honest magnitudes: blind promotion costs +22.6/+25.9/+29.5% of
-AGGREGATE nodes at ordinals 1-3 (ratio-of-sums; the 2.19/2.29/2.40 mean-of-
-row-ratios quoted in the first v3 write-ups overstate aggregate cost by
-overweighting tiny subtrees and must not be used as the cost multiplier),
-while the classification-preserving local oracle still saves 19-30% of
-baseline nodes per root (12.75% pooled under exact-value equivalence) —
-consistent across 12 separately executed root positions. Measurement A
-shows the causal core: natural order cuts on its ordinal-0 move in ~87% of
-move-loop cutoffs, and a forced ordinal-1..3 candidate proves the bound on
-only 28.0%/18.6%/12.7% of rows after a full unreduced slot-1 search.
-The universal context-conditioned proof-scheduler endpoint remains the
-target; the decisive Phase-6 question is what share of the oracle gap a
-learnable entry-state policy can realize (q/e study), whether top-K
-interactions preserve the local savings, and whether inference cost stays
-sub-MovePicker-scale.
+Completed this round: review-findings fixes (aggregate-cost correction,
+censored-probe re-collection at budget 5000, statistical wording) in
+`45b0d177`; Phase 6.2 explanatory policy study in `89853d91` (q/e
+decomposition: the oracle is dominated by direct whole-node cost, not
+cutoff probability; at most ~25% of the 24% oracle is q/e-attributable;
+per-invocation economics and the gate + stratified-scorer shape).
+
+Next:
+1. Implement the plan §11.3 shared-permutation interaction-gap mode
+   (design spec: `evidence/p6-interaction/DESIGN.md`), then collect the
+   first p6-interaction corpus and produce the plan §11.5 go/no-go report.
+2. Broaden the corpus: real middlegame/endgame roots, more declared seeds,
+   tail Hájek/HT estimates with known denominators.
+3. Learnability probe: root-held-out predictor over entry-state features
+   before any neural work (Phases 7-13 only after the go/no-go clears).
