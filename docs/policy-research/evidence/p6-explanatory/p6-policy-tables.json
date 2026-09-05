@@ -1,0 +1,614 @@
+{
+ "docs/policy-research/evidence/p5-m2m3-reorder-v3/root_b_d8.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 14127,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 14127,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 14127,
+   "fh_to_fl_rows": 7,
+   "fl_to_fh_rows": 26,
+   "later_share_pct": 25.034013605442176,
+   "policy_nodes": 10137,
+   "save_pct": 28.243788490125286
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 14127,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 23.12925170068027,
+   "policy_nodes": 10747,
+   "save_pct": 23.9258158136901
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 14127,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 13.537414965986395,
+   "policy_nodes": 12278,
+   "save_pct": 13.088412260210946
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 14127,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 29,
+   "later_share_pct": 39.72789115646258,
+   "policy_nodes": 13333,
+   "save_pct": 5.620443123097618
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 14127,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 29,
+   "later_share_pct": 39.72789115646258,
+   "policy_nodes": 13892,
+   "save_pct": 1.663481276987333
+  },
+  "rows": 1470
+ },
+ "docs/policy-research/evidence/p5-m2m3-reorder-v3/seed_a1.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 13038,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 13038,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 13038,
+   "fh_to_fl_rows": 9,
+   "fl_to_fh_rows": 11,
+   "later_share_pct": 28.613569321533923,
+   "policy_nodes": 9860,
+   "save_pct": 24.374904126399755
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 13038,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 27.43362831858407,
+   "policy_nodes": 10544,
+   "save_pct": 19.128700720969473
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 13038,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 12.684365781710914,
+   "policy_nodes": 11867,
+   "save_pct": 8.981438870992486
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 13038,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 13,
+   "later_share_pct": 42.0353982300885,
+   "policy_nodes": 12548,
+   "save_pct": 3.7582451296211072
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 13038,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 13,
+   "later_share_pct": 42.0353982300885,
+   "policy_nodes": 13369,
+   "save_pct": -2.538732934499155
+  },
+  "rows": 1356
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b10_sicil-nf3.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 12389,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 12389,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 12389,
+   "fh_to_fl_rows": 7,
+   "fl_to_fh_rows": 19,
+   "later_share_pct": 29.275808936825886,
+   "policy_nodes": 8505,
+   "save_pct": 31.350391476309625
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 12389,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 27.426810477657934,
+   "policy_nodes": 8759,
+   "save_pct": 29.300185648559207
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 12389,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 14.175654853620955,
+   "policy_nodes": 10622,
+   "save_pct": 14.262652352893701
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 12389,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 31,
+   "later_share_pct": 37.82742681047766,
+   "policy_nodes": 11346,
+   "save_pct": 8.418758576156272
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 12389,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 31,
+   "later_share_pct": 37.82742681047766,
+   "policy_nodes": 11947,
+   "save_pct": 3.5676810073452248
+  },
+  "rows": 1298
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b1_ruy.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 16320,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 16320,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 16320,
+   "fh_to_fl_rows": 6,
+   "fl_to_fh_rows": 11,
+   "later_share_pct": 22.328767123287673,
+   "policy_nodes": 11812,
+   "save_pct": 27.622549019607845
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 16320,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 21.164383561643834,
+   "policy_nodes": 11930,
+   "save_pct": 26.899509803921575
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 16320,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 9.246575342465754,
+   "policy_nodes": 14343,
+   "save_pct": 12.11397058823529
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 16320,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 13,
+   "later_share_pct": 36.02739726027397,
+   "policy_nodes": 15968,
+   "save_pct": 2.1568627450980427
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 16320,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 13,
+   "later_share_pct": 36.02739726027397,
+   "policy_nodes": 16731,
+   "save_pct": -2.518382352941173
+  },
+  "rows": 1460
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b2_najdorf.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 8175,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 8175,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 8175,
+   "fh_to_fl_rows": 6,
+   "fl_to_fh_rows": 12,
+   "later_share_pct": 27.520661157024794,
+   "policy_nodes": 6127,
+   "save_pct": 25.051987767584095
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 8175,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 26.363636363636363,
+   "policy_nodes": 6324,
+   "save_pct": 22.642201834862384
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 8175,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 11.900826446280991,
+   "policy_nodes": 7460,
+   "save_pct": 8.746177370030583
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 8175,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 21,
+   "later_share_pct": 44.049586776859506,
+   "policy_nodes": 7511,
+   "save_pct": 8.12232415902141
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 8175,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 21,
+   "later_share_pct": 44.049586776859506,
+   "policy_nodes": 8014,
+   "save_pct": 1.969418960244651
+  },
+  "rows": 1210
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b3_qgd.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 10872,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 10872,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 10872,
+   "fh_to_fl_rows": 4,
+   "fl_to_fh_rows": 14,
+   "later_share_pct": 24.196787148594378,
+   "policy_nodes": 8110,
+   "save_pct": 25.404709345106692
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 10872,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 23.092369477911646,
+   "policy_nodes": 8491,
+   "save_pct": 21.90029433406917
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 10872,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 12.951807228915662,
+   "policy_nodes": 9337,
+   "save_pct": 14.118837380426786
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 10872,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 17,
+   "later_share_pct": 40.06024096385542,
+   "policy_nodes": 9836,
+   "save_pct": 9.52906548933039
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 10872,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 17,
+   "later_share_pct": 40.06024096385542,
+   "policy_nodes": 10309,
+   "save_pct": 5.178440029433407
+  },
+  "rows": 996
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b4_kid.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 9219,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 9219,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 9219,
+   "fh_to_fl_rows": 8,
+   "fl_to_fh_rows": 9,
+   "later_share_pct": 31.134751773049647,
+   "policy_nodes": 7127,
+   "save_pct": 22.6922659724482
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 9219,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 30.21276595744681,
+   "policy_nodes": 7430,
+   "save_pct": 19.405575442021917
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 9219,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 12.056737588652481,
+   "policy_nodes": 8362,
+   "save_pct": 9.2960190910077
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 9219,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 13,
+   "later_share_pct": 42.340425531914896,
+   "policy_nodes": 9436,
+   "save_pct": -2.3538344722854987
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 9219,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 13,
+   "later_share_pct": 42.340425531914896,
+   "policy_nodes": 10043,
+   "save_pct": -8.938062696604842
+  },
+  "rows": 1410
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b5_caro.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 5673,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 5673,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 5673,
+   "fh_to_fl_rows": 2,
+   "fl_to_fh_rows": 8,
+   "later_share_pct": 26.70299727520436,
+   "policy_nodes": 4377,
+   "save_pct": 22.845055526176626
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 5673,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 25.340599455040874,
+   "policy_nodes": 4448,
+   "save_pct": 21.59351313238146
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 5673,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 11.852861035422343,
+   "policy_nodes": 5140,
+   "save_pct": 9.39538163229332
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 5673,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 14,
+   "later_share_pct": 33.514986376021795,
+   "policy_nodes": 5298,
+   "save_pct": 6.610259122157592
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 5673,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 14,
+   "later_share_pct": 33.514986376021795,
+   "policy_nodes": 5518,
+   "save_pct": 2.732240437158473
+  },
+  "rows": 734
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b6_qga.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 31979,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 31979,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 31979,
+   "fh_to_fl_rows": 12,
+   "fl_to_fh_rows": 32,
+   "later_share_pct": 26.623073330219523,
+   "policy_nodes": 21536,
+   "save_pct": 32.65580537227556
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 31979,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 25.035030359645027,
+   "policy_nodes": 22519,
+   "save_pct": 29.581913130491888
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 31979,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 13.031293787949556,
+   "policy_nodes": 27300,
+   "save_pct": 14.631476906720032
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 31979,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 45,
+   "later_share_pct": 34.42316674451191,
+   "policy_nodes": 28909,
+   "save_pct": 9.600050032834051
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 31979,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 45,
+   "later_share_pct": 34.42316674451191,
+   "policy_nodes": 29947,
+   "save_pct": 6.3541699240126315
+  },
+  "rows": 2141
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b7_french.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 14503,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 14503,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 14503,
+   "fh_to_fl_rows": 5,
+   "fl_to_fh_rows": 10,
+   "later_share_pct": 25.553012967200612,
+   "policy_nodes": 11373,
+   "save_pct": 21.58174170861201
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 14503,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 24.63768115942029,
+   "policy_nodes": 11599,
+   "save_pct": 20.02344342549818
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 14503,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 11.212814645308924,
+   "policy_nodes": 12844,
+   "save_pct": 11.439012618079014
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 14503,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 17,
+   "later_share_pct": 34.477498093058735,
+   "policy_nodes": 14562,
+   "save_pct": -0.40681238364477235
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 14503,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 17,
+   "later_share_pct": 34.477498093058735,
+   "policy_nodes": 15181,
+   "save_pct": -4.6748948493415154
+  },
+  "rows": 1311
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b8_nimzo.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 14222,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 14222,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 14222,
+   "fh_to_fl_rows": 14,
+   "fl_to_fh_rows": 16,
+   "later_share_pct": 29.07530981887512,
+   "policy_nodes": 10197,
+   "save_pct": 28.30122345661651
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 14222,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 26.59675881792183,
+   "policy_nodes": 10997,
+   "save_pct": 22.676135564618193
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 14222,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 14.299332697807436,
+   "policy_nodes": 12087,
+   "save_pct": 15.011953311770498
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 14222,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 25,
+   "later_share_pct": 33.0791229742612,
+   "policy_nodes": 13460,
+   "save_pct": 5.357896217128388
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 14222,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 25,
+   "later_share_pct": 33.0791229742612,
+   "policy_nodes": 13712,
+   "save_pct": 3.5859935311489233
+  },
+  "rows": 1049
+ },
+ "docs/policy-research/evidence/p5-phase6-breadth/b9_slav.jsonl.gz": {
+  "BASE": {
+   "baseline_nodes": 16290,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 16290,
+   "save_pct": 0.0
+  },
+  "CHEAP_UNC": {
+   "baseline_nodes": 16290,
+   "fh_to_fl_rows": 8,
+   "fl_to_fh_rows": 16,
+   "later_share_pct": 26.18705035971223,
+   "policy_nodes": 12047,
+   "save_pct": 26.046654389195822
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 16290,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 24.964028776978417,
+   "policy_nodes": 12965,
+   "save_pct": 20.411295273173724
+  },
+  "ORACLE_EXACT": {
+   "baseline_nodes": 16290,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 0,
+   "later_share_pct": 16.115107913669064,
+   "policy_nodes": 13897,
+   "save_pct": 14.689993861264583
+  },
+  "Q1_CHEAPEST": {
+   "baseline_nodes": 16290,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 24,
+   "later_share_pct": 38.05755395683453,
+   "policy_nodes": 15073,
+   "save_pct": 7.470841006752604
+  },
+  "Q1_EARLIEST": {
+   "baseline_nodes": 16290,
+   "fh_to_fl_rows": 0,
+   "fl_to_fh_rows": 24,
+   "later_share_pct": 38.05755395683453,
+   "policy_nodes": 15499,
+   "save_pct": 4.855739717618168
+  },
+  "rows": 1390
+ }
+}
