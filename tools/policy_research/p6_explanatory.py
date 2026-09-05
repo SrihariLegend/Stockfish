@@ -9,25 +9,46 @@ for single-candidate policies (the forced replay IS the node run with that
 candidate first, prefix-preserving). Multi-move ordering policies require
 the shared-permutation data of plan 11.3 and are out of scope here.
 
-Policies (all ex-post / in-sample; they are UPPER BOUNDS for any learnable
-rule, since they use the measured outcomes):
-  BASE          natural order (ordinal 0)
-  CHEAP_UNC     cheapest measured whole-node cost, any classification
-  ORACLE_CLS    cheapest measured cost whose fail-high classification
-                matches the baseline (0 flips by construction)
-  ORACLE_EXACT  cheapest measured cost whose value equals the baseline value
-  Q1_EARLIEST   promote the earliest candidate that itself cuts off
-                (cutoff_by_first == true); baseline otherwise
-  Q1_CHEAPEST   among candidates that themselves cut off, the cheapest;
-                baseline otherwise
+Policies fall into three honest categories:
+
+EX-POST ORACLES (use the measured future outcomes; UPPER BOUNDS on any
+learnable rule that only sees entry-state features):
+  BASE          natural order (ordinal 0) -- the reference
+  CHEAP_UNC     cheapest measured whole-node cost among 0..3, unconstrained
+  ORACLE_CLS    cheapest measured cost whose whole-node fail-high status
+                equals the baseline (no classification flips by construction)
+  ORACLE_EXACT  cheapest measured cost whose whole-node value equals the
+                baseline value
+
+MEASUREMENT-A-CONDITIONAL HEURISTICS (use the realized slot-1 own-cut label
+cutoff_by_first; NOT upper bounds -- a real predictor's q estimates are
+noisy, and the rule below that simply promotes whenever an own-cut exists
+can lose to baseline):
+  Q1_EARLIEST         promote the earliest own-cutting candidate; baseline
+                      if none
+  Q1_CHEAPEST_FORCED  among own-cutting candidates promote the cheapest
+                      measured; baseline only when NO candidate self-cuts
+                      (promotes even when every own-cut candidate is more
+                      expensive than baseline)
+  Q1_CHEAPEST_ABSTAIN cheapest of {baseline} + own-cutting candidates
+                      (promote only when the cheapest own-cut candidate
+                      beats baseline)
+  Q1_SAFE_ABSTAIN     like Q1_CHEAPEST_ABSTAIN but restricted to own-cutting
+                      candidates whose whole-node fail-high classification
+                      matches the baseline (no flips by construction)
+
+Cost aggregation is ratio-of-sums (plan 11.1); per-row ratios are never
+averaged for cost claims. Classification flips are reported as changes,
+NOT as improvements/deteriorations: baseline and counterfactual searches
+are both selective approximations and a full-window/deeper reference would
+be needed to decide which result is better.
 
 Outputs, per root and pooled: aggregate node sums (baseline, policy cost),
-percent saved (sums, plan 11.1), later-pick share of rows, classification
-flip rows (FH->FL and FL->FH), and root-clustered spread. Optional
---json PATH writes the per-root table as JSON.
+percent saved (sums), later-pick share of rows, classification-flip rows
+(FH->FL and FL->FH). --json PATH writes the per-root table as JSON.
 
 Usage:
-  python3 p6_explanatory.py <dir-or-glob> [--json out.json]
+  python3 p6_explanatory.py <dir-or-glob>... [--json out.json]
 """
 import gzip
 import glob
@@ -35,8 +56,10 @@ import json
 import os
 import sys
 
-POLICIES = ["BASE", "CHEAP_UNC", "ORACLE_CLS", "ORACLE_EXACT", "Q1_EARLIEST",
-            "Q1_CHEAPEST"]
+ORACLES = ["BASE", "CHEAP_UNC", "ORACLE_CLS", "ORACLE_EXACT"]
+HEURISTICS = ["Q1_EARLIEST", "Q1_CHEAPEST_FORCED", "Q1_CHEAPEST_ABSTAIN",
+              "Q1_SAFE_ABSTAIN"]
+POLICIES = ORACLES + HEURISTICS
 
 
 def load(path):
@@ -61,6 +84,7 @@ def row_costs(r):
 
 
 def choose(r):
+    """Return {policy: (cost, chosen_ordinal)} for one decision row."""
     C, FH, pp, b = row_costs(r)
     out = {}
     out["BASE"] = (C[0], 0)
@@ -74,15 +98,18 @@ def choose(r):
     own = [o for o in (1, 2, 3)
            if o in pp and pp[o]["completed"] and pp[o]["cutoff"]["cutoff_by_first"]]
     out["Q1_EARLIEST"] = (C[own[0]], own[0]) if own else (C[0], 0)
-    out["Q1_CHEAPEST"] = min(((C[o], o) for o in own), default=(C[0], 0),
-                             key=lambda t: t[0])
+    out["Q1_CHEAPEST_FORCED"] = min(((C[o], o) for o in own), default=(C[0], 0),
+                                    key=lambda t: t[0])
+    abstain = [(C[o], o) for o in own]
+    out["Q1_CHEAPEST_ABSTAIN"] = min([(C[0], 0)] + abstain, key=lambda t: t[0])
+    safe = [(C[o], o) for o in own if FH[o] == FH[0]]
+    out["Q1_SAFE_ABSTAIN"] = min([(C[0], 0)] + safe, key=lambda t: t[0])
     return out
 
 
 def root_table(dec):
     agg = {k: {"B": 0, "C": 0, "later": 0, "fhfl": 0, "flfh": 0} for k in POLICIES}
     n = len(dec)
-    dec = list(dec)
     for r in dec:
         C, FH, pp, b = row_costs(r)
         out = choose(r)
@@ -102,18 +129,17 @@ def root_table(dec):
                    "later_share_pct": 100 * v["later"] / n,
                    "fh_to_fl_rows": v["fhfl"], "fl_to_fh_rows": v["flfh"]}
                for k, v in agg.items()}}
-    return n, agg
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
     json_path = None
     positionals = []
     i = 0
-    while i < len(sys.argv[1:]):
-        a = sys.argv[1:][i]
-        if a == "--json" and i + 1 < len(sys.argv[1:]):
-            json_path = sys.argv[1:][i + 1]
+    argv = sys.argv[1:]
+    while i < len(argv):
+        a = argv[i]
+        if a == "--json" and i + 1 < len(argv):
+            json_path = argv[i + 1]
             i += 2
             continue
         positionals.append(a)
@@ -123,7 +149,8 @@ def main():
         files += sorted(glob.glob(a + "/*.jsonl.gz")) if os.path.isdir(a) else [a]
     files = sorted(set(files))
     if not files:
-        print("no files found"); return
+        print("no files found")
+        return
     per_root = {}
     for f in files:
         dec = [r for r in load(f) if r["type"] == "decision"]
@@ -150,10 +177,10 @@ def main():
                         a["fhfl"] += 1
                     else:
                         a["flfh"] += 1
-    print(f"{'policy':14s} {'save%':>7s} {'later%':>7s} {'FH->FL':>6s} {'FL->FH':>6s}")
+    print(f"{'policy':22s} {'save%':>7s} {'later%':>7s} {'FH->FL':>6s} {'FL->FH':>6s}")
     for k in POLICIES:
         a = pooled[k]
-        print(f"{k:14s} {100*(1-a['C']/a['B']):7.2f} {100*a['later']/nrows:7.2f} "
+        print(f"{k:22s} {100*(1-a['C']/a['B']):7.2f} {100*a['later']/nrows:7.2f} "
               f"{a['fhfl']:6d} {a['flfh']:6d}")
     if json_path:
         print("wrote", json_path)

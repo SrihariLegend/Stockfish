@@ -78,12 +78,17 @@ promotion (aggregate +22-30% of nodes; per-row means much higher because of
 tiny-subtree overweighting) and the classification-preserving oracle (saves
 ~19-30% per root) is the room a learnable, context-conditioned
 proof-scheduler policy would occupy. The consistency across the 12 roots
-(root-level aggregate-ratio sd ~0.09-0.11) means the Phase-6 q/e and
-interaction-gap studies can be run on this corpus with root-clustered
+(root-level aggregate-ratio sd ~0.09-0.11) means the Phase-6 learnability
+and interaction-gap studies can be run on this corpus with root-clustered
 uncertainty. Whether a model with entry-state features can realize a
 meaningful share of that gap (and survive global interaction) is the
 decisive Phase-6 question; nothing in this corpus contradicts the universal
 policy endpoint.
 
 Reproduction: `tools/policy_research/p5b_analysis.py
-docs/policy-research/evidence/p5-phase6-breadth`.
+docs/policy-research/evidence/p5-phase6-breadth
+docs/policy-research/evidence/p5-m2m3-reorder-v3/seed_a1.jsonl.gz
+docs/policy-research/evidence/p5-m2m3-reorder-v3/root_b_d8.jsonl.gz
+--measurement-a` (the breadth directory alone reproduces only the ten-root
+numbers 1.212/1.254/1.289; the pooled figures above span the 12-root set
+including the two canonical files).

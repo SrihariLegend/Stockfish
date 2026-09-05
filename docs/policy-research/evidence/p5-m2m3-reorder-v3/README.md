@@ -100,11 +100,17 @@ of rows, equal on 29.9%, costlier on 51.1%; at ordinals 2-3 cheaper on
 ## Measurement-A attribution (first results)
 
 `baseline.cutoff`: move-loop cutoffs (value >= beta break) account for
-56-58% of rows (the rest fail low, or fail high via pre-loop paths — TT
-cutoffs, razor/futility/ProbCut: 22-54 rows per file fail high without a
-move-loop cutoff). Of the move-loop cutoffs, **85-92% happen on the natural
-ordinal-0 move** — natural MovePicker order almost always cuts at its first
-candidate.
+56-58% of rows (the rest fail low, or fail high without the ordinary
+cutoff-hook firing). Note that every decision row reaches its main move
+loop (the decision capture fires there), so these fail-high-no-cutoff
+rows are NOT pre-loop exits (TT cutoffs, razor/futility/ProbCut paths end
+before the capture and are dropped). They are in-loop early returns: the
+slot-1 emission triggers the singular-extension/multi-cut probe and the
+probe's fail high returns the node before the first child search —
+recorded as `first.searched == false` and `cutoff_seen == false`. Exact
+pooled census across the 12-root set: 8,774 move-loop cutoffs (86.8% on
+the natural ordinal-0 move), 6,550 fail lows, 501 in-loop early-return
+fail highs (all with an unsearched slot-1 emission).
 
 Forced slot-1 probes (ordinals 1-3): the slot-1 candidate is searched on
 100% of rows (never pruned before search at these ordinals), but the

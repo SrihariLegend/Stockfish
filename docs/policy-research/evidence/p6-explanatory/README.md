@@ -1,12 +1,18 @@
 # Phase 6.2 — explanatory policy study (top-four, ex-post, in-sample)
 
-Answers plan §11.2/§11.4/§11.5 questions 1-3 and 5 on the existing
+First results of plan §11.2/§11.4/§11.5 on the existing
 internal-counterfactual/3 corpora (12 root positions: ten-root breadth
 corpus + root A depth-8 seed-0 + root B depth-8; 15,825 decision rows,
-94,950 forced probes, zero censoring after the b8_nimzo budget-5000
-re-collection, zero baseline/live mismatches). Reproduction:
-`tools/policy_research/p6_explanatory.py <dirs...> --json out.json`;
-per-root tables in `p6-policy-tables.json`.
+94,950 forced probes, zero censoring, zero baseline/live mismatches). The
+root-held-out learnability probe (a real q/e-ratio study with feature-only
+predictors) is reported in `p6-learnability/README.md`.
+
+Reproduction: `tools/policy_research/p6_explanatory.py <dirs/files...> --json
+out.json`; `tools/policy_research/p5b_analysis.py <dirs/files...>
+--measurement-a` reproduces the ordinal cost tables and measurement-A
+summaries. Pass the breadth directory plus the two canonical files for the
+12-root pooled numbers. Per-root tables: `p6-policy-tables.json`. Unit
+tests: `tools/policy_research/tests/test_p6_analysis_tools.py`.
 
 ## Method and honest labels
 
@@ -16,28 +22,41 @@ those rules the measured forced whole-node replay of the chosen candidate IS
 the node cost under the rule (prefix-preserving, same entry state), so no
 independence assumption is needed — unlike multi-move ordering simulations,
 which require the plan §11.3 shared-permutation data and are NOT attempted
-here. All policies are **ex-post/in-sample** (they use the measured
-outcomes), so every savings figure below is an UPPER BOUND on what any
-learnable entry-state rule could achieve on this corpus; the learnability
-gap is unknown until a predictor is trained and root-held-out evaluated.
+here.
 
-Policies:
-- `BASE` natural order (ordinal 0) — the reference.
-- `CHEAP_UNC` cheapest measured whole-node cost among ordinals 0..3, no
-  classification constraint (aggressive upper bound).
-- `ORACLE_CLS` cheapest measured cost whose whole-node fail-high status
-  equals the baseline (conservative upper bound; 0 outcome flips by
-  construction).
-- `ORACLE_EXACT` cheapest measured cost whose whole-node value equals the
-  baseline value.
-- `Q1_EARLIEST` promote the earliest candidate whose own slot-1 search cut
-  off (`cutoff_by_first`); baseline otherwise. Pure cutoff-probability (q)
-  knowledge, no cost knowledge.
-- `Q1_CHEAPEST` among candidates whose own slot-1 search cut off, promote
-  the cheapest measured; baseline otherwise. Perfect q + perfect cost
-  restricted to q = 1 candidates.
+Policies fall into three categories; only the first two are upper bounds:
 
-## Results (pooled; savings are ratio-of-sums, plan §11.1)
+1. EX-POST ORACLES (use the measured future outcomes; upper bounds for any
+   rule restricted to entry-state features):
+   - `BASE` natural order (ordinal 0) — the reference.
+   - `CHEAP_UNC` cheapest measured whole-node cost among ordinals 0..3,
+     unconstrained.
+   - `ORACLE_CLS` cheapest measured cost whose whole-node fail-high status
+     equals the baseline (no classification flips by construction).
+   - `ORACLE_EXACT` cheapest measured cost whose whole-node value equals the
+     baseline value.
+2. MEASUREMENT-A-CONDITIONAL HEURISTICS (use the realized slot-1 own-cut
+   label `cutoff_by_first`; NOT upper bounds — a real q model is noisy and
+   even the perfect-label rules below lose to baseline whenever they
+   promote a self-cutting but expensive candidate):
+   - `Q1_EARLIEST` promote the earliest own-cutting candidate; baseline if
+     none.
+   - `Q1_CHEAPEST_FORCED` promote the cheapest own-cutting candidate;
+     baseline only when none self-cuts (forced-promotion variant: promotes
+     even when every own-cut candidate is costlier than baseline).
+   - `Q1_CHEAPEST_ABSTAIN` cheapest of {baseline, own-cutting candidates}.
+   - `Q1_SAFE_ABSTAIN` like `Q1_CHEAPEST_ABSTAIN` restricted to own-cutting
+     candidates whose whole-node classification matches the baseline.
+3. `p6_learnability` adds feature-only, root-held-out predictors (the only
+   deployable-shape rules measured so far).
+
+Aggregation is ratio-of-sums (plan §11.1); per-row ratios are never averaged
+for cost claims. Classification flips are reported as changes — NOT as
+improvements/deteriorations: the baseline and counterfactual searches are
+both selective approximations, and deciding which result is better needs a
+full-window or deeper reference.
+
+## Results (pooled; savings are ratio-of-sums)
 
 | policy | save% | later pick (% rows) | FH->FL rows | FL->FH rows |
 |---|---:|---:|---:|---:|
@@ -46,47 +65,52 @@ Policies:
 | ORACLE_CLS | 24.01 | 25.4 | 0 | 0 |
 | ORACLE_EXACT | 12.75 | 12.8 | 0 | 0 |
 | Q1_EARLIEST | 1.59 | 38.0 | 0 | 262 |
-| Q1_CHEAPEST | 5.71 | 38.0 | 0 | 262 |
+| Q1_CHEAPEST_FORCED | 5.71 | 38.0 | 0 | 262 |
+| Q1_CHEAPEST_ABSTAIN | 15.69 | 16.2 | 0 | 161 |
+| Q1_SAFE_ABSTAIN | 13.66 | 15.1 | 0 | 0 |
 
 Root-clustered savings (12 roots): CHEAP_UNC 26.35 +/- 3.42 sd (21.6-32.7);
 ORACLE_CLS 23.12 +/- 3.64 (19.1-29.6); ORACLE_EXACT 12.15 +/- 2.48
-(8.8-15.0); Q1_EARLIEST 0.94 +/- 4.62 (negative on several roots);
-Q1_CHEAPEST 5.32 +/- 3.86 (-2.4-9.6).
+(8.8-15.0); Q1_CHEAPEST_ABSTAIN 15.07 +/- 2.63 (11.4-18.7); Q1_SAFE_ABSTAIN
+13.07 +/- 2.39 (10.3-17.8).
 
 ## Reading the table
 
-1. **The oracle is mostly a COST effect, not a cutoff-probability effect.**
-   Perfect knowledge that a candidate cuts off by itself (Q1_EARLIEST)
-   saves only 1.6% — it promotes on 38% of rows and mostly at a loss,
-   because own-cut candidates are usually still more expensive than the
-   natural order. Adding cost information restricted to q=1 candidates
-   (Q1_CHEAPEST) reaches 5.7%. The full classification-preserving oracle
-   (24.0%) therefore relies on rows where the promoted candidate does NOT
-   cut off by itself (~41% of oracle picks) and on cost differences in the
-   continuation — exactly the whole-node, prefix-reserving measurement-B
-   information. A q/e-style head alone captures at most ~6/24 = 25% of the
-   oracle; the direct per-candidate whole-node cost (measurement B) is the
-   dominant signal and must be part of any teacher label.
-2. **The classification constraint costs little.** CHEAP_UNC exceeds
-   ORACLE_CLS by 3.3 percentage points (12% of its gain) while flipping
-   outcomes on 272 rows (1.7%: 88 FH->FL deteriorations, 184 FL->FH
-   improvements). Under exact-value equivalence the headroom is 12.75% —
-   the strictest safe bound.
-3. **Per-invocation economics.** Aggregate savings per eligible decision
-   row: ORACLE_CLS 2.53 nodes, ORACLE_EXACT 1.34, Q1_CHEAPEST 0.60,
-   CHEAP_UNC 2.88 (baseline mean 10.5 nodes). Eligible decision rows are a
-   census of ~20-27% of all searched nodes at these depths (see root_end
-   searched_nodes), so a globally invoked scorer must clear a very low
-   bar: at the measured ~1.4M nps of this research binary (~700 ns/node),
-   the perfect-oracle budget is ~1.8 us per eligible node, and a realistic
-   learnable share (say a third to a quarter of ORACLE_CLS) leaves ~0.4-0.6
-   us. Table/linear/tree scorers fit; NNUE-scale forwards do not at full
-   invocation — but they do fit the high-opportunity stratum: on rows with
-   baseline >= 25 nodes (8.4% of eligible rows, ~2% of all nodes at these
-   depths) ORACLE_CLS saves 31.6% (~15 nodes per invocation), and on
-   baseline >= 50 rows ~34-37% (39 nodes per invocation, tens of us of
-   budget). A universal gate (cheap) plus deeper scoring only where entry
-   features indicate an expensive node is the economically viable shape.
+1. **Cost-aware abstention, not self-cut probability, drives the oracle.**
+   The earlier write-up of this study compared a forced-promotion own-cut
+   rule (`Q1_CHEAPEST_FORCED`, 5.7%) against the oracle and concluded q/e
+   explains "at most ~25%" of it. That rule promotes on 38% of rows even
+   when every own-cutting candidate costs MORE than baseline, so it is not
+   an upper bound and the 25% conclusion was invalid. Once own-cut rules are
+   allowed to abstain (as any deployable policy must), perfect own-cut
+   knowledge plus cost knowledge among own-cutting candidates
+   (`Q1_CHEAPEST_ABSTAIN`) saves 15.7% — 65% of the ORACLE_CLS 24.0% — and
+   the classification-safe variant (`Q1_SAFE_ABSTAIN`) saves 13.7% (57% of
+   the oracle). Self-cut knowledge is important but insufficient: 41.2% of
+   oracle picks and 45.3% of oracle savings come from rows where the
+   promoted candidate does NOT cut off by itself (continuation effects).
+2. **Whole-node cost (measurement B) is the dominant oracle signal.** The
+   ex-post oracles need the measured per-candidate whole-node cost; no
+   purely pre-search feature rule is measured here. Whether entry-state
+   features can predict that cost is the learnability question answered in
+   `p6-learnability/README.md`.
+3. **The classification constraint is cheap.** CHEAP_UNC exceeds ORACLE_CLS
+   by 3.3 percentage points while flipping classifications on 272 rows
+   (1.7%). Note the flip counts are directionally mixed (88 FH->FL, 184
+   FL->FH); they are NOT evidence of improvement, and ORACLE_EXACT (12.75%)
+   remains the strictest safe local bound.
+4. **Per-invocation economics (local, first order).** Aggregate savings per
+   eligible decision row: ORACLE_CLS 2.53 nodes, ORACLE_EXACT 1.34,
+   Q1_CHEAPEST_ABSTAIN 1.65. These sums are over NESTED local subtrees
+   (local subtree totals are ~2.4x the actual root-search node counts), so
+   they are not a composable global budget; the real affordability test
+   requires a live policy run (Phase 11-style). Directionally: a universal
+   scorer must cost far less than one subtree node-equivalent per eligible
+   node, and savings concentrate in nontrivial nodes (baseline >= 10 nodes:
+   23.8% of rows, 89.6% of ORACLE_CLS savings; >= 25: 8.4% of rows, 71.5%),
+   so gate + stratified invocation remains the economically viable shape —
+   but whether pre-search features can identify those rows (and at what
+   precision) is an empirical question, not yet an assumption.
 
 ## Stratified savings (pooled; baseline >= threshold)
 
@@ -95,41 +119,43 @@ Q1_CHEAPEST 5.32 +/- 3.86 (-2.4-9.6).
 | CHEAP_UNC | 27.3 | 32.5 | 36.9 |
 | ORACLE_CLS | 24.0 | 28.3 | 31.6 |
 | ORACLE_EXACT | 12.8 | 15.5 | 18.5 |
-| Q1_EARLIEST | 1.6 | 12.3 | 16.4 |
-| Q1_CHEAPEST | 5.7 | 14.5 | 17.4 |
-
-Savings concentrate: rows with baseline >= 10 nodes are 23.8% of eligible
-rows but hold 89.6% of ORACLE_CLS savings; >= 25 rows hold 71.5%; >= 50 hold
-55.4%.
+| Q1_CHEAPEST_ABSTAIN | 15.7 | 24.2 | 29.3 |
+| Q1_SAFE_ABSTAIN | 13.7 | 20.4 | 23.7 |
 
 ## Statistical treatment (plan §11.4)
 
-- All aggregate figures are sums before division; per-row ratios are never
-  averaged for cost claims.
-- Root-level spread is reported (12 manually selected root positions —
-  exploratory breadth, not a random population sample; treat intervals as
-  descriptive). The 12-root t-interval for ORACLE_CLS is ~[20.8, 25.4]% and
-  for ORACLE_EXACT ~[10.6, 13.7]% but should not be quoted as population
-  inference.
+- All aggregate figures are sums before division.
+- Root-level spread reported over 12 manually selected opening positions
+  (exploratory breadth, NOT a random population sample; do not quote the
+  spreads as population inference).
 - Rows within a root are correlated (shared TT/history, iterative
   deepening, repeated identities); no row-level independence is assumed.
-- Censoring: zero (b8_nimzo re-collected at budget 5000).
-- Tail ordinals (>3) are NOT used here; the top-four census is exact.
+- Censoring: zero.
+- Tail ordinals (>3) are NOT used; the top-four census is exact, so all
+  oracle numbers here are conservative in coverage (they may miss cheaper
+  tail candidates) and optimistic in knowledge (ex-post).
+- `p6-learnability` evaluates feature-only rules root-held-out with
+  root-clustered summary; both docs share the same raw corpora.
 
-## Go/no-go input
+## Measurement-A shape note
 
-- Total oracle saving available (top-four, conservative): ~24% of eligible
-  subtree nodes (~12.75% under value-equivalence), consistent across 12
-  roots — a real but bounded target.
-- Contexts: opportunity concentrates in nontrivial nodes (baseline >= 10);
-  entry-depth and history/TT features plausibly identify them.
-- Oracle explained by q/e: <= ~25% (Q1_CHEAPEST / ORACLE_CLS). The direct
-  whole-node cost label must be the primary teacher signal.
-- Interaction gap: NOT yet measured (requires shared-permutation data,
-  plan §11.3); local savings do not yet have a global additivity claim.
-- Cycle budget: universal invocation requires a sub-microsecond scorer;
-  stratified invocation (gate + deep scorer on predicted-expensive nodes)
-  can afford NNUE-scale scoring on a small fraction of nodes.
-- Next: implement the §11.3 shared-permutation mode (design in
-  `docs/policy-research/plan.md` §11.3 and the review-actions file), then
-  train/evaluate a root-held-out predictor before any neural work.
+Baseline fail-high rows split into: move-loop cutoffs 8,774 (86.8% of them
+on the natural ordinal-0 move; pooled 12-root set), and 501 in-loop
+early-return fail highs (singular-extension/multi-cut probe fails high
+before the slot-1 child is searched: `cutoff_seen == false`,
+`first.searched == false`). These are NOT pre-loop exits — every decision
+row reaches its move loop (rows whose replay ends pre-loop never fire the
+decision capture and are dropped). They should be modeled as a separate
+proof mechanism in q-labeling.
+
+## Go/no-go input (as of this report)
+
+- Local oracle target: ~24% (classification-preserving, top-four,
+  conservative in coverage) / 12.75% (exact-value) of eligible subtree
+  nodes; consistent across the 12 roots.
+- Self-cut knowledge + abstention captures 57-65% of the local oracle;
+  continuation effects ~40-45%; exact-value preservation still halves the
+  headroom.
+- Cycle budget: a composable number does NOT yet exist (local sums
+  overlap); learnability and interaction-gap measurements (next) plus a
+  live policy run are required before the plan §11.5 go/no-go.

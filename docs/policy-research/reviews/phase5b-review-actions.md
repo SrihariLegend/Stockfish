@@ -73,10 +73,14 @@ tail weighting noisy; single seed.
 Actions:
 - Regenerate the canonical four corpora under /3 on the fixed engine
   (root A d8 seeds 0/1, root B d8/d10 seed 0) — DONE (`11032847`).
-- Breadth corpus: ten more independent roots across openings, depth 8,
-  seed 0 (`2d77b835`, 12,999 rows; 12 independent roots total with the
-  canonicals). Root-clustered analysis over 12 roots: promotion ratio mean
-  2.16 sd 0.20; oracle savings mean 23.1% sd 3.6%.
+- Breadth corpus: ten more separately executed root searches across
+  openings, depth 8, seed 0 (`2d77b835`, 12,999 rows; 12 separately
+  executed positions total with the canonicals -- manually selected
+  opening lines, not a random population sample). Root-clustered analysis
+  over the 12 roots (corrected aggregate measures): blind-promotion
+  ratio-of-sums at ordinals 1-3 pooled 1.226/1.259/1.295; per-root
+  ordinal-1 aggregate mean 1.241 sd 0.093; oracle savings mean 23.1%
+  sd 3.6%.
 - Remaining: middlegame/endgame roots, more declared seeds per root (tail
   Hájek/HT intervals with known denominators), and the formal Phase-6
   go/no-go report with clustered intervals.
@@ -88,8 +92,11 @@ just fail-high stability.
 
 Action: measurement-A child-node costs plus the existing per-probe totals and
 baseline totals give per-row paired deltas (forced minus baseline) for both
-the whole node and the candidate's own subtree; analysis scripts in the Phase
-6 report will report paired deltas and their distributions (in progress).
+the whole node and the candidate's own subtree. Paired-delta means/medians
+are reported by p5b_analysis.py's pooled block (e.g. ordinal-1..3 means
+2.28/2.73/3.11 nodes on the ten-root breadth set); the Phase-6 reports use
+ratio-of-sums as the cost headline and report per-row ratio distributions
+only descriptively.
 
 ## R5 — Documentation bugs — DONE (`16db2ce2`)
 
@@ -121,3 +128,43 @@ Next:
    tail Hájek/HT estimates with known denominators.
 3. Learnability probe: root-held-out predictor over entry-state features
    before any neural work (Phases 7-13 only after the go/no-go clears).
+
+## R6 — Read-only expert review of the corrected /3 evidence and Phase-6.2 (addressed)
+
+Review of the final /3 corpora plus the p6-explanatory study (`45b0d177`,
+`89853d91`) identified the following problems/gaps; all are addressed in the
+commits of this round:
+
+1. **Phase-6.2 q/e conclusion invalid** — `Q1_CHEAPEST` forced promotion
+   whenever an own-cut candidate existed (38% of rows), even at a loss, so
+   it is neither a q/e bound nor an upper bound. Corrected policy set with
+   abstaining variants (`Q1_CHEAPEST_ABSTAIN` 15.69% pooled,
+   `Q1_SAFE_ABSTAIN` 13.66%, classification-safe) shows self-cut knowledge +
+   cost-aware abstention captures 57-65% of ORACLE_CLS (24.0%), and
+   continuation effects ~41% of picks / 45% of savings — the "at most 25%"
+   statement is withdrawn. None of these are yet learnable-shape rules; the
+   root-held-out feature-only probe in `p6-learnability/` measures that.
+2. **501 baseline rows labeled "pre-loop exits"** — every decision row
+   reaches its move loop, so fail highs with `cutoff_seen == false` and an
+   unsearched slot-1 emission are in-loop early returns (singular-extension/
+   multi-cut probe fail high), a separate proof mechanism for q-labeling.
+   Fixed in the v3 README and p5b_analysis --measurement-a output.
+3. **FL->FH rows called "improvements"** — reworded everywhere as
+   classification changes.
+4. **Cycle-budget extrapolation premature** — nested local subtree sums
+   (~2.4x actual root nodes) cannot be divided into a per-call budget;
+   wording corrected, affordability deferred to a live policy run.
+5. **Phase-6.3 design contradictions** — K=1 control, ex-post cheapest-first
+   constructibility, per-prefix attribution, and intra-node-vs-global scope
+   fixed in the implementation round (see below).
+6. **Tooling defects** — p6_explanatory abstention bug + dead code fixed and
+   unit-tested (test_p6_analysis_tools.py); p5b_analysis `--census`
+   advertisement removed, measurement-A summary implemented, multiple path
+   arguments so the 12-root pooled reproduction is one command; README
+   reproduction commands corrected; stale wording in this file and the
+   overview fixed.
+7. **Experiment-design gaps (not yet closed)** — corpus remains 12 manually
+   selected opening positions (no game-random middlegame/endgame roots, no
+   game-split holdout, Threads=1 fixed-depth only); Phase-6.3 corpus adds
+   real breadth; stronger generalization claims wait on a representative
+   corpus.
