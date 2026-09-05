@@ -67,6 +67,25 @@ struct MoveAttribution {
     Move  cutoffMove = Move::none();
     Value cutoffValue = VALUE_NONE;
     bool  cutoffByFirst = false;   // the cutoff happened on the slot-1 move
+
+    // Per-slot records of the root move loop (served emissions at slots
+    // 1..MAX_SLOTS; 1-based, mirroring moveCount). Populated for every
+    // armed replay; serialized only on shared-permutation entries (schema
+    // internal-counterfactual/4) so each prefix candidate's own searched/
+    // pruned state and child cost are observable. A slot entry without
+    // `searched` was pruned (or the node ended inside its singular probe).
+    static constexpr int MAX_SLOTS = 8;
+    struct Slot {
+        Move  move = Move::none();
+        bool  emitted = false;
+        bool  searched = false;
+        bool  noted = false;
+        u64   childNodes = 0;
+        u64   startNodes = 0;
+        Value value = VALUE_NONE;
+    };
+    std::array<Slot, MAX_SLOTS + 1> slots;  // index 1..MAX_SLOTS
+    int slotsUsed = 0;                      // highest emitted slot
 };
 
 struct ProbeResult {
@@ -84,6 +103,12 @@ struct ProbeResult {
     // per-move prunes, which is exactly the live slot-1 semantics). False for
     // unforced replays and for replays that returned before the move loop.
     bool forced_slot1 = false;
+
+    // Shared-permutation replay metadata (schema internal-counterfactual/4).
+    bool perm = false;         // this replay was a permutation replay
+    int  permK = 0;            // requested number of targets
+    int  permServed = 0;       // targets actually served before the node ended
+    bool permComplete = true;  // targets were served strictly in request order
 
     // Measurement-A attribution for this probe's root node (schema
     // internal-counterfactual/3): slot-1 move outcome plus final move-loop
@@ -281,6 +306,141 @@ inline bool force_next_buffer_pop(Key posKey, int ply, Move& move) {
 }
 
 // ---------------------------------------------------------------------------
+// Shared-permutation (top-K reorder) machinery for the plan-11.3
+// interaction-gap replays (schema internal-counterfactual/4). PermScope arms
+// an ordered list of K target moves (a permutation of the node's natural
+// top-K emissions). At the armed node's main move loop the targets are served
+// as the first K searched moves IN THE REQUESTED ORDER -- either directly
+// from the real picker (when the next target is the next natural emission) or
+// from a reservation buffer (when the picker already emitted it earlier); all
+// other natural top-K emissions are swallowed without search or moveCount
+// while targets remain. After the last target is served, the loop continues
+// with the natural suffix (ordinal K onward). A cutoff ends the node exactly
+// as in natural search (reserved but unserved moves are never searched). This
+// is the engine's own semantics of "search this node with the first K slots
+// in order pi" -- TT writes, history updates, LMR context and (ss+1)->cutoff
+// accumulate across the K candidates as in a real search.
+//
+// Relationship to force-next (the /3 cross-check controls):
+//   force-next ordinal k == permutation [k, 0..k-1, k+1..K-1] for k < K
+//   identity permutation [0..K-1] == the unforced baseline replay
+// both must hold bit-for-bit (nodes, value, fail_high, attribution); the
+// corpus validation checks them on every row.
+// ---------------------------------------------------------------------------
+struct PermState {
+    bool armed = false;
+    bool consumed = false;   // all K targets have been served
+    bool complete = true;    // stays true when targets were served in order;
+                             // set false if a non-target emission had to be
+                             // served while targets remained (picker skipped
+                             // a reserved target, engine semantics) -- the
+                             // row records `fully_served = complete`
+    Key  posKey = 0;
+    int  ply = -1;
+    u64  frameToken = 0;     // bound at replay-root frame entry
+    int  K = 0;              // number of targets
+    int  next = 0;           // index of the next target to serve
+    int  served = 0;         // targets served so far
+    int  swallowed = 0;      // natural members reserved in the buffer
+    Move targets[MAX_MOVES]; // requested serve order
+    // Reservation buffer: natural emissions that are targets but not the next
+    // one; they keep their natural order. Served (removed) in target order.
+    std::array<Move, MAX_MOVES> buf = {};
+    int                         bufCount = 0;
+    int                         bufServes = 0;  // targets served from buffer
+};
+
+inline thread_local PermState gPerm;
+
+class PermScope {
+   public:
+    PermScope(Key posKey, int ply, const Move* targets, int k) {
+        assert(!gPerm.armed && !gForceNext.armed);  // never nest; exclusive
+        assert(k >= 2 && k <= MAX_MOVES);
+        gPerm         = {};
+        gPerm.armed   = true;
+        gPerm.posKey  = posKey;
+        gPerm.ply     = ply;
+        gPerm.K       = k;
+        for (int i = 0; i < k; ++i)
+            gPerm.targets[i] = targets[i];
+    }
+    ~PermScope() { gPerm = {}; }
+
+    PermScope(const PermScope&)            = delete;
+    PermScope& operator=(const PermScope&) = delete;
+};
+
+// True while this node still owes targets (arms match key, ply, frame).
+inline bool perm_active(Key posKey, int ply) {
+    return gPerm.armed && gPerm.posKey == posKey && gPerm.ply == ply
+        && gPerm.frameToken == gResearchCurFrame && gPerm.next < gPerm.K;
+}
+
+// Serves the next target from the reservation buffer when the picker already
+// emitted it. Returns true with `move` set (the caller must search it); false
+// when the caller should pull the next real picker emission instead.
+inline bool perm_serve_buffered(Key posKey, int ply, Move& move) {
+    if (!gPerm.armed || gPerm.posKey != posKey || gPerm.ply != ply
+        || gPerm.frameToken != gResearchCurFrame || gPerm.next >= gPerm.K)
+        return false;
+    const Move want = gPerm.targets[gPerm.next];
+    for (int i = 0; i < gPerm.bufCount; ++i)
+        if (gPerm.buf[i] == want)
+        {
+            move = want;
+            for (int j = i + 1; j < gPerm.bufCount; ++j)
+                gPerm.buf[j - 1] = gPerm.buf[j];
+            --gPerm.bufCount;
+            ++gPerm.next;
+            ++gPerm.served;
+            ++gPerm.bufServes;
+            return true;
+        }
+    return false;
+}
+
+// Called on every picker emission that is about to be searched at the armed
+// node (right after the force-next step returns 0). Returns 1 when the
+// emission must be SWALLOWED into the reservation buffer (it is a target
+// that is not next), 0 when it proceeds (it is the next target -- `next`
+// advances -- or the permutation already completed and the natural suffix
+// runs).
+inline int perm_step(Key posKey, int ply, Move move) {
+    if (!gPerm.armed || gPerm.posKey != posKey || gPerm.ply != ply
+        || gPerm.frameToken != gResearchCurFrame || gPerm.next >= gPerm.K)
+        return 0;
+    if (move == gPerm.targets[gPerm.next])
+    {
+        ++gPerm.next;
+        ++gPerm.served;
+        return 0;
+    }
+    // A later target, or a non-target emission. While targets remain the
+    // picker emits only ordinals < K (targets occupy the first K ordinals),
+    // so a non-target here means the picker skipped a reserved quiet
+    // (shallow-depth skip_quiet_moves, engine semantics): serve it and mark
+    // the permutation incomplete.
+    bool isTarget = false;
+    for (int i = gPerm.next + 1; i < gPerm.K; ++i)
+        if (gPerm.targets[i] == move)
+        {
+            isTarget = true;
+            break;
+        }
+    if (isTarget)
+    {
+        assert(gPerm.bufCount < MAX_MOVES);
+        if (gPerm.bufCount < MAX_MOVES)
+            gPerm.buf[gPerm.bufCount++] = move;
+        ++gPerm.swallowed;
+        return 1;
+    }
+    gPerm.complete = false;  // engine skipped a reserved target (see above)
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Decision-point capture channel for the isolated BASELINE replay of a
 // sampled node. The orchestrator hook now fires at the sampled node's search
 // ENTRY (search.cpp), where TT/static-eval/improving state does not exist
@@ -381,29 +541,50 @@ class AttributionScope {
 // Fired by the main move loop right after an emission is accepted at the
 // root (slot-1 emission: the forced move in forced replays, the natural
 // ordinal-0 move in the baseline). Cheap no-op when unarmed or not at the
-// armed node.
-inline void probe_attribution_emission(Key posKey, int ply, Move move, u64 nodes) {
-    if (!gAttrArmed || gAttrPosKey != posKey || gAttrPly != ply || gAttrToken != gResearchCurFrame
-        || gAttr.firstEmitted)
+// armed node. `slot` is the 1-based moveCount of the emission.
+inline void probe_attribution_emission(Key posKey, int ply, Move move, int slot,
+                                       u64 nodes) {
+    if (!gAttrArmed || gAttrPosKey != posKey || gAttrPly != ply || gAttrToken != gResearchCurFrame)
         return;
-    gAttr.firstEmitted   = true;
-    gAttr.firstMove      = move;
-    gAttr.firstStartNodes = nodes;
+    if (slot == 1 && !gAttr.firstEmitted)
+    {
+        gAttr.firstEmitted    = true;
+        gAttr.firstMove       = move;
+        gAttr.firstStartNodes = nodes;
+    }
+    if (slot >= 1 && slot <= MoveAttribution::MAX_SLOTS && !gAttr.slots[slot].emitted)
+    {
+        gAttr.slots[slot].emitted    = true;
+        gAttr.slots[slot].move       = move;
+        gAttr.slots[slot].startNodes = nodes;
+        gAttr.slotsUsed              = std::max(gAttr.slotsUsed, slot);
+    }
 }
 
 // Fired right after a move's child search returned and the move was undone
 // (value is the parent-relative result that the move loop uses for its
-// cutoff check). Records the slot-1 move's own subtree cost and value when
-// this emission is the recorded first move.
+// cutoff check). Records that slot's subtree cost and value.
 inline void probe_attribution_child_done(Key posKey, int ply, Move move, Value value,
                                          u64 endNodes) {
-    if (!gAttrArmed || gAttrPosKey != posKey || gAttrPly != ply || gAttrToken != gResearchCurFrame
-        || !gAttr.firstEmitted || gAttr.firstNoted || move != gAttr.firstMove)
+    if (!gAttrArmed || gAttrPosKey != posKey || gAttrPly != ply || gAttrToken != gResearchCurFrame)
         return;
-    gAttr.firstNoted      = true;
-    gAttr.firstSearched   = true;
-    gAttr.firstChildNodes = endNodes >= gAttr.firstStartNodes ? endNodes - gAttr.firstStartNodes : 0;
-    gAttr.firstValue      = value;
+    for (int s = 1; s <= gAttr.slotsUsed && s <= MoveAttribution::MAX_SLOTS; ++s)
+        if (gAttr.slots[s].emitted && !gAttr.slots[s].noted && gAttr.slots[s].move == move)
+        {
+            auto& sl        = gAttr.slots[s];
+            sl.noted        = true;
+            sl.searched     = true;
+            sl.childNodes   = endNodes >= sl.startNodes ? endNodes - sl.startNodes : 0;
+            sl.value        = value;
+            if (s == 1)
+            {
+                gAttr.firstSearched   = true;
+                gAttr.firstChildNodes = sl.childNodes;
+                gAttr.firstValue      = value;
+                gAttr.firstNoted      = true;
+            }
+            return;
+        }
 }
 
 // Fired right before the move loop's cutoff break (value >= beta at the
@@ -432,6 +613,9 @@ inline void research_frame_enter(Key posKey, int ply) {
         gForceNext.frameToken = gResearchCurFrame;
     if (gAttrArmed && gAttrToken == 0 && gAttrPosKey == posKey && gAttrPly == ply)
         gAttrToken = gResearchCurFrame;
+    if (gPerm.armed && gPerm.frameToken == 0 && gPerm.posKey == posKey
+        && gPerm.ply == ply)
+        gPerm.frameToken = gResearchCurFrame;
 }
 
 // Fired by the main move loop (search.cpp, POLICY_RESEARCH builds) on every
@@ -727,10 +911,19 @@ class CandidateProbeRunner {
     ProbeResult replay_node_forced(Move forced, Value alpha, Value beta, Depth depth,
                                    bool cutNode, u64 nodeBudget = 0);
 
+    // Whole-node replay with the first K searched moves fixed to
+    // `permTargets` (a permutation of the node's natural top-K emissions) in
+    // the requested order (plan-11.3 shared permutations; schema
+    // internal-counterfactual/4). Same isolation contract as the forced
+    // replay; the result carries perm/permServed/permComplete metadata.
+    ProbeResult replay_node_perm(const std::vector<Move>& permTargets, Value alpha,
+                                 Value beta, Depth depth, bool cutNode, u64 nodeBudget = 0);
+
     IsolatedWorker& worker() { return isolatedWorker; }
 
    private:
-    ProbeResult replay_impl(Move forced, Value alpha, Value beta, Depth depth, bool cutNode,
+    ProbeResult replay_impl(Move forced, const std::vector<Move>* permTargets,
+                            Value alpha, Value beta, Depth depth, bool cutNode,
                             u64 nodeBudget);
 
     const Search::Worker& liveWorker;

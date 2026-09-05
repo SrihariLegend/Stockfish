@@ -85,6 +85,12 @@ struct Config {
     //        live subtree cost can be compared with both the hook-time
     //        baseline replay and an exit-time replay.
     int          diagMode = 0;              // PolicyResearchDiagMode.
+    // Plan-11.3 shared-permutation battery (PolicyResearchPermBattery): when
+    // on (with PolicyResearchMode internal_counterfactual), every decision
+    // row additionally carries a fixed battery of top-K shared-permutation
+    // replays (schema internal-counterfactual/4) measuring the interaction
+    // gap with TT/history/cutoff context shared inside each permutation.
+    bool         permBattery = false;
 };
 
 // Finite internal guard rail for internal counterfactual probing (Phase 5).
@@ -245,6 +251,10 @@ inline void register_options(OptionsMap& options) {
 
     options.add("PolicyResearchPreservePreviousPV", Option("off", [](const Option& o) {
                     return parse_switch(std::string(o), config().preservePreviousPV);
+                }));
+
+    options.add("PolicyResearchPermBattery", Option("off", [](const Option& o) {
+                    return parse_switch(std::string(o), config().permBattery);
                 }));
 }
 

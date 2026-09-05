@@ -1650,6 +1650,159 @@ bool run_sandbox_unit_tests(Engine& engine) {
         }
     }
 
+    // Part 13: Shared-Permutation (top-K reorder) Semantics -- plan 11.3 /
+    // schema internal-counterfactual/4. Direct protocol checks plus the two
+    // bit-for-bit replay controls that the corpus also validates on every
+    // row: the identity permutation [0..K-1] equals the unforced baseline
+    // replay, and the permutation [k, 0..k-1, k+1..K-1] equals the ordinal-k
+    // force-next replay (same machinery family, different arm path).
+    {
+        StateListPtr states = std::make_unique<std::deque<StateInfo>>(1);
+        Position p13Pos;
+        p13Pos.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", false,
+                   &states->back());
+        Move m = UCIEngine::to_move(p13Pos, "e2e4");
+        states->emplace_back();
+        p13Pos.do_move(m, states->back());
+
+        auto dummyStack = std::make_unique<std::array<Search::Stack, MAX_PLY + 10>>();
+        Search::Stack* dummySS = &(*dummyStack)[7 + 1];
+        dummySS->ply            = 1;
+        dummySS->staticEval     = VALUE_NONE;
+        for (int i = 7; i > 0; --i)
+        {
+            (dummySS - i)->continuationHistory = &liveWorker->continuationHistory[0][0][NO_PIECE][0];
+            (dummySS - i)->continuationCorrectionHistory =
+              &liveWorker->continuationCorrectionHistory[NO_PIECE][0];
+            (dummySS - i)->staticEval = VALUE_NONE;
+        }
+        const auto& cands = enumerate_candidates(p13Pos, *liveWorker, dummySS, Move::none(),
+                                                 Depth(4));
+        if (cands.size() < 4)
+        {
+            std::cerr << "sandbox_test 13.0 failed: not enough candidates" << std::endl;
+            return false;
+        }
+        const Key k13 = p13Pos.key();
+
+        // 13.1 direct protocol: permutation [2, 0, 1] on the first three
+        // candidates (moves), exercising buffered serves out of natural order.
+        {
+            Move t[3] = {cands[2].move, cands[0].move, cands[1].move};
+            PermScope scope(k13, 1, t, 3);
+            if (!gPerm.armed || gPerm.next != 0)
+            {
+                std::cerr << "sandbox_test 13.1 failed: arm not initialized" << std::endl;
+                return false;
+            }
+            Move served = Move::none();
+            if (perm_serve_buffered(k13, 1, served) || perm_serve_buffered(k13, 1, served))
+            {
+                std::cerr << "sandbox_test 13.2 failed: buffer served before any swallow"
+                          << std::endl;
+                return false;
+            }
+            if (perm_step(k13, 1, cands[0].move) != 1 || gPerm.bufCount != 1
+                || gPerm.buf[0] != cands[0].move)
+            {
+                std::cerr << "sandbox_test 13.3 failed: natural ord0 not reserved"
+                          << std::endl;
+                return false;
+            }
+            if (perm_step(k13, 1, cands[1].move) != 1 || gPerm.bufCount != 2)
+            {
+                std::cerr << "sandbox_test 13.4 failed: natural ord1 not reserved"
+                          << std::endl;
+                return false;
+            }
+            if (perm_step(k13, 1, cands[2].move) != 0 || gPerm.next != 1
+                || gPerm.served != 1)
+            {
+                std::cerr << "sandbox_test 13.5 failed: next target not served from picker"
+                          << std::endl;
+                return false;
+            }
+            if (!perm_serve_buffered(k13, 1, served) || served != cands[0].move
+                || gPerm.next != 2 || gPerm.bufCount != 1 || gPerm.buf[0] != cands[1].move)
+            {
+                std::cerr << "sandbox_test 13.6 failed: buffered target not served next"
+                          << std::endl;
+                return false;
+            }
+            if (!perm_serve_buffered(k13, 1, served) || served != cands[1].move
+                || gPerm.next != 3 || gPerm.bufCount != 0)
+            {
+                std::cerr << "sandbox_test 13.7 failed: second buffered target not served"
+                          << std::endl;
+                return false;
+            }
+            if (perm_active(k13, 1) || perm_step(k13, 1, cands[3].move) != 0)
+            {
+                std::cerr << "sandbox_test 13.8 failed: post-completion behavior wrong"
+                          << std::endl;
+                return false;
+            }
+            // Mismatched key/ply never arm.
+            PermScope scope2(k13, 1, t, 3);
+            if (perm_step(k13 ^ 1, 1, cands[2].move) != 0
+                || perm_step(k13, 2, cands[2].move) != 0 || gPerm.served != 0
+                || !gPerm.armed)
+            {
+                std::cerr << "sandbox_test 13.9 failed: arm matched wrong node" << std::endl;
+                return false;
+            }
+        }
+
+        // 13.10 identity permutation equals the baseline replay (bit-for-bit).
+        {
+            CandidateProbeRunner rId(*liveWorker, p13Pos, dummySS);
+            const ProbeResult base = rId.replay_node(-50, -49, Depth(4), false, 200000);
+            Move ident[3] = {cands[0].move, cands[1].move, cands[2].move};
+            CandidateProbeRunner rP(*liveWorker, p13Pos, dummySS);
+            const ProbeResult idp =
+              rP.replay_node_perm(std::vector<Move>(ident, ident + 3), -50, -49, Depth(4),
+                                  false, 200000);
+            if (!base.completed || !idp.completed || base.nodes != idp.nodes
+                || base.score != idp.score)
+            {
+                std::cerr << "sandbox_test 13.10 failed: identity permutation != baseline "
+                          << "(nodes " << base.nodes << " vs " << idp.nodes << ")" << std::endl;
+                return false;
+            }
+            if (idp.permK != 3 || idp.permServed < 1)
+            {
+                std::cerr << "sandbox_test 13.10b failed: perm metadata missing" << std::endl;
+                return false;
+            }
+        }
+
+        // 13.11 permutation [k, 0..k-1, k+1..] equals force-next ordinal k for
+        // k = 1 and k = 2 (bit-for-bit).
+        for (int k = 1; k <= 2; ++k)
+        {
+            CandidateProbeRunner rF(*liveWorker, p13Pos, dummySS);
+            const ProbeResult fn =
+              rF.replay_node_forced(cands[k].move, -50, -49, Depth(4), false, 200000);
+            std::vector<Move> targets;
+            targets.push_back(cands[k].move);
+            for (int i = 0; i <= k; ++i)
+                if (i != k)
+                    targets.push_back(cands[i].move);
+            targets.push_back(cands[3].move);  // K = 4 control window
+            CandidateProbeRunner rP(*liveWorker, p13Pos, dummySS);
+            const ProbeResult perm =
+              rP.replay_node_perm(targets, -50, -49, Depth(4), false, 200000);
+            if (!fn.completed || !perm.completed || fn.nodes != perm.nodes
+                || fn.score != perm.score || fn.forced_slot1 != true || !perm.perm)
+            {
+                std::cerr << "sandbox_test 13.11 failed: perm [" << k
+                          << ",0..] != force-next ordinal " << k << " (nodes " << fn.nodes
+                          << " vs " << perm.nodes << ")" << std::endl;
+                return false;
+            }
+        }
+    }
+
     std::cout << "info string research: all sandbox unit tests passed successfully." << std::endl;
     return true;
 }
@@ -1668,22 +1821,35 @@ CandidateProbeRunner::CandidateProbeRunner(const Search::Worker& liveWorker,
 
 ProbeResult CandidateProbeRunner::replay_node(Value alpha, Value beta, Depth depth, bool cutNode,
                                               u64 nodeBudget) {
-    return replay_impl(Move::none(), alpha, beta, depth, cutNode, nodeBudget);
+    return replay_impl(Move::none(), nullptr, alpha, beta, depth, cutNode, nodeBudget);
 }
 
 ProbeResult CandidateProbeRunner::replay_node_forced(Move forced, Value alpha, Value beta,
                                                      Depth depth, bool cutNode, u64 nodeBudget) {
-    return replay_impl(forced, alpha, beta, depth, cutNode, nodeBudget);
+    return replay_impl(forced, nullptr, alpha, beta, depth, cutNode, nodeBudget);
 }
 
-ProbeResult CandidateProbeRunner::replay_impl(Move  forced,
-                                              Value alpha,
-                                              Value beta,
-                                              Depth depth,
-                                              bool  cutNode,
-                                              u64   nodeBudget) {
+ProbeResult CandidateProbeRunner::replay_node_perm(const std::vector<Move>& permTargets,
+                                                   Value alpha, Value beta, Depth depth,
+                                                   bool cutNode, u64 nodeBudget) {
+    return replay_impl(Move::none(), &permTargets, alpha, beta, depth, cutNode, nodeBudget);
+}
+
+ProbeResult CandidateProbeRunner::replay_impl(Move                  forced,
+                                              const std::vector<Move>* permTargets,
+                                              Value                  alpha,
+                                              Value                  beta,
+                                              Depth                  depth,
+                                              bool                   cutNode,
+                                              u64                    nodeBudget) {
     if (forced != Move::none() && !livePos.legal(forced))
         return ProbeResult{};  // invalid request; the sampler never sends one
+    if (permTargets != nullptr && permTargets->size() >= 2)
+    {
+        for (Move m : *permTargets)
+            if (!livePos.legal(m))
+                return ProbeResult{};
+    }
 
     // Full per-replay isolation: re-synchronized worker state (histories +
     // search context), fresh position clone, rebound stack window, and an
@@ -1706,7 +1872,22 @@ ProbeResult CandidateProbeRunner::replay_impl(Move  forced,
     AttributionScope attrScope(livePos.key(), liveSS->ply);
 
     ProbeResult result;
-    if (forced == Move::none())
+    if (permTargets != nullptr && permTargets->size() >= 2)
+    {
+        // Shared-permutation replay (plan 11.3): the targets are served as
+        // this node's first K searched moves in the requested order. The
+        // baseline capture stays disarmed (permutation rows need no decision
+        // capture) and the force-next arm stays disarmed.
+        PermScope scope(livePos.key(), liveSS->ply, permTargets->data(),
+                        static_cast<int>(permTargets->size()));
+        result = isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode,
+                                             overlay, nodeBudget);
+        result.perm          = true;
+        result.permK         = static_cast<int>(permTargets->size());
+        result.permServed    = gPerm.served;
+        result.permComplete  = gPerm.complete;
+    }
+    else if (forced == Move::none())
     {
         // Baseline replay: arm the decision-point capture for this exact node
         // (position key, ply). The replay's own search fires
@@ -1971,7 +2152,8 @@ LiveExitScope::~LiveExitScope() {
     if (Research::internal_log().active())
     {
         std::string row;
-        row += "{\"schema\":\"internal-counterfactual/3\",\"type\":\"node_exit\"";
+        row += std::string("{\"schema\":\"") + internal_dataset_schema()
+          + "\",\"type\":\"node_exit\"";
         row += ",\"root_key\":" + jnum(u64(e.rootKey));
         row += ",\"pos_key\":" + jnum(u64(e.posKey));
         row += ",\"ply\":" + jnum(i64(e.ply));
@@ -2106,6 +2288,47 @@ inline std::string attr_cutoff_json(const MoveAttribution&  a,
         s += ",\"cutoff_value\":null";
     s += ",\"cutoff_by_first\":" + jbool(a.cutoffByFirst);
     s += "}";
+    return s;
+}
+
+// Per-slot records of a permutation replay's root move loop (schema
+// internal-counterfactual/4): for every emission at slot 1..MAX_SLOTS, the
+// move, its natural ordinal, whether it was searched (false = pruned, or the
+// node ended inside its singular probe), and when searched the child subtree
+// do_moves and the parent-relative returned value.
+inline std::string attr_slots_json(const MoveAttribution&             a,
+                                   bool                              c960,
+                                   const std::vector<CandidateFeature>& candidates) {
+    std::string s = "[";
+    for (int slot = 1; slot <= a.slotsUsed && slot <= MoveAttribution::MAX_SLOTS; ++slot)
+    {
+        const auto& sl = a.slots[slot];
+        if (slot > 1)
+            s += ',';
+        s += "{\"slot\":" + jnum(i64(slot));
+        s += ",\"move\":" + (sl.emitted && sl.move != Move::none()
+                                    ? jstr(UCIEngine::move(sl.move, c960))
+                                    : std::string("null"));
+        int ordinal = -1;
+        if (sl.move != Move::none())
+            for (usize i = 0; i < candidates.size(); ++i)
+                if (candidates[i].move == sl.move)
+                {
+                    ordinal = candidates[i].ordinal;
+                    break;
+                }
+        s += ",\"ordinal\":" + (ordinal >= 0 ? jnum(i64(ordinal)) : std::string("null"));
+        s += ",\"searched\":" + jbool(sl.emitted && sl.searched);
+        if (sl.emitted && sl.searched)
+        {
+            s += ",\"child_nodes\":" + jnum(u64(sl.childNodes));
+            s += ",\"value\":" + jvalue_or_null(sl.value, true);
+        }
+        else
+            s += ",\"child_nodes\":null,\"value\":null";
+        s += "}";
+    }
+    s += "]";
     return s;
 }
 
@@ -2301,14 +2524,114 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     if (!anyDecision)
         return;
 
+    // Plan-11.3 shared-permutation battery (schema internal-counterfactual/4,
+    // PolicyResearchPermBattery): re-run the node once per permutation of its
+    // natural top-K emissions (K = min(4, N); K >= 2), so each order's cost is
+    // measured with TT/history/cutoff context shared across the K candidates
+    // inside one continuing replay. The battery is fixed and row-identical:
+    // identity [0..K-1] (must equal the baseline), the force-next controls
+    // [k, 0..k-1, k+1..K-1] for k = 1..min(3, K-1) (must equal the ordinal-k
+    // scalar probe), reverse, one-step rotation, adjacent swaps, and the
+    // ex-post cheapest-first order derived from the scalar probe costs above
+    // (in-row, so it is always constructible). Duplicates are run once. When
+    // any of the top-K scalar probes is censored the battery is skipped for
+    // the row (the row is still emitted with an empty permutations array).
+    std::vector<std::vector<int>> permOrders;
+    std::vector<ProbeResult>      permRes;
+    const bool permMode = Research::config().permBattery;
+    if (permMode && N >= 2 && !liveStopped())
+    {
+        const int K = std::min(4, N);
+        std::vector<u64> scalarCost(K, 0);
+        bool haveCosts = true;
+        for (int o = 0; o < K && haveCosts; ++o)
+        {
+            if (o == 0)
+                scalarCost[o] = baseline.nodes;
+            else
+            {
+                bool found = false;
+                for (usize si = 0; si < sel.size(); ++si)
+                    if (sel[si].idx >= 0 && candidates[sel[si].idx].ordinal == o)
+                    {
+                        found         = true;
+                        haveCosts     = forced[si].completed;
+                        scalarCost[o] = forced[si].nodes;
+                        break;
+                    }
+                if (!found)
+                    haveCosts = false;
+            }
+        }
+        if (haveCosts && K >= 2)
+        {
+            auto addOrder = [&permOrders](const std::vector<int>& ords) {
+                if (int(ords.size()) < 2)
+                    return;
+                for (const auto& e : permOrders)
+                    if (e == ords)
+                        return;
+                permOrders.push_back(ords);
+            };
+            std::vector<int> ident(K);
+            for (int i = 0; i < K; ++i)
+                ident[i] = i;
+            addOrder(ident);  // identity control: must equal the baseline
+            for (int k = 1; k <= std::min(3, K - 1); ++k)
+            {
+                // force-next control [k, 0..k-1, k+1..K-1]
+                std::vector<int> ord;
+                ord.push_back(k);
+                for (int i = 0; i < K; ++i)
+                    if (i != k)
+                        ord.push_back(i);
+                addOrder(ord);
+            }
+            std::vector<int> rev(ident.rbegin(), ident.rend());
+            addOrder(rev);
+            std::vector<int> rot;
+            for (int i = 1; i < K; ++i)
+                rot.push_back(i);
+            rot.push_back(0);
+            addOrder(rot);
+            for (int i = 1; i + 1 < K && i <= 2; ++i)  // adjacent swaps (1,2), (2,3)
+            {
+                std::vector<int> ord = ident;
+                std::swap(ord[i], ord[i + 1]);
+                addOrder(ord);
+            }
+            std::vector<int> cheapest(ident);
+            std::stable_sort(cheapest.begin(), cheapest.end(),
+                             [&scalarCost](int a, int b) {
+                                 return scalarCost[a] < scalarCost[b];
+                             });
+            addOrder(cheapest);  // ex-post cheapest-first (from the scalar probes)
+
+            permRes.reserve(permOrders.size());
+            for (const auto& ord : permOrders)
+            {
+                std::vector<Move> targets;
+                targets.reserve(ord.size());
+                for (int o : ord)
+                    targets.push_back(candidates[o].move);
+                permRes.push_back(
+                  runner.replay_node_perm(targets, alpha, beta, depth, cutNode, budget));
+                if (liveStopped())
+                    return;
+            }
+        }
+    }
+
     // ---- assemble and write the decision row ----
     // Unique per-visit sample id (monotonic within the run; allocated even if
     // the row is later dropped by a cap race, so ids never collide across the
     // decision and node_exit rows of one visit).
     const u64 sampleId = Research::internal_log().next_sample_id();
     const bool c960 = pos.is_chess960();
+    const std::string schemaStr =
+      permMode ? "internal-counterfactual/4" : "internal-counterfactual/3";
     std::string row;
-    row += "{\"schema\":\"internal-counterfactual/3\",\"type\":\"decision\"";
+    row += "{\"schema\":\"" + schemaStr + "\",\"type\":\"decision\"";
     row += ",\"root_key\":" + jnum(u64(rootKey));
     row += ",\"pos_key\":" + jnum(u64(pos.key()));
     row += ",\"fen\":" + jstr(pos.fen());
@@ -2418,6 +2741,46 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
         row += "}";
     }
     row += "]";
+
+    // Shared-permutation battery (schema internal-counterfactual/4): every
+    // run carries nodes/completed/stop/budget/value/fail_high, the slot-1 and
+    // final-cutoff attribution (same shape as probes), the per-slot records
+    // of the served prefix (searched/pruned state and child cost per slot),
+    // and the served/complete bookkeeping. Present only in /4 rows; /3 rows
+    // keep their exact historical layout.
+    if (permMode)
+    {
+        row += ",\"permutations\":[";
+        for (usize k = 0; k < permRes.size(); ++k)
+        {
+            const auto& pr = permRes[k];
+            if (k > 0)
+                row += ',';
+            row += "{\"order\":[";
+            for (usize j = 0; j < permOrders[k].size(); ++j)
+            {
+                if (j > 0)
+                    row += ',';
+                row += jnum(i64(permOrders[k][j]));
+            }
+            row += "]";
+            row += ",\"nodes\":" + jnum(u64(pr.nodes));
+            row += ",\"completed\":" + jbool(pr.completed);
+            row += ",\"stop\":" + jstr(stop_name(pr.stopReason));
+            row += ",\"budget_hit\":" + jbool(pr.hit_budget);
+            row += ",\"value\":" + jvalue_or_null(pr.score, pr.completed);
+            row += ",\"fail_high\":" + (pr.completed ? jbool(pr.score >= beta)
+                                                           : std::string("null"));
+            row += ",\"first\":" + attr_json(pr.attribution, c960);
+            row += ",\"cutoff\":" + attr_cutoff_json(pr.attribution, c960, candidates);
+            row += ",\"served\":" + jnum(i64(pr.permServed));
+            row += ",\"fully_served\":" +
+                   jbool(pr.permComplete && pr.permServed == pr.permK);
+            row += ",\"slots\":" + attr_slots_json(pr.attribution, c960, candidates);
+            row += "}";
+        }
+        row += "]";
+    }
     row += "}";
 
     const bool recorded = Research::internal_log().write_row(row);

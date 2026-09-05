@@ -457,13 +457,23 @@ void Recorder::on_run_end() {
 }
 
 // ---------------------------------------------------------------------------
-// InternalDatasetLog (internal-counterfactual/3, JSONL)
+// InternalDatasetLog (internal-counterfactual/3 or /4, JSONL)
 //
 // One self-contained dataset file per root. Row content is JSONL: numeric and
 // constrained string fields only (FEN and UCI move strings never contain
 // control characters, quotes, or backslashes), so json_quote_append below only
 // needs to guard against those three characters for robustness.
 // ---------------------------------------------------------------------------
+
+// Schema version of the internal counterfactual dataset rows for the current
+// run: "internal-counterfactual/3" (force-next form) or "/4" when
+// PolicyResearchPermBattery is on (rows additionally carry the plan-11.3
+// shared-permutation battery). All rows of one run share the schema string so
+// validators can accept a whole file uniformly.
+const char* internal_dataset_schema() {
+    return config().permBattery ? "internal-counterfactual/4"
+                                : "internal-counterfactual/3";
+}
 
 InternalDatasetLog& internal_log() {
     static InternalDatasetLog log;
@@ -601,7 +611,8 @@ void InternalDatasetLog::on_root_search_start(u64 rootKey) {
     // run_start row: provenance + sampler configuration for this file.
     {
         std::string row;
-        row += "{\"schema\":\"internal-counterfactual/3\",\"type\":\"run_start\"";
+        row += "{\"schema\":\"" + std::string(internal_dataset_schema())
+              + "\",\"type\":\"run_start\"";
         row += ",\"engine\":";
         json_quote_append(row, engineInfo_);
         row += ",\"seed\":" + json_num(seed_);
@@ -615,7 +626,8 @@ void InternalDatasetLog::on_root_search_start(u64 rootKey) {
     // root_start row: root identity + start position + collection targets.
     {
         std::string row;
-        row += "{\"schema\":\"internal-counterfactual/3\",\"type\":\"root_start\"";
+        row += "{\"schema\":\"" + std::string(internal_dataset_schema())
+              + "\",\"type\":\"root_start\"";
         row += ",\"root_key\":" + json_num(rootKey_);
         row += ",\"target_depth\":" + json_num(u64(pendingDepth_));
         row += ",\"target_nodes\":" + json_num(pendingNodes_);
@@ -659,7 +671,8 @@ void InternalDatasetLog::on_root_search_end(u64                 rootKey,
         // pass); the loop guard is pure defensive.
         std::string row;
         const auto build = [&](u64 bytesClaim) {
-            row = "{\"schema\":\"internal-counterfactual/3\",\"type\":\"root_end\"";
+            row = "{\"schema\":\"" + std::string(internal_dataset_schema())
+                  + "\",\"type\":\"root_end\"";
             row += ",\"root_key\":" + json_num(rootKey_);
             row += ",\"rows\":" + json_num(rows_);
             row += ",\"bytes\":" + json_num(bytesClaim);

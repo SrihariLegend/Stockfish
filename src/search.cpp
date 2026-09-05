@@ -1484,7 +1484,21 @@ moves_loop:  // When in check, search starts here
     // preserved, not deleted. Dead code in macro-off builds.
     while (true)
     {
-        if (!Research::force_next_buffer_pop(posKey, ss->ply, move))
+        // Shared-permutation replay arm (plan 11.3, schema /4): while targets
+        // remain at this node, first try serving the next target from the
+        // reservation buffer; otherwise pull the next real picker emission
+        // (its swallow/serve decision happens AFTER the legality checks,
+        // next to the force-next step -- illegal pseudo-legal emissions must
+        // never be reserved). Served-from-buffer moves skip the perm_step
+        // decision below (they are already the next target).
+        bool fromPermBuffer = false;
+        if (Research::perm_active(posKey, ss->ply))
+        {
+            fromPermBuffer = Research::perm_serve_buffered(posKey, ss->ply, move);
+            if (!fromPermBuffer && (move = mp.next_move()) == Move::none())
+                break;
+        }
+        else if (!Research::force_next_buffer_pop(posKey, ss->ply, move))
         {
             if ((move = mp.next_move()) == Move::none())
                 break;
@@ -1515,8 +1529,18 @@ moves_loop:  // When in check, search starts here
         // swallowed unsearched and uncounted so the candidate gets this node's
         // exact slot-1 treatment. The arm clears at the forced move's emission
         // (which then proceeds normally, including being pruned). Dead code in
-        // macro-off builds.
-        if (Research::force_next_step(posKey, ss->ply, move) == 1)
+        // macro-off builds. Shared-permutation replays (schema /4) instead call
+        // perm_step() here: a legal emission that is a reserved (not-next)
+        // target is swallowed into the reservation buffer; the next target is
+        // served; emissions after the permutation completed proceed. Buffered
+        // moves served at the loop head (fromPermBuffer) never reach this
+        // decision.
+        if (!fromPermBuffer && Research::perm_active(posKey, ss->ply))
+        {
+            if (Research::perm_step(posKey, ss->ply, move) == 1)
+                continue;
+        }
+        else if (Research::force_next_step(posKey, ss->ply, move) == 1)
             continue;
 #endif
 
@@ -1527,7 +1551,8 @@ moves_loop:  // When in check, search starts here
         // replays; no-op on live nodes): records the root's first emission --
         // the forced candidate in forced replays, natural ordinal 0 in the
         // baseline -- and the shadow node counter at that point.
-        Research::probe_attribution_emission(posKey, ss->ply, move, u64(nodes));
+        Research::probe_attribution_emission(posKey, ss->ply, move, moveCount,
+                                             u64(nodes));
 #endif
 
         if (rootNode && is_mainthread() && nodes > NODES_LIMIT_OUTPUT)
