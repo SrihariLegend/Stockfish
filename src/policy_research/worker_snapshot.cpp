@@ -1651,7 +1651,7 @@ bool run_sandbox_unit_tests(Engine& engine) {
     }
 
     // Part 13: Shared-Permutation (top-K reorder) Semantics -- plan 11.3 /
-    // schema internal-counterfactual/4. Direct protocol checks plus the two
+    // schema internal-counterfactual/5. Direct protocol checks plus the two
     // bit-for-bit replay controls that the corpus also validates on every
     // row: the identity permutation [0..K-1] equals the unforced baseline
     // replay, and the permutation [k, 0..k-1, k+1..K-1] equals the ordinal-k
@@ -1685,99 +1685,78 @@ bool run_sandbox_unit_tests(Engine& engine) {
         }
         const Key k13 = p13Pos.key();
 
-        // 13.1 direct protocol: permutation [2, 0, 1] on the first three
-        // candidates (moves), exercising buffered serves out of natural order.
+        // 13.1 direct protocol: reserve natural prefix [0,1,2], then emit
+        // scheduled prefix [2,0,1].
         {
             Move t[3] = {cands[2].move, cands[0].move, cands[1].move};
             PermScope scope(k13, 1, t, 3);
-            if (!gPerm.armed || gPerm.next != 0)
-            {
-                std::cerr << "sandbox_test 13.1 failed: arm not initialized" << std::endl;
-                return false;
-            }
             Move served = Move::none();
-            if (perm_serve_buffered(k13, 1, served) || perm_serve_buffered(k13, 1, served))
+            if (perm_serve_next(k13, 1, served))
             {
-                std::cerr << "sandbox_test 13.2 failed: buffer served before any swallow"
+                std::cerr << "sandbox_test 13.1 failed: served before preparation"
                           << std::endl;
                 return false;
             }
-            if (perm_step(k13, 1, cands[0].move) != 1 || gPerm.bufCount != 1
-                || gPerm.buf[0] != cands[0].move)
+            for (int i = 0; i < 3; ++i)
+                perm_prepare_emission(k13, 1, cands[i].move);
+            if (!gPerm.prepared || !gPerm.orderValid || gPerm.prepareSeen != 3)
             {
-                std::cerr << "sandbox_test 13.3 failed: natural ord0 not reserved"
-                          << std::endl;
+                std::cerr << "sandbox_test 13.2 failed: prefix preparation" << std::endl;
                 return false;
             }
-            if (perm_step(k13, 1, cands[1].move) != 1 || gPerm.bufCount != 2)
+            for (int i = 0; i < 3; ++i)
+                if (!perm_serve_next(k13, 1, served) || served != t[i]
+                    || gPerm.served != i + 1)
+                {
+                    std::cerr << "sandbox_test 13.3 failed: scheduled target order"
+                              << std::endl;
+                    return false;
+                }
+            if (perm_serve_next(k13, 1, served))
             {
-                std::cerr << "sandbox_test 13.4 failed: natural ord1 not reserved"
-                          << std::endl;
+                std::cerr << "sandbox_test 13.4 failed: served past prefix" << std::endl;
                 return false;
             }
-            if (perm_step(k13, 1, cands[2].move) != 0 || gPerm.next != 1
-                || gPerm.served != 1)
+        }
+        // Mismatched key/ply never arm.
+        {
+            Move t[3] = {cands[2].move, cands[0].move, cands[1].move};
+            PermScope scope(k13, 1, t, 3);
+            Move served = Move::none();
+            if (perm_serve_next(k13 ^ 1, 1, served)
+                || perm_serve_next(k13, 2, served) || gPerm.served != 0)
             {
-                std::cerr << "sandbox_test 13.5 failed: next target not served from picker"
-                          << std::endl;
-                return false;
-            }
-            if (!perm_serve_buffered(k13, 1, served) || served != cands[0].move
-                || gPerm.next != 2 || gPerm.bufCount != 1 || gPerm.buf[0] != cands[1].move)
-            {
-                std::cerr << "sandbox_test 13.6 failed: buffered target not served next"
-                          << std::endl;
-                return false;
-            }
-            if (!perm_serve_buffered(k13, 1, served) || served != cands[1].move
-                || gPerm.next != 3 || gPerm.bufCount != 0)
-            {
-                std::cerr << "sandbox_test 13.7 failed: second buffered target not served"
-                          << std::endl;
-                return false;
-            }
-            if (perm_active(k13, 1) || perm_step(k13, 1, cands[3].move) != 0)
-            {
-                std::cerr << "sandbox_test 13.8 failed: post-completion behavior wrong"
-                          << std::endl;
-                return false;
-            }
-            // Mismatched key/ply never arm.
-            PermScope scope2(k13, 1, t, 3);
-            if (perm_step(k13 ^ 1, 1, cands[2].move) != 0
-                || perm_step(k13, 2, cands[2].move) != 0 || gPerm.served != 0
-                || !gPerm.armed)
-            {
-                std::cerr << "sandbox_test 13.9 failed: arm matched wrong node" << std::endl;
+                std::cerr << "sandbox_test 13.5 failed: arm matched wrong node" << std::endl;
                 return false;
             }
         }
 
-        // 13.10 identity permutation equals the baseline replay (bit-for-bit).
+        // 13.10 committed identity emits the requested first three slots.
+        // It is intentionally not compared with the uncommitted baseline:
+        // natural search may dynamically skip a later quiet.
         {
-            CandidateProbeRunner rId(*liveWorker, p13Pos, dummySS);
-            const ProbeResult base = rId.replay_node(-50, -49, Depth(4), false, 200000);
             Move ident[3] = {cands[0].move, cands[1].move, cands[2].move};
             CandidateProbeRunner rP(*liveWorker, p13Pos, dummySS);
             const ProbeResult idp =
               rP.replay_node_perm(std::vector<Move>(ident, ident + 3), -50, -49, Depth(4),
                                   false, 200000);
-            if (!base.completed || !idp.completed || base.nodes != idp.nodes
-                || base.score != idp.score)
+            if (!idp.completed || idp.permK != 3 || idp.permServed < 1)
             {
-                std::cerr << "sandbox_test 13.10 failed: identity permutation != baseline "
-                          << "(nodes " << base.nodes << " vs " << idp.nodes << ")" << std::endl;
+                std::cerr << "sandbox_test 13.10 failed: identity metadata" << std::endl;
                 return false;
             }
-            if (idp.permK != 3 || idp.permServed < 1)
-            {
-                std::cerr << "sandbox_test 13.10b failed: perm metadata missing" << std::endl;
-                return false;
-            }
+            for (int i = 1; i <= std::min(3, idp.attribution.slotsUsed); ++i)
+                if (!idp.attribution.slots[i].emitted
+                    || idp.attribution.slots[i].move != ident[i - 1])
+                {
+                    std::cerr << "sandbox_test 13.10b failed: identity prefix" << std::endl;
+                    return false;
+                }
         }
 
-        // 13.11 permutation [k, 0..k-1, k+1..] equals force-next ordinal k for
-        // k = 1 and k = 2 (bit-for-bit).
+        // 13.11 scheduled prefix [k, 0..k-1], then natural suffix, equals
+        // force-next ordinal k bit-for-bit. Do not append later top-K moves:
+        // force-next leaves that suffix subject to dynamic quiet skipping.
         for (int k = 1; k <= 2; ++k)
         {
             CandidateProbeRunner rF(*liveWorker, p13Pos, dummySS);
@@ -1785,17 +1764,15 @@ bool run_sandbox_unit_tests(Engine& engine) {
               rF.replay_node_forced(cands[k].move, -50, -49, Depth(4), false, 200000);
             std::vector<Move> targets;
             targets.push_back(cands[k].move);
-            for (int i = 0; i <= k; ++i)
-                if (i != k)
-                    targets.push_back(cands[i].move);
-            targets.push_back(cands[3].move);  // K = 4 control window
+            for (int i = 0; i < k; ++i)
+                targets.push_back(cands[i].move);
             CandidateProbeRunner rP(*liveWorker, p13Pos, dummySS);
             const ProbeResult perm =
               rP.replay_node_perm(targets, -50, -49, Depth(4), false, 200000);
             if (!fn.completed || !perm.completed || fn.nodes != perm.nodes
                 || fn.score != perm.score || fn.forced_slot1 != true || !perm.perm)
             {
-                std::cerr << "sandbox_test 13.11 failed: perm [" << k
+                std::cerr << "sandbox_test 13.11 failed: scheduled prefix [" << k
                           << ",0..] != force-next ordinal " << k << " (nodes " << fn.nodes
                           << " vs " << perm.nodes << ")" << std::endl;
                 return false;
@@ -1882,10 +1859,10 @@ ProbeResult CandidateProbeRunner::replay_impl(Move                  forced,
                         static_cast<int>(permTargets->size()));
         result = isolatedWorker.probe<NonPV>(shadowPos, shadowSS, alpha, beta, depth, cutNode,
                                              overlay, nodeBudget);
-        result.perm          = true;
-        result.permK         = static_cast<int>(permTargets->size());
-        result.permServed    = gPerm.served;
-        result.permComplete  = gPerm.complete;
+        result.perm           = true;
+        result.permK          = static_cast<int>(permTargets->size());
+        result.permServed     = gPerm.served;
+        result.permOrderValid = gPerm.orderValid;
     }
     else if (forced == Move::none())
     {
@@ -1909,6 +1886,14 @@ ProbeResult CandidateProbeRunner::replay_impl(Move                  forced,
 
     // Copy the attribution content before the scope teardown clears the TLS.
     result.attribution = gAttr;
+    if (permTargets != nullptr)
+    {
+        const int observed = std::min(result.attribution.slotsUsed, result.permK);
+        for (int i = 1; i <= observed; ++i)
+            if (!result.attribution.slots[i].emitted
+                || result.attribution.slots[i].move != (*permTargets)[i - 1])
+                result.permOrderValid = false;
+    }
     return result;
 }
 
@@ -2292,7 +2277,7 @@ inline std::string attr_cutoff_json(const MoveAttribution&  a,
 }
 
 // Per-slot records of a permutation replay's root move loop (schema
-// internal-counterfactual/4): for every emission at slot 1..MAX_SLOTS, the
+// internal-counterfactual/5): for every emission at slot 1..MAX_SLOTS, the
 // move, its natural ordinal, whether it was searched (false = pruned, or the
 // node ended inside its singular probe), and when searched the child subtree
 // do_moves and the parent-relative returned value.
@@ -2524,18 +2509,15 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     if (!anyDecision)
         return;
 
-    // Plan-11.3 shared-permutation battery (schema internal-counterfactual/4,
-    // PolicyResearchPermBattery): re-run the node once per permutation of its
-    // natural top-K emissions (K = min(4, N); K >= 2), so each order's cost is
-    // measured with TT/history/cutoff context shared across the K candidates
-    // inside one continuing replay. The battery is fixed and row-identical:
-    // identity [0..K-1] (must equal the baseline), the force-next controls
-    // [k, 0..k-1, k+1..K-1] for k = 1..min(3, K-1) (must equal the ordinal-k
-    // scalar probe), reverse, one-step rotation, adjacent swaps, and the
-    // ex-post cheapest-first order derived from the scalar probe costs above
-    // (in-row, so it is always constructible). Duplicates are run once. When
-    // any of the top-K scalar probes is censored the battery is skipped for
-    // the row (the row is still emitted with an empty permutations array).
+    // Plan-11.3 scheduled-prefix battery (schema internal-counterfactual/5,
+    // PolicyResearchPermBattery). Full-K entries commit the static pre-search
+    // top-K candidates to slots 1..K; identity is therefore a committed-
+    // prefix treatment, not a no-op baseline (natural search may dynamically
+    // skip a later quiet). The force-next controls use only [k, 0..k-1] and
+    // then release to the natural suffix, exactly matching /3 force-next.
+    // Other full-K orders: reverse, rotation, adjacent swaps and the in-row
+    // ex-post cheapest-first order. Duplicates are run once. When a top-K
+    // scalar probe is censored the battery is skipped for the row.
     std::vector<std::vector<int>> permOrders;
     std::vector<ProbeResult>      permRes;
     const bool permMode = Research::config().permBattery;
@@ -2576,15 +2558,15 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
             std::vector<int> ident(K);
             for (int i = 0; i < K; ++i)
                 ident[i] = i;
-            addOrder(ident);  // identity control: must equal the baseline
+            addOrder(ident);  // committed static top-K identity
             for (int k = 1; k <= std::min(3, K - 1); ++k)
             {
-                // force-next control [k, 0..k-1, k+1..K-1]
+                // Exact force-next control: scheduled [k, 0..k-1], then the
+                // arm releases and the real picker supplies its dynamic suffix.
                 std::vector<int> ord;
                 ord.push_back(k);
-                for (int i = 0; i < K; ++i)
-                    if (i != k)
-                        ord.push_back(i);
+                for (int i = 0; i < k; ++i)
+                    ord.push_back(i);
                 addOrder(ord);
             }
             std::vector<int> rev(ident.rbegin(), ident.rend());
@@ -2629,7 +2611,7 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     const u64 sampleId = Research::internal_log().next_sample_id();
     const bool c960 = pos.is_chess960();
     const std::string schemaStr =
-      permMode ? "internal-counterfactual/4" : "internal-counterfactual/3";
+      permMode ? "internal-counterfactual/5" : "internal-counterfactual/3";
     std::string row;
     row += "{\"schema\":\"" + schemaStr + "\",\"type\":\"decision\"";
     row += ",\"root_key\":" + jnum(u64(rootKey));
@@ -2742,7 +2724,7 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
     }
     row += "]";
 
-    // Shared-permutation battery (schema internal-counterfactual/4): every
+    // Shared scheduled-prefix battery (schema internal-counterfactual/5): every
     // run carries nodes/completed/stop/budget/value/fail_high, the slot-1 and
     // final-cutoff attribution (same shape as probes), the per-slot records
     // of the served prefix (searched/pruned state and child cost per slot),
@@ -2774,8 +2756,8 @@ void on_internal_node_counterfactual(Search::Worker& liveWorker,
             row += ",\"first\":" + attr_json(pr.attribution, c960);
             row += ",\"cutoff\":" + attr_cutoff_json(pr.attribution, c960, candidates);
             row += ",\"served\":" + jnum(i64(pr.permServed));
-            row += ",\"fully_served\":" +
-                   jbool(pr.permComplete && pr.permServed == pr.permK);
+            row += ",\"fully_served\":" + jbool(pr.permServed == pr.permK);
+            row += ",\"order_valid\":" + jbool(pr.permOrderValid);
             row += ",\"slots\":" + attr_slots_json(pr.attribution, c960, candidates);
             row += "}";
         }

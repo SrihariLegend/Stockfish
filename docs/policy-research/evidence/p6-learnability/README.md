@@ -1,99 +1,110 @@
-# Phase 6.2 — learnability probe (root-held-out, abstaining, feature-only)
+# Phase 6.2 — corrected root-held-out learnability probe
 
-The decisive measurement the Phase-6.2 diagnostics could not provide:
-can a policy that only sees pre-search entry features (a deployable shape)
-realize any of the ex-post local-oracle headroom? Answer on this corpus:
-**no — every tested feature-only rule loses to (or exactly ties) the
-natural order when evaluated root-held-out; tuned gates abstain entirely.**
+Can a policy that sees only pre-search entry features realize any of the
+ex-post local-oracle headroom? On the current 12-root opening corpus the
+answer is **a small preliminary yes for the linear QE policy, not yet a
+production result**.
 
-Reproduction: `tools/policy_research/p6_learnability.py
-docs/policy-research/evidence/p5-phase6-breadth
-docs/policy-research/evidence/p5-m2m3-reorder-v3/seed_a1.jsonl.gz
-docs/policy-research/evidence/p5-m2m3-reorder-v3/root_b_d8.jsonl.gz
---json p6-learnability-results.json`
+This report supersedes the original negative result. The original scorer fit
+models on fold-winsorized/standardized features but accidentally applied the
+coefficients to raw features at policy-selection time. Diagnostics used the
+correct transform, which hid the mismatch. The corrected implementation routes
+both fitting and every policy prediction through the same training-fold
+transform and has a regression test comparing single-candidate and batch
+prediction paths.
+
+Reproduction (full corpus):
+
+```sh
+python3 tools/policy_research/p6_learnability.py \
+  docs/policy-research/evidence/p5-phase6-breadth \
+  docs/policy-research/evidence/p5-m2m3-reorder-v3/seed_a1.jsonl.gz \
+  docs/policy-research/evidence/p5-m2m3-reorder-v3/root_b_d8.jsonl.gz \
+  --json docs/policy-research/evidence/p6-learnability/p6-learnability-results.json
+```
+
+Add `--min-baseline-nodes 10` and write
+`p6-learnability-ge10-results.json` for the declared high-cost stratum.
 
 ## Method
 
-- Rows: the same 12-root internal-counterfactual/3 corpus (15,825 decision
-  rows; top-four census). Labels per candidate ordinal 0..3: measured
-  whole-node forced cost C_o (ordinal 0 = baseline) and measured slot-1
-  own-cut indicator q_o (`cutoff_by_first`).
-- Features: row context (ply, entry depth, remaining depth, root depth,
-  improving, tt_hit, cut_node, rule50, n_candidates, static eval) plus
-  per-candidate pre-search features from the row's candidate enumeration
-  (MovePicker stage one-hot, stage score, main/capture/pawn/continuation/
-  low-ply history, SEE bucket, check/capture/tt_move flags, natural
-  ordinal). All are available before any candidate is searched; no future
-  information enters the predictors. Features are winsorized at training
-  1st/99th percentiles and standardized on training statistics per fold.
-- Models: ridge logistic (IRLS) q-hat; ridge log-cost c-hat.
-- Evaluation: leave-one-root-out over the 12 roots. Thresholds
-  (theta/tau/lambda) are chosen by TOTAL measured cost on the 11 training
-  roots over a grid that includes full abstention; the tuned policy then
-  runs on every row of the held-out root and is charged the MEASURED cost
-  of its chosen ordinal (abstain = ordinal 0). Aggregates are sums
-  (plan 11.1).
-- Policies: Q (promote the most probable own-cut candidate above a tuned
-  threshold), CHEAP (promote the predicted cheapest whole-node cost among
-  0..3), CHEAP_SAFE (CHEAP restricted to candidates whose predicted own-cut
-  probability exceeds a tuned threshold), QE (promote argmax
-  log q-hat - lambda * log c-hat over 0..3, lambda tuned).
+- 15,825 `internal-counterfactual/3` rows from 12 separately searched opening
+  roots; candidates are the static pre-search MovePicker top four.
+- Labels: exact measured whole-node force-first cost and slot-1 own-cut outcome.
+- Features: entry context plus candidate stage, score, history, SEE, check,
+  capture, TT-move and ordinal features. No post-search feature enters a model.
+- Models: ridge logistic own-cut predictor and ridge log-cost predictor.
+- Leave-one-root-out evaluation. Each fold fits winsorization and standardization
+  on its 11 training roots; the held-out root uses those frozen statistics.
+- Policy thresholds/lambda are selected by total measured training-fold cost.
+  Evaluation charges the exact measured cost of the selected ordinal.
+- Headline percentages are ratios of sums. Roots are correlated exploratory
+  clusters, not a random population sample.
 
-## Results (pooled over the 12 held-out roots; baseline 166,807 nodes)
+## Corrected full-corpus results
 
-| policy | save% | later pick (% rows) | FH->FL | FL->FH |
+Pooled baseline: 166,807 local replay nodes.
+
+| policy | save % | later pick (% rows) | FH→FL | FL→FH |
 |---|---:|---:|---:|---:|
 | BASE | 0.00 | 0.0 | 0 | 0 |
-| Q (theta tuned, abstain allowed) | 0.00 | 0.0 | 0 | 0 |
-| CHEAP | -16.36 | 67.3 | 151 | 110 |
-| CHEAP_SAFE (tau tuned) | 0.00 | 0.0 | 0 | 0 |
-| QE (lambda tuned) | -4.27 | 19.4 | 75 | 35 |
+| Q | 0.00 | 0.0 | 0 | 0 |
+| CHEAP | -0.40 | 11.9 | 18 | 21 |
+| CHEAP_SAFE | -0.01 | 0.7 | 0 | 1 |
+| **QE** | **+0.60** | **5.9** | **9** | **15** |
 
-Ex-post references (not learnable): ORACLE_CLS 24.01% saved; ORACLE_EXACT
-12.75%; own-cut ex-post heuristics 13.7-15.7% (p6-explanatory report).
+QE costs 165,809 nodes, saves 998 local replay nodes and captures 2.5% of the
+classification-preserving oracle. It is positive on 10/12 held-out roots;
+the root-average saving is 0.42% with SD 1.18%. That spread is descriptive;
+12 selected roots do not support a population-confidence claim.
 
-The tuned q-gates and the cost-gated rule chose FULL ABSTENTION on every
-fold: even in-sample (training-root evaluation of the same tuned rules),
-their best achievable pooled saving is 0.00% (Q, CHEAP_SAFE) and -4.4%
-(QE). This is not a generalization failure: the rules' own training
-criterion cannot find any promotion worth doing.
+Hindsight safety diagnostics (not deployable gates): replacing QE choices that
+change fail-high classification with baseline leaves about +0.47%; replacing
+choices whose returned value differs from baseline leaves about +0.33%. Thus
+the sign is not solely produced by outcome-changing choices, but search quality
+still requires deeper/live evaluation.
 
-Diagnostics of feature information content (held-out): q-hat ranks
-own-cut outcomes well (mean AUC 0.874, per-root 0.81-0.93) and c-hat ranks
-log costs well (mean Spearman 0.703). The features DO carry ranking
-signal; the ranking signal does not translate into choice value: choosing
-argmin c-hat promotes on 67% of rows and loses 16%, because the model
-cannot resolve the decision-relevant quantity — whether a later candidate
-costs LESS than this row's natural order — at the precision the asymmetric
-promotion penalty requires (promoting a non-cheaper candidate costs
-~+20-30% of the row, and ~73% of rows have no cheaper top-four candidate).
+## Declared baseline ≥10-node stratum
 
-Stratum check (rows with baseline >= 10 nodes, where 89.6% of the oracle
-savings sit; oracle there: 28.33%): CHEAP -1.00%, CHEAP_SAFE -0.68%, QE
--0.96%, Q abstains (0.0%). Even in the high-opportunity stratum the
-feature-only rules cannot clear zero.
+3,759 rows; pooled baseline 126,645 nodes.
 
-## Reading
+| policy | save % | later pick (% rows) | FH→FL | FL→FH |
+|---|---:|---:|---:|---:|
+| Q | -2.11 | 24.9 | 21 | 28 |
+| CHEAP | -1.34 | 67.0 | 67 | 78 |
+| CHEAP_SAFE | +0.21 | 29.0 | 28 | 35 |
+| **QE** | **+2.06** | **24.6** | **9** | **27** |
 
-1. **The local oracle headroom is not capturable by cheap linear predictors
-   on this corpus.** The ex-post gap (24%) is not evidence of a learnable
-   policy; the measured learnable-share upper bound is currently 0%.
-2. **The binding constraint is choice-value precision, not ranking
-   quality.** AUC/Spearman are respectable; argmin/gated rules still lose
-   because the payoff depends on predicting small per-row cost differences
-   against a strong natural-order prior, where promotion errors are
-   systematically expensive.
-3. **Model-class caveat (honest limits of this probe):** only ridge
-   linear/logistic models on the recorded tabular features were tested;
-   12 roots are heavily correlated (opening lines, shared TT/history); the
-   corpus has no game-random positions. A stronger model class (or
-   features such as deeper NNUE-derived context) could in principle do
-   better — nothing here rules that out — but the burden of proof now sits
-   with such a model, and the plan §21.1 fallback (restrict to near-root/
-   high-regret contexts, caching, no neural policy) is the live option if
-   none materializes.
-4. **Implication for the teacher target:** whole-node cost differences that
-   an entry-state model cannot see are real (the oracle) but causally
-   opaque from the entry; the interaction-gap corpus (shared permutations)
-   will show how much of the oracle is intra-node order interaction that
-   even a perfect scalar-cost model could not predict.
+QE is positive on 8/12 roots and captures 7.3% of the stratum's
+classification-preserving oracle. Hindsight classification fallback leaves
+about +1.79%; exact-value fallback about +0.35%. Baseline cost is future
+information, so this stratum demonstrates concentration, not a deployable gate.
+
+## Diagnostics
+
+Full-corpus held-out fold means:
+
+- own-cut AUC: 0.874;
+- global log-cost Spearman: 0.707;
+- later-vs-baseline cheaper-cost AUC: about 0.54;
+- within-row predicted cost argmin accuracy: reported in the machine result
+  alongside the always-baseline comparator.
+
+Global cost rank correlation is dominated by between-row node size and must not
+be read as candidate-choice accuracy. The weak cheaper-than-baseline AUC
+explains why CHEAP remains negative. Future models should directly predict
+relative regret, pairwise preference or expected choice value rather than only
+absolute whole-node cost.
+
+## Interpretation and gate
+
+1. The previous statement that every firing feature-only policy loses is
+   withdrawn. Correctly transformed QE has a small positive root-held-out sign.
+2. The magnitude is not yet economically sufficient for universal invocation:
+   998 saved local nodes over 15,825 eligible calls is only 0.063 local nodes per
+   call before inference overhead, and local subtree costs overlap.
+3. The ≥10-node concentration supports a cheap learned gate or near-root/depth
+   restriction, but measured baseline cost itself cannot be that gate.
+4. This is a GO for cheap nonlinear/direct-regret offline models and a NO-GO for
+   production integration until broader game-level holdout and live wall-time,
+   search-quality and later Elo gates pass.

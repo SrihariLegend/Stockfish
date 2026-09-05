@@ -1466,6 +1466,29 @@ moves_loop:  // When in check, search starts here
     MovePicker mp(pos, ttData.move, depth, &mainHistory, &lowPlyHistory, &captureHistory, contHist,
                   &sharedHistory, ss->ply);
 
+#ifdef POLICY_RESEARCH
+    // A scheduled-prefix replay first consumes the complete static prefix
+    // from this exact MovePicker before searching any target. This reserves
+    // all requested moves against path-dependent skip_quiet_moves and leaves
+    // the picker cursor at the natural suffix, matching force-next semantics
+    // for the variable-length [k, 0..k-1] controls.
+    while (Research::perm_needs_prepare(posKey, ss->ply))
+    {
+        Move reserved = mp.next_move();
+        if (reserved == Move::none())
+        {
+            Research::perm_prepare_failed(posKey, ss->ply);
+            break;
+        }
+        if (reserved == excludedMove || !pos.legal(reserved))
+            continue;
+        if (rootNode
+            && !std::count(rootMoves.begin() + pvIdx, rootMoves.begin() + pvLast, reserved))
+            continue;
+        Research::perm_prepare_emission(posKey, ss->ply, reserved);
+    }
+#endif
+
     value = bestValue;
 
     int moveCount = 0;
@@ -1484,21 +1507,11 @@ moves_loop:  // When in check, search starts here
     // preserved, not deleted. Dead code in macro-off builds.
     while (true)
     {
-        // Shared-permutation replay arm (plan 11.3, schema /4): while targets
-        // remain at this node, first try serving the next target from the
-        // reservation buffer; otherwise pull the next real picker emission
-        // (its swallow/serve decision happens AFTER the legality checks,
-        // next to the force-next step -- illegal pseudo-legal emissions must
-        // never be reserved). Served-from-buffer moves skip the perm_step
-        // decision below (they are already the next target).
-        bool fromPermBuffer = false;
-        if (Research::perm_active(posKey, ss->ply))
-        {
-            fromPermBuffer = Research::perm_serve_buffered(posKey, ss->ply, move);
-            if (!fromPermBuffer && (move = mp.next_move()) == Move::none())
-                break;
-        }
-        else if (!Research::force_next_buffer_pop(posKey, ss->ply, move))
+        // Shared scheduled-prefix replay (plan 11.3, schema /5): serve the
+        // next reserved target directly. Once the prefix completes, the real
+        // MovePicker is already positioned at the natural suffix.
+        const bool fromPermTarget = Research::perm_serve_next(posKey, ss->ply, move);
+        if (!fromPermTarget && !Research::force_next_buffer_pop(posKey, ss->ply, move))
         {
             if ((move = mp.next_move()) == Move::none())
                 break;
@@ -1523,24 +1536,11 @@ moves_loop:  // When in check, search starts here
             continue;
 
 #ifdef POLICY_RESEARCH
-        // Phase 5 force-next (whole-node counterfactual replays, worker_snapshot.h):
-        // while an isolated replay is armed for THIS node, emissions the real
-        // MovePicker would have produced before the forced candidate are
-        // swallowed unsearched and uncounted so the candidate gets this node's
-        // exact slot-1 treatment. The arm clears at the forced move's emission
-        // (which then proceeds normally, including being pruned). Dead code in
-        // macro-off builds. Shared-permutation replays (schema /4) instead call
-        // perm_step() here: a legal emission that is a reserved (not-next)
-        // target is swallowed into the reservation buffer; the next target is
-        // served; emissions after the permutation completed proceed. Buffered
-        // moves served at the loop head (fromPermBuffer) never reach this
-        // decision.
-        if (!fromPermBuffer && Research::perm_active(posKey, ss->ply))
-        {
-            if (Research::perm_step(posKey, ss->ply, move) == 1)
-                continue;
-        }
-        else if (Research::force_next_step(posKey, ss->ply, move) == 1)
+        // Phase 5 force-next (whole-node counterfactual replays,
+        // worker_snapshot.h): natural emissions before the forced candidate
+        // are swallowed and later restored. Scheduled-prefix targets have
+        // already advanced the real picker during prefix preparation above.
+        if (!fromPermTarget && Research::force_next_step(posKey, ss->ply, move) == 1)
             continue;
 #endif
 

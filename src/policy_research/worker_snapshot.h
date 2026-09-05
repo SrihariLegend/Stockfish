@@ -70,8 +70,8 @@ struct MoveAttribution {
 
     // Per-slot records of the root move loop (served emissions at slots
     // 1..MAX_SLOTS; 1-based, mirroring moveCount). Populated for every
-    // armed replay; serialized only on shared-permutation entries (schema
-    // internal-counterfactual/4) so each prefix candidate's own searched/
+    // armed replay; serialized only on scheduled-prefix entries (schema
+    // internal-counterfactual/5) so each prefix candidate's own searched/
     // pruned state and child cost are observable. A slot entry without
     // `searched` was pruned (or the node ended inside its singular probe).
     static constexpr int MAX_SLOTS = 8;
@@ -104,11 +104,11 @@ struct ProbeResult {
     // unforced replays and for replays that returned before the move loop.
     bool forced_slot1 = false;
 
-    // Shared-permutation replay metadata (schema internal-counterfactual/4).
-    bool perm = false;         // this replay was a permutation replay
-    int  permK = 0;            // requested number of targets
-    int  permServed = 0;       // targets actually served before the node ended
-    bool permComplete = true;  // targets were served strictly in request order
+    // Scheduled-prefix replay metadata (schema internal-counterfactual/5).
+    bool perm = false;          // this replay was a scheduled-prefix replay
+    int  permK = 0;             // requested prefix length
+    int  permServed = 0;        // targets emitted before the node ended
+    bool permOrderValid = true; // preparation succeeded and slots match request
 
     // Measurement-A attribution for this probe's root node (schema
     // internal-counterfactual/3): slot-1 move outcome plus final move-loop
@@ -306,48 +306,33 @@ inline bool force_next_buffer_pop(Key posKey, int ply, Move& move) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared-permutation (top-K reorder) machinery for the plan-11.3
-// interaction-gap replays (schema internal-counterfactual/4). PermScope arms
-// an ordered list of K target moves (a permutation of the node's natural
-// top-K emissions). At the armed node's main move loop the targets are served
-// as the first K searched moves IN THE REQUESTED ORDER -- either directly
-// from the real picker (when the next target is the next natural emission) or
-// from a reservation buffer (when the picker already emitted it earlier); all
-// other natural top-K emissions are swallowed without search or moveCount
-// while targets remain. After the last target is served, the loop continues
-// with the natural suffix (ordinal K onward). A cutoff ends the node exactly
-// as in natural search (reserved but unserved moves are never searched). This
-// is the engine's own semantics of "search this node with the first K slots
-// in order pi" -- TT writes, history updates, LMR context and (ss+1)->cutoff
-// accumulate across the K candidates as in a real search.
+// Explicit scheduled-prefix machinery for plan-11.3 interaction replays
+// (schema internal-counterfactual/5). PermScope arms an ordered list of target
+// moves. The armed node serves those moves directly as slots 1..K, independent
+// of path-dependent MovePicker::skip_quiet_moves; after the prefix completes,
+// the real picker resumes and duplicate emissions of already-served targets
+// are discarded. TT writes, histories, LMR context and cutoffs accumulate in
+// one continuing replay. A cutoff may validly end a requested prefix early.
 //
-// Relationship to force-next (the /3 cross-check controls):
-//   force-next ordinal k == permutation [k, 0..k-1, k+1..K-1] for k < K
-//   identity permutation [0..K-1] == the unforced baseline replay
-// both must hold bit-for-bit (nodes, value, fail_high, attribution); the
-// corpus validation checks them on every row.
+// Two target lengths are used:
+//   - force-next control k: [k, 0..k-1], then release to the natural suffix;
+//   - shared top-four order: all four static pre-search candidates.
+// The first must equal force-next(k) bit-for-bit. A full static identity order
+// is a committed-prefix treatment, not a no-op: natural search may dynamically
+// skip a later quiet, so its cost is reported separately from the baseline.
 // ---------------------------------------------------------------------------
 struct PermState {
     bool armed = false;
-    bool consumed = false;   // all K targets have been served
-    bool complete = true;    // stays true when targets were served in order;
-                             // set false if a non-target emission had to be
-                             // served while targets remained (picker skipped
-                             // a reserved target, engine semantics) -- the
-                             // row records `fully_served = complete`
+    bool prepared = false;   // picker consumed the complete static prefix
+    bool orderValid = true;  // false if prefix preparation sees an unexpected move
     Key  posKey = 0;
     int  ply = -1;
     u64  frameToken = 0;     // bound at replay-root frame entry
-    int  K = 0;              // number of targets
-    int  next = 0;           // index of the next target to serve
-    int  served = 0;         // targets served so far
-    int  swallowed = 0;      // natural members reserved in the buffer
-    Move targets[MAX_MOVES]; // requested serve order
-    // Reservation buffer: natural emissions that are targets but not the next
-    // one; they keep their natural order. Served (removed) in target order.
-    std::array<Move, MAX_MOVES> buf = {};
-    int                         bufCount = 0;
-    int                         bufServes = 0;  // targets served from buffer
+    int  K = 0;              // length of the explicitly scheduled prefix
+    int  prepareSeen = 0;    // legal picker emissions consumed before search
+    int  next = 0;           // next scheduled target
+    int  served = 0;         // scheduled targets emitted before node exit
+    Move targets[MAX_MOVES];
 };
 
 inline thread_local PermState gPerm;
@@ -371,73 +356,55 @@ class PermScope {
     PermScope& operator=(const PermScope&) = delete;
 };
 
-// True while this node still owes targets (arms match key, ply, frame).
-inline bool perm_active(Key posKey, int ply) {
+inline bool perm_matches(Key posKey, int ply) {
     return gPerm.armed && gPerm.posKey == posKey && gPerm.ply == ply
-        && gPerm.frameToken == gResearchCurFrame && gPerm.next < gPerm.K;
+        && gPerm.frameToken == gResearchCurFrame;
 }
 
-// Serves the next target from the reservation buffer when the picker already
-// emitted it. Returns true with `move` set (the caller must search it); false
-// when the caller should pull the next real picker emission instead.
-inline bool perm_serve_buffered(Key posKey, int ply, Move& move) {
-    if (!gPerm.armed || gPerm.posKey != posKey || gPerm.ply != ply
-        || gPerm.frameToken != gResearchCurFrame || gPerm.next >= gPerm.K)
+inline bool perm_needs_prepare(Key posKey, int ply) {
+    return perm_matches(posKey, ply) && !gPerm.prepared;
+}
+
+// Consume one legal emission from the real picker before any target is
+// searched. The target set is the static first-K enumeration, so the first K
+// legal picker emissions must be exactly that set (in natural order). This
+// advances the picker to the same suffix cursor as force-next while reserving
+// all scheduled targets against later dynamic skip_quiet_moves calls.
+inline void perm_prepare_emission(Key posKey, int ply, Move move) {
+    if (!perm_needs_prepare(posKey, ply))
+        return;
+    bool expected = false;
+    for (int i = 0; i < gPerm.K; ++i)
+        expected |= gPerm.targets[i] == move;
+    if (!expected || gPerm.prepareSeen >= gPerm.K)
+    {
+        gPerm.orderValid = false;
+        gPerm.prepared = true;
+        return;
+    }
+    ++gPerm.prepareSeen;
+    if (gPerm.prepareSeen == gPerm.K)
+        gPerm.prepared = true;
+}
+
+inline void perm_prepare_failed(Key posKey, int ply) {
+    if (perm_matches(posKey, ply))
+    {
+        gPerm.orderValid = false;
+        gPerm.prepared = true;
+    }
+}
+
+// Emit the next reserved target directly. Because the real picker was first
+// advanced through the entire prefix, it resumes at the natural suffix after
+// the scheduled prefix completes; no duplicate suppression is needed.
+inline bool perm_serve_next(Key posKey, int ply, Move& move) {
+    if (!perm_matches(posKey, ply) || !gPerm.prepared || !gPerm.orderValid
+        || gPerm.next >= gPerm.K)
         return false;
-    const Move want = gPerm.targets[gPerm.next];
-    for (int i = 0; i < gPerm.bufCount; ++i)
-        if (gPerm.buf[i] == want)
-        {
-            move = want;
-            for (int j = i + 1; j < gPerm.bufCount; ++j)
-                gPerm.buf[j - 1] = gPerm.buf[j];
-            --gPerm.bufCount;
-            ++gPerm.next;
-            ++gPerm.served;
-            ++gPerm.bufServes;
-            return true;
-        }
-    return false;
-}
-
-// Called on every picker emission that is about to be searched at the armed
-// node (right after the force-next step returns 0). Returns 1 when the
-// emission must be SWALLOWED into the reservation buffer (it is a target
-// that is not next), 0 when it proceeds (it is the next target -- `next`
-// advances -- or the permutation already completed and the natural suffix
-// runs).
-inline int perm_step(Key posKey, int ply, Move move) {
-    if (!gPerm.armed || gPerm.posKey != posKey || gPerm.ply != ply
-        || gPerm.frameToken != gResearchCurFrame || gPerm.next >= gPerm.K)
-        return 0;
-    if (move == gPerm.targets[gPerm.next])
-    {
-        ++gPerm.next;
-        ++gPerm.served;
-        return 0;
-    }
-    // A later target, or a non-target emission. While targets remain the
-    // picker emits only ordinals < K (targets occupy the first K ordinals),
-    // so a non-target here means the picker skipped a reserved quiet
-    // (shallow-depth skip_quiet_moves, engine semantics): serve it and mark
-    // the permutation incomplete.
-    bool isTarget = false;
-    for (int i = gPerm.next + 1; i < gPerm.K; ++i)
-        if (gPerm.targets[i] == move)
-        {
-            isTarget = true;
-            break;
-        }
-    if (isTarget)
-    {
-        assert(gPerm.bufCount < MAX_MOVES);
-        if (gPerm.bufCount < MAX_MOVES)
-            gPerm.buf[gPerm.bufCount++] = move;
-        ++gPerm.swallowed;
-        return 1;
-    }
-    gPerm.complete = false;  // engine skipped a reserved target (see above)
-    return 0;
+    move = gPerm.targets[gPerm.next++];
+    ++gPerm.served;
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -911,11 +878,10 @@ class CandidateProbeRunner {
     ProbeResult replay_node_forced(Move forced, Value alpha, Value beta, Depth depth,
                                    bool cutNode, u64 nodeBudget = 0);
 
-    // Whole-node replay with the first K searched moves fixed to
-    // `permTargets` (a permutation of the node's natural top-K emissions) in
-    // the requested order (plan-11.3 shared permutations; schema
-    // internal-counterfactual/4). Same isolation contract as the forced
-    // replay; the result carries perm/permServed/permComplete metadata.
+    // Whole-node replay with an explicit static-prefix schedule. The real
+    // picker first reserves the target set, then the targets are emitted in
+    // requested order before the natural suffix (plan 11.3; schema
+    // internal-counterfactual/5). Same isolation contract as force-next.
     ProbeResult replay_node_perm(const std::vector<Move>& permTargets, Value alpha,
                                  Value beta, Depth depth, bool cutNode, u64 nodeBudget = 0);
 

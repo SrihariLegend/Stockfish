@@ -471,7 +471,7 @@ void Recorder::on_run_end() {
 // shared-permutation battery). All rows of one run share the schema string so
 // validators can accept a whole file uniformly.
 const char* internal_dataset_schema() {
-    return config().permBattery ? "internal-counterfactual/4"
+    return config().permBattery ? "internal-counterfactual/5"
                                 : "internal-counterfactual/3";
 }
 

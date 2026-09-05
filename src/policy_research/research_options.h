@@ -88,7 +88,7 @@ struct Config {
     // Plan-11.3 shared-permutation battery (PolicyResearchPermBattery): when
     // on (with PolicyResearchMode internal_counterfactual), every decision
     // row additionally carries a fixed battery of top-K shared-permutation
-    // replays (schema internal-counterfactual/4) measuring the interaction
+    // replays (schema internal-counterfactual/5) measuring the interaction
     // gap with TT/history/cutoff context shared inside each permutation.
     bool         permBattery = false;
 };

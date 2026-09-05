@@ -12,11 +12,14 @@ import os
 import tempfile
 import unittest
 
+import numpy as np
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import p5b_analysis
 import p6_explanatory
+import p6_interaction
+import p6_learnability
 
 MOVES = ["p0", "p1", "p2", "p3"] + [f"q{i}" for i in range(4)]
 
@@ -225,13 +228,78 @@ class P5bTests(unittest.TestCase):
         self.assertEqual(t["sum_forced"][1], 650)
 
 
+class P6InteractionTests(unittest.TestCase):
+    @staticmethod
+    def make_v5_row():
+        row = make_row(base_nodes=100, cost={1: 50, 2: 80, 3: 120},
+                       value={1: 42, 2: 42, 3: 42})
+        row["schema"] = "internal-counterfactual/5"
+        row["n_candidates"] = 4
+        row["sample_id"] = 7
+        expected = p6_interaction.expected_orders(row)
+        unique = []
+        for order in expected.values():
+            if order not in unique:
+                unique.append(order)
+        row["permutations"] = []
+        candidate_ordinal = {c["move"]: c["ordinal"] for c in row["candidates"]}
+        probes = {candidate_ordinal[p["move"]]: p for p in row["probes"]}
+        for i, order in enumerate(unique):
+            nodes = 90 + i
+            for k in (1, 2, 3):
+                if order == expected[f"control{k}"]:
+                    nodes = probes[k]["nodes"]
+            row["permutations"].append({
+                "order": order, "completed": True, "nodes": nodes,
+                "value": 42, "fail_high": True,
+                "fully_served": True, "order_valid": True,
+                "slots": [{"ordinal": o} for o in order],
+            })
+        return row
+
+    def test_v5_explicit_orders_and_controls_validate(self):
+        row = self.make_v5_row()
+        self.assertEqual(p6_interaction.validate_row(row), [])
+        expected = p6_interaction.expected_orders(row)
+        self.assertEqual(expected["swap23"], [0, 1, 3, 2])
+        self.assertEqual(expected["control1"], [1, 0])
+        self.assertEqual(expected["control2"], [2, 0, 1])
+        self.assertEqual(expected["cheapest_first"], [1, 2, 0, 3])
+
+    def test_invalid_prefix_is_rejected(self):
+        row = self.make_v5_row()
+        row["permutations"][0]["order_valid"] = False
+        errors = p6_interaction.validate_row(row)
+        self.assertTrue(any("invalid prefix" in e for e in errors))
+        report = p6_interaction.analyze_rows([row])
+        self.assertEqual(report["valid_rows"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
 
 
 class P6LearnabilitySmoke(unittest.TestCase):
-    """Smoke test: the LOO learnability probe runs end-to-end on synthetic
-    roots and reproduces exact-cost accounting for the BASE policy."""
+    """Regression tests for fold transforms and end-to-end exact accounting."""
+
+    def test_single_prediction_uses_training_transform(self):
+        rows = [make_row(base_nodes=100 + i, own={1: i % 2 == 0},
+                         cost={1: 80 + i, 2: 120 + i, 3: 140 + i})
+                for i in range(8)]
+        examples = [e for r in rows for e in p6_learnability.row_examples(r)]
+        X, scale = p6_learnability.feature_matrix(examples)
+        y = np.linspace(0.1, 0.9, len(examples))
+        w, b = p6_learnability.ridge_fit(X, y)
+        for i, (feats, *_rest) in enumerate(examples):
+            direct = p6_learnability.predict_cost(feats, w, b, scale)
+            batch = float(np.exp(np.clip(X[i:i + 1]
+                                         @ np.hstack([w, b]), -20, 20))[0])
+            self.assertAlmostEqual(direct, batch, places=12)
+
+    def test_auc_uses_zero_based_tie_aware_ranks(self):
+        self.assertAlmostEqual(p6_learnability.binary_auc([0, 1], [0, 1]), 1.0)
+        self.assertAlmostEqual(p6_learnability.binary_auc([1, 0], [0, 1]), 0.0)
+        self.assertAlmostEqual(p6_learnability.binary_auc([1, 1], [0, 1]), 0.5)
 
     def test_loo_smoke_and_base_accounting(self):
         import subprocess
