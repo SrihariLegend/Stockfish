@@ -20,6 +20,7 @@ import p5b_analysis
 import p6_explanatory
 import p6_interaction
 import p6_learnability
+import p7_direct_ranking
 
 MOVES = ["p0", "p1", "p2", "p3"] + [f"q{i}" for i in range(4)]
 
@@ -277,6 +278,26 @@ class P6InteractionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class P7DirectRankingTests(unittest.TestCase):
+    def test_direct_policy_exact_cost_and_safety_fallbacks(self):
+        row = make_row(base_nodes=100, cost={1: 40, 2: 120, 3: 130},
+                       value={1: 42, 2: -30, 3: 42})
+        result = p7_direct_ranking.evaluate([row], [{1: 2.0, 2: 1.0, 3: -1.0}],
+                                            threshold=0.0, class_penalty=1.0)
+        self.assertEqual(result["B"], 100)
+        self.assertEqual(result["C"], 40)
+        self.assertEqual(result["class_fallback"], 40)
+        self.assertEqual(result["later"], 1)
+
+    def test_direct_policy_abstains_at_infinite_threshold(self):
+        row = make_row(base_nodes=100, cost={1: 40})
+        result = p7_direct_ranking.evaluate([row], [{1: 100.0}],
+                                            threshold=float("inf"),
+                                            class_penalty=1.0)
+        self.assertEqual(result["C"], 100)
+        self.assertEqual(result["later"], 0)
 
 
 class P6LearnabilitySmoke(unittest.TestCase):

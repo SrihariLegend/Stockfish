@@ -437,3 +437,32 @@ Evaluated across 9 conditions (8 forced conditions + baseline, schema version 4 
 - Macro median savings: 1.8% cumulative, 7.8% target-iteration.
 - Pooled savings across 18 roots: 22.1% cumulative (908,892 $\to$ 707,917 nodes), 42.3% target-iteration (475,490 $\to$ 274,515 nodes).
 - *Savings Concentration & Heterogeneity*: At D16, two roots (`c3-d-004` saving 1.10M nodes and `c3-d-006` saving 0.38M nodes) account for 79.2% of all pooled savings across the 18 roots; the macro median saving is 13.6% (compared to 36.9% pooled). This demonstrates that depth scaling is heterogeneous and position-dependent across tactical/endgame structures, rather than uniform monotonic scaling across the entire population.
+
+## Protocol P6.3 — corrected scheduled-prefix interaction
+
+- Schema `/5`; `/4` is audit-only.
+- Threads 1, Hash 16, fixed depth, fresh process/root, node budget 5,000.
+- Reserve the static requested prefix from the replay's real MovePicker before
+  any target child search; emit targets in request order; resume at the natural
+  suffix cursor.
+- Validate `order_valid` and observed-slot prefix on every entry.
+- Controls are variable-length `[k,0..k-1]`, not full-K schedules; require exact
+  nodes/value/fail-high equality with force-next probes.
+- Treat full identity as a committed-prefix intervention, not baseline parity.
+- Report raw, classification-preserving and exact-value comparisons separately.
+
+## Protocol P7.1 — game-paired offline and live gate
+
+- Freeze selected FENs with source PGN SHA-256, game index, ply, selection seed
+  and ply seed. Each game contributes paired middlegame/endgame roots.
+- Hold out every root from a game together. Use disjoint game samples for
+  multiple corpus seeds.
+- Fit all feature transforms on training groups only. Tune abstention using
+  inner game-group predictions for direct-ranking models.
+- Charge exact measured action cost and report classification/exact fallbacks,
+  group spread and ratio-of-sums.
+- After positive held-out capture, freeze one model and test it live on roots
+  excluded from model fitting. Use fresh processes, warmup, clear hash,
+  Threads 1, fixed depth, randomized paired schedules and repeated trials.
+- A live candidate fails if either pooled nodes or pooled wall time regresses;
+  do not proceed to Elo merely because offline local replay cost is positive.

@@ -262,6 +262,7 @@ def total_cost(rows, score_fn):
 # --------------------------------------------------------------------------
 def main():
     json_path = None
+    group_manifest = None
     min_baseline_nodes = 0
     positionals = []
     argv = sys.argv[1:]
@@ -275,6 +276,10 @@ def main():
             min_baseline_nodes = int(argv[i + 1])
             i += 2
             continue
+        if argv[i] == "--group-manifest" and i + 1 < len(argv):
+            group_manifest = argv[i + 1]
+            i += 2
+            continue
         positionals.append(argv[i])
         i += 1
     files = []
@@ -284,13 +289,19 @@ def main():
     if not files:
         print("no files found")
         return
+    file_groups = {}
+    if group_manifest:
+        manifest = json.load(open(group_manifest))
+        file_groups = {root["id"]: root["game_group"] for root in manifest["roots"]}
     per_root = {}
     for f in files:
         dec = [r for r in load(f)
                if r["type"] == "decision"
                and r["baseline"]["nodes"] >= min_baseline_nodes]
         if dec:
-            per_root[f] = dec
+            root_id = os.path.basename(f).split(".jsonl", 1)[0]
+            group = file_groups.get(root_id, f)
+            per_root.setdefault(group, []).extend(dec)
     root_names = list(per_root)
 
     def q_score(coef_q, intercept_q, theta, scale):
@@ -353,7 +364,7 @@ def main():
                 continue
             C, FH, pp, b = row_costs(r)
             ob += C[0]
-            ot += min(C[o] for o in range(4) if o == 0 or FH[o] == FH[0])
+            ot += min(C[o] for o in C if o == 0 or FH[o] == FH[0])
         oracle_cls[held_out] = 100 * (1 - ot / ob) if ob else 0.0
 
         # threshold tuning on TRAINING roots only
@@ -408,7 +419,7 @@ def main():
                 measured = np.array([e[3] for e in exs])
                 top1.append(int(np.argmin(pred) == np.argmin(measured)))
                 baseline_top1.append(int(np.argmin(measured) == 0))
-                for o in (1, 2, 3):
+                for o in range(1, len(exs)):
                     cheaper_scores.append(pred[0] - pred[o])
                     cheaper_labels.append(measured[o] < measured[0])
             diag["c_cheaper_auc"].append(binary_auc(cheaper_scores, cheaper_labels))
@@ -441,7 +452,7 @@ def main():
         for r in per_root[n]:
             C, FH, pp, b = row_costs(r)
             tot_b += C[0]
-            tot_or += min(C[o] for o in range(4) if o == 0 or FH[o] == FH[0])
+            tot_or += min(C[o] for o in C if o == 0 or FH[o] == FH[0])
     print(f"ORACLE_CLS pooled save {100*(1-tot_or/tot_b):.2f}%  "
           f"ORACLE_EXACT refs in per-root json")
     print("in-sample (train-root) pooled save of the tuned rules "

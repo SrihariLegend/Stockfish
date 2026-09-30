@@ -1,0 +1,1055 @@
+{
+ "chosen_params": {
+  "game-0006": {
+   "lambda": 0.25,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0010": {
+   "lambda": 1.0,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0024": {
+   "lambda": 1.0,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0030": {
+   "lambda": 0.25,
+   "tau": 0.6500000000000001,
+   "theta": 0.55
+  },
+  "game-0039": {
+   "lambda": 1.0,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0051": {
+   "lambda": 1.0,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0055": {
+   "lambda": 0.25,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0081": {
+   "lambda": 0.25,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0091": {
+   "lambda": 0.5,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0116": {
+   "lambda": 0.25,
+   "tau": 0.55,
+   "theta": 0.6500000000000001
+  },
+  "game-0127": {
+   "lambda": 0.25,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0133": {
+   "lambda": 0.5,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0159": {
+   "lambda": 0.25,
+   "tau": 0.5,
+   "theta": 0.5
+  },
+  "game-0169": {
+   "lambda": 1.0,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0179": {
+   "lambda": 0.25,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0183": {
+   "lambda": 1.0,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0212": {
+   "lambda": 1.0,
+   "tau": 0.6000000000000001,
+   "theta": 0.6000000000000001
+  },
+  "game-0214": {
+   "lambda": 0.25,
+   "tau": 0.6000000000000001,
+   "theta": 0.55
+  },
+  "game-0216": {
+   "lambda": 0.25,
+   "tau": 0.6500000000000001,
+   "theta": 0.6500000000000001
+  },
+  "game-0223": {
+   "lambda": 1.0,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0259": {
+   "lambda": 0.25,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0274": {
+   "lambda": 0.25,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0275": {
+   "lambda": 0.25,
+   "tau": 0.55,
+   "theta": 0.55
+  },
+  "game-0296": {
+   "lambda": 0.5,
+   "tau": 0.55,
+   "theta": 0.55
+  }
+ },
+ "diagnostics": {
+  "baseline_top1_accuracy": [
+   0.5194805194805194,
+   0.5336426914153132,
+   0.46875,
+   0.45864661654135336,
+   0.42402826855123676,
+   0.467005076142132,
+   0.4369602763385147,
+   0.4444444444444444,
+   0.45625,
+   0.5107913669064749,
+   0.5664335664335665,
+   0.4265402843601896,
+   0.46885245901639344,
+   0.5660377358490566,
+   0.41009463722397477,
+   0.48292682926829267,
+   0.5309446254071661,
+   0.44081632653061226,
+   0.4107981220657277,
+   0.4484924623115578,
+   0.3763440860215054,
+   0.6571428571428571,
+   0.5056818181818182,
+   0.5065274151436031
+  ],
+  "c_cheaper_auc": [
+   0.5593309859154929,
+   0.5355402087357051,
+   0.5111662858727664,
+   0.5051419362793789,
+   0.5797604185244635,
+   0.5088823652628207,
+   0.5033354258213015,
+   0.5307126616455876,
+   0.6158940397350994,
+   0.5790144567516831,
+   0.5613663196307824,
+   0.5625672655021111,
+   0.5557271084719257,
+   0.5385946652466477,
+   0.5596539162112932,
+   0.6058404105545211,
+   0.5843063186813187,
+   0.5418445138557403,
+   0.570074680812202,
+   0.48104415696569053,
+   0.5212495873225487,
+   0.5766362883181442,
+   0.5524133622942252,
+   0.5395448162085514
+  ],
+  "c_spearman": [
+   0.3671173888832654,
+   0.6483082193485187,
+   0.5727361656433205,
+   0.6368457990702097,
+   0.5816154831580012,
+   0.5523978231762692,
+   0.6759203974282046,
+   0.6165821718146569,
+   0.6213077085378753,
+   0.5915143560849105,
+   0.513240402888083,
+   0.5549002299611004,
+   0.6104148599822314,
+   0.44807531448491794,
+   0.5512264361691224,
+   0.5680958454683964,
+   0.5780010663649838,
+   0.5485831847499988,
+   0.5143226657627598,
+   0.6460536157769728,
+   0.5680801897076921,
+   0.3957133547251478,
+   0.5858100796086613,
+   0.5370628559805526
+  ],
+  "c_top1_accuracy": [
+   0.38961038961038963,
+   0.29466357308584684,
+   0.328125,
+   0.3383458646616541,
+   0.3568904593639576,
+   0.3096446700507614,
+   0.30915371329879104,
+   0.3247863247863248,
+   0.41875,
+   0.3597122302158273,
+   0.2937062937062937,
+   0.3222748815165877,
+   0.3180327868852459,
+   0.41037735849056606,
+   0.29652996845425866,
+   0.37073170731707317,
+   0.4022801302931596,
+   0.33877551020408164,
+   0.38028169014084506,
+   0.2864321608040201,
+   0.3118279569892473,
+   0.37142857142857144,
+   0.3096590909090909,
+   0.3472584856396867
+  ],
+  "q_auc": [
+   0.822323896673339,
+   0.8813578706591807,
+   0.8589513092770422,
+   0.8051636992978898,
+   0.7716264408807492,
+   0.8525835945663532,
+   0.9000637362903986,
+   0.7352347792131724,
+   0.8072093214756259,
+   0.8143996424531069,
+   0.9038313908856166,
+   0.8016674066400277,
+   0.7446092321295794,
+   0.87545417432129,
+   0.8347474141807825,
+   0.7169050133683479,
+   0.8162115549156218,
+   0.8533107286379019,
+   0.8614309210526315,
+   0.8138691251085135,
+   0.8012582090632886,
+   0.88671875,
+   0.7557380043586158,
+   0.8373516443193234
+  ]
+ },
+ "min_baseline_nodes": 10,
+ "pooled": {
+  "BASE": {
+   "baseline_nodes": 314210,
+   "capture_oracle_cls_pct": 0.0,
+   "fhfl": 0,
+   "flfh": 0,
+   "later_share_pct": 0.0,
+   "policy_nodes": 314210,
+   "save_pct": 0.0
+  },
+  "CHEAP": {
+   "baseline_nodes": 314210,
+   "capture_oracle_cls_pct": -28.983579861582303,
+   "fhfl": 177,
+   "flfh": 224,
+   "later_share_pct": 67.39338763775754,
+   "policy_nodes": 335568,
+   "save_pct": -6.797364819706564
+  },
+  "CHEAP_SAFE": {
+   "baseline_nodes": 314210,
+   "capture_oracle_cls_pct": 0.4369656669833084,
+   "fhfl": 1,
+   "flfh": 12,
+   "later_share_pct": 2.4916147580258743,
+   "policy_nodes": 313888,
+   "save_pct": 0.10247923363355671
+  },
+  "ORACLE_CLS": {
+   "baseline_nodes": 314210,
+   "policy_nodes": 240520,
+   "save_pct": 23.452468094586422
+  },
+  "Q": {
+   "baseline_nodes": 314210,
+   "capture_oracle_cls_pct": 0.5278870945854254,
+   "fhfl": 1,
+   "flfh": 12,
+   "later_share_pct": 2.5754671777671296,
+   "policy_nodes": 313821,
+   "save_pct": 0.12380255243308325
+  },
+  "QE": {
+   "baseline_nodes": 314210,
+   "capture_oracle_cls_pct": 2.9936219297055233,
+   "fhfl": 28,
+   "flfh": 58,
+   "later_share_pct": 24.628653569717297,
+   "policy_nodes": 312004,
+   "save_pct": 0.702078227936731
+  }
+ },
+ "roots": {
+  "game-0006": {
+   "CHEAP": {
+    "baseline_nodes": 1568,
+    "fhfl": 4,
+    "flfh": 0,
+    "later_rows": 51,
+    "policy_nodes": 1569
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 1568,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 0,
+    "policy_nodes": 1568
+   },
+   "Q": {
+    "baseline_nodes": 1568,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 0,
+    "policy_nodes": 1568
+   },
+   "QE": {
+    "baseline_nodes": 1568,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 25,
+    "policy_nodes": 1542
+   },
+   "oracle_cls_save_pct": 19.515306122448983
+  },
+  "game-0010": {
+   "CHEAP": {
+    "baseline_nodes": 28874,
+    "fhfl": 19,
+    "flfh": 32,
+    "later_rows": 441,
+    "policy_nodes": 29895
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 28874,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 11,
+    "policy_nodes": 28707
+   },
+   "Q": {
+    "baseline_nodes": 28874,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 12,
+    "policy_nodes": 28715
+   },
+   "QE": {
+    "baseline_nodes": 28874,
+    "fhfl": 3,
+    "flfh": 9,
+    "later_rows": 183,
+    "policy_nodes": 28590
+   },
+   "oracle_cls_save_pct": 20.83535360531966
+  },
+  "game-0024": {
+   "CHEAP": {
+    "baseline_nodes": 15491,
+    "fhfl": 4,
+    "flfh": 8,
+    "later_rows": 304,
+    "policy_nodes": 18685
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 15491,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 8,
+    "policy_nodes": 15381
+   },
+   "Q": {
+    "baseline_nodes": 15491,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 10,
+    "policy_nodes": 15340
+   },
+   "QE": {
+    "baseline_nodes": 15491,
+    "fhfl": 1,
+    "flfh": 3,
+    "later_rows": 111,
+    "policy_nodes": 15760
+   },
+   "oracle_cls_save_pct": 22.290362145762053
+  },
+  "game-0030": {
+   "CHEAP": {
+    "baseline_nodes": 5679,
+    "fhfl": 6,
+    "flfh": 1,
+    "later_rows": 133,
+    "policy_nodes": 5621
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 5679,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 1,
+    "policy_nodes": 5692
+   },
+   "Q": {
+    "baseline_nodes": 5679,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 6,
+    "policy_nodes": 5641
+   },
+   "QE": {
+    "baseline_nodes": 5679,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 43,
+    "policy_nodes": 5675
+   },
+   "oracle_cls_save_pct": 22.53917943299877
+  },
+  "game-0039": {
+   "CHEAP": {
+    "baseline_nodes": 5212,
+    "fhfl": 2,
+    "flfh": 3,
+    "later_rows": 142,
+    "policy_nodes": 5647
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 5212,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 8,
+    "policy_nodes": 5195
+   },
+   "Q": {
+    "baseline_nodes": 5212,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 8,
+    "policy_nodes": 5195
+   },
+   "QE": {
+    "baseline_nodes": 5212,
+    "fhfl": 1,
+    "flfh": 4,
+    "later_rows": 64,
+    "policy_nodes": 5292
+   },
+   "oracle_cls_save_pct": 18.24635456638527
+  },
+  "game-0051": {
+   "CHEAP": {
+    "baseline_nodes": 7611,
+    "fhfl": 4,
+    "flfh": 6,
+    "later_rows": 253,
+    "policy_nodes": 8252
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 7611,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 6,
+    "policy_nodes": 7657
+   },
+   "Q": {
+    "baseline_nodes": 7611,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 6,
+    "policy_nodes": 7657
+   },
+   "QE": {
+    "baseline_nodes": 7611,
+    "fhfl": 1,
+    "flfh": 1,
+    "later_rows": 74,
+    "policy_nodes": 7575
+   },
+   "oracle_cls_save_pct": 26.593088950203647
+  },
+  "game-0055": {
+   "CHEAP": {
+    "baseline_nodes": 24970,
+    "fhfl": 17,
+    "flfh": 22,
+    "later_rows": 337,
+    "policy_nodes": 29792
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 24970,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 16,
+    "policy_nodes": 24896
+   },
+   "Q": {
+    "baseline_nodes": 24970,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 18,
+    "policy_nodes": 24881
+   },
+   "QE": {
+    "baseline_nodes": 24970,
+    "fhfl": 0,
+    "flfh": 3,
+    "later_rows": 74,
+    "policy_nodes": 24794
+   },
+   "oracle_cls_save_pct": 23.219863836603928
+  },
+  "game-0081": {
+   "CHEAP": {
+    "baseline_nodes": 5482,
+    "fhfl": 6,
+    "flfh": 13,
+    "later_rows": 127,
+    "policy_nodes": 5380
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 5482,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 2,
+    "policy_nodes": 5427
+   },
+   "Q": {
+    "baseline_nodes": 5482,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 2,
+    "policy_nodes": 5427
+   },
+   "QE": {
+    "baseline_nodes": 5482,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 36,
+    "policy_nodes": 5237
+   },
+   "oracle_cls_save_pct": 23.093761400948555
+  },
+  "game-0091": {
+   "CHEAP": {
+    "baseline_nodes": 7137,
+    "fhfl": 8,
+    "flfh": 11,
+    "later_rows": 194,
+    "policy_nodes": 8091
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 7137,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 4,
+    "policy_nodes": 7185
+   },
+   "Q": {
+    "baseline_nodes": 7137,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 4,
+    "policy_nodes": 7185
+   },
+   "QE": {
+    "baseline_nodes": 7137,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 65,
+    "policy_nodes": 7031
+   },
+   "oracle_cls_save_pct": 23.483256270141517
+  },
+  "game-0116": {
+   "CHEAP": {
+    "baseline_nodes": 17434,
+    "fhfl": 6,
+    "flfh": 8,
+    "later_rows": 307,
+    "policy_nodes": 19523
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 17434,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 21,
+    "policy_nodes": 17112
+   },
+   "Q": {
+    "baseline_nodes": 17434,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 9,
+    "policy_nodes": 17073
+   },
+   "QE": {
+    "baseline_nodes": 17434,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 72,
+    "policy_nodes": 17188
+   },
+   "oracle_cls_save_pct": 24.87094183778823
+  },
+  "game-0127": {
+   "CHEAP": {
+    "baseline_nodes": 22303,
+    "fhfl": 13,
+    "flfh": 6,
+    "later_rows": 340,
+    "policy_nodes": 22533
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 22303,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 5,
+    "policy_nodes": 22233
+   },
+   "Q": {
+    "baseline_nodes": 22303,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 6,
+    "policy_nodes": 22221
+   },
+   "QE": {
+    "baseline_nodes": 22303,
+    "fhfl": 2,
+    "flfh": 2,
+    "later_rows": 158,
+    "policy_nodes": 22292
+   },
+   "oracle_cls_save_pct": 26.310361834730756
+  },
+  "game-0133": {
+   "CHEAP": {
+    "baseline_nodes": 14878,
+    "fhfl": 15,
+    "flfh": 17,
+    "later_rows": 333,
+    "policy_nodes": 14343
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 14878,
+    "fhfl": 1,
+    "flfh": 2,
+    "later_rows": 22,
+    "policy_nodes": 14794
+   },
+   "Q": {
+    "baseline_nodes": 14878,
+    "fhfl": 1,
+    "flfh": 2,
+    "later_rows": 22,
+    "policy_nodes": 14789
+   },
+   "QE": {
+    "baseline_nodes": 14878,
+    "fhfl": 6,
+    "flfh": 5,
+    "later_rows": 114,
+    "policy_nodes": 14617
+   },
+   "oracle_cls_save_pct": 20.338755209033476
+  },
+  "game-0159": {
+   "CHEAP": {
+    "baseline_nodes": 26997,
+    "fhfl": 8,
+    "flfh": 10,
+    "later_rows": 372,
+    "policy_nodes": 28996
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 26997,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 28,
+    "policy_nodes": 27611
+   },
+   "Q": {
+    "baseline_nodes": 26997,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 31,
+    "policy_nodes": 27720
+   },
+   "QE": {
+    "baseline_nodes": 26997,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 106,
+    "policy_nodes": 26868
+   },
+   "oracle_cls_save_pct": 26.08437974589769
+  },
+  "game-0169": {
+   "CHEAP": {
+    "baseline_nodes": 15119,
+    "fhfl": 4,
+    "flfh": 7,
+    "later_rows": 282,
+    "policy_nodes": 14333
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 15119,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 14,
+    "policy_nodes": 15035
+   },
+   "Q": {
+    "baseline_nodes": 15119,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 15,
+    "policy_nodes": 15031
+   },
+   "QE": {
+    "baseline_nodes": 15119,
+    "fhfl": 1,
+    "flfh": 0,
+    "later_rows": 107,
+    "policy_nodes": 14562
+   },
+   "oracle_cls_save_pct": 30.590647529598513
+  },
+  "game-0179": {
+   "CHEAP": {
+    "baseline_nodes": 3673,
+    "fhfl": 1,
+    "flfh": 2,
+    "later_rows": 65,
+    "policy_nodes": 3556
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 3673,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 1,
+    "policy_nodes": 3670
+   },
+   "Q": {
+    "baseline_nodes": 3673,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 1,
+    "policy_nodes": 3670
+   },
+   "QE": {
+    "baseline_nodes": 3673,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 35,
+    "policy_nodes": 3511
+   },
+   "oracle_cls_save_pct": 22.76068608766676
+  },
+  "game-0183": {
+   "CHEAP": {
+    "baseline_nodes": 5429,
+    "fhfl": 4,
+    "flfh": 0,
+    "later_rows": 93,
+    "policy_nodes": 5608
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 5429,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 0,
+    "policy_nodes": 5429
+   },
+   "Q": {
+    "baseline_nodes": 5429,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 0,
+    "policy_nodes": 5429
+   },
+   "QE": {
+    "baseline_nodes": 5429,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 49,
+    "policy_nodes": 5421
+   },
+   "oracle_cls_save_pct": 23.982317185485357
+  },
+  "game-0212": {
+   "CHEAP": {
+    "baseline_nodes": 37832,
+    "fhfl": 26,
+    "flfh": 33,
+    "later_rows": 548,
+    "policy_nodes": 41786
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 37832,
+    "fhfl": 0,
+    "flfh": 2,
+    "later_rows": 25,
+    "policy_nodes": 38193
+   },
+   "Q": {
+    "baseline_nodes": 37832,
+    "fhfl": 0,
+    "flfh": 2,
+    "later_rows": 26,
+    "policy_nodes": 38165
+   },
+   "QE": {
+    "baseline_nodes": 37832,
+    "fhfl": 6,
+    "flfh": 9,
+    "later_rows": 150,
+    "policy_nodes": 38837
+   },
+   "oracle_cls_save_pct": 21.80957919221823
+  },
+  "game-0214": {
+   "CHEAP": {
+    "baseline_nodes": 11729,
+    "fhfl": 6,
+    "flfh": 10,
+    "later_rows": 259,
+    "policy_nodes": 11016
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 11729,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 4,
+    "policy_nodes": 11747
+   },
+   "Q": {
+    "baseline_nodes": 11729,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 6,
+    "policy_nodes": 11768
+   },
+   "QE": {
+    "baseline_nodes": 11729,
+    "fhfl": 2,
+    "flfh": 5,
+    "later_rows": 106,
+    "policy_nodes": 10935
+   },
+   "oracle_cls_save_pct": 31.417853184414703
+  },
+  "game-0216": {
+   "CHEAP": {
+    "baseline_nodes": 22982,
+    "fhfl": 9,
+    "flfh": 6,
+    "later_rows": 276,
+    "policy_nodes": 23987
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 22982,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 1,
+    "policy_nodes": 22991
+   },
+   "Q": {
+    "baseline_nodes": 22982,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 1,
+    "policy_nodes": 22991
+   },
+   "QE": {
+    "baseline_nodes": 22982,
+    "fhfl": 0,
+    "flfh": 4,
+    "later_rows": 147,
+    "policy_nodes": 23051
+   },
+   "oracle_cls_save_pct": 22.17387520668349
+  },
+  "game-0223": {
+   "CHEAP": {
+    "baseline_nodes": 573,
+    "fhfl": 1,
+    "flfh": 0,
+    "later_rows": 21,
+    "policy_nodes": 591
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 573,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 0,
+    "policy_nodes": 573
+   },
+   "Q": {
+    "baseline_nodes": 573,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 0,
+    "policy_nodes": 573
+   },
+   "QE": {
+    "baseline_nodes": 573,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 12,
+    "policy_nodes": 547
+   },
+   "oracle_cls_save_pct": 13.438045375218156
+  },
+  "game-0259": {
+   "CHEAP": {
+    "baseline_nodes": 4015,
+    "fhfl": 2,
+    "flfh": 2,
+    "later_rows": 102,
+    "policy_nodes": 4558
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 4015,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 6,
+    "policy_nodes": 3974
+   },
+   "Q": {
+    "baseline_nodes": 4015,
+    "fhfl": 0,
+    "flfh": 0,
+    "later_rows": 6,
+    "policy_nodes": 3974
+   },
+   "QE": {
+    "baseline_nodes": 4015,
+    "fhfl": 1,
+    "flfh": 1,
+    "later_rows": 26,
+    "policy_nodes": 3947
+   },
+   "oracle_cls_save_pct": 13.32503113325031
+  },
+  "game-0274": {
+   "CHEAP": {
+    "baseline_nodes": 9950,
+    "fhfl": 7,
+    "flfh": 11,
+    "later_rows": 244,
+    "policy_nodes": 11379
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 9950,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 3,
+    "policy_nodes": 9949
+   },
+   "Q": {
+    "baseline_nodes": 9950,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 3,
+    "policy_nodes": 9949
+   },
+   "QE": {
+    "baseline_nodes": 9950,
+    "fhfl": 2,
+    "flfh": 0,
+    "later_rows": 67,
+    "policy_nodes": 9871
+   },
+   "oracle_cls_save_pct": 21.758793969849243
+  },
+  "game-0275": {
+   "CHEAP": {
+    "baseline_nodes": 13402,
+    "fhfl": 4,
+    "flfh": 9,
+    "later_rows": 269,
+    "policy_nodes": 14822
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 13402,
+    "fhfl": 0,
+    "flfh": 2,
+    "later_rows": 11,
+    "policy_nodes": 13063
+   },
+   "Q": {
+    "baseline_nodes": 13402,
+    "fhfl": 0,
+    "flfh": 2,
+    "later_rows": 12,
+    "policy_nodes": 13053
+   },
+   "QE": {
+    "baseline_nodes": 13402,
+    "fhfl": 2,
+    "flfh": 3,
+    "later_rows": 151,
+    "policy_nodes": 13118
+   },
+   "oracle_cls_save_pct": 20.3775555887181
+  },
+  "game-0296": {
+   "CHEAP": {
+    "baseline_nodes": 5870,
+    "fhfl": 1,
+    "flfh": 7,
+    "later_rows": 133,
+    "policy_nodes": 5605
+   },
+   "CHEAP_SAFE": {
+    "baseline_nodes": 5870,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 11,
+    "policy_nodes": 5806
+   },
+   "Q": {
+    "baseline_nodes": 5870,
+    "fhfl": 0,
+    "flfh": 1,
+    "later_rows": 11,
+    "policy_nodes": 5806
+   },
+   "QE": {
+    "baseline_nodes": 5870,
+    "fhfl": 0,
+    "flfh": 4,
+    "later_rows": 81,
+    "policy_nodes": 5743
+   },
+   "oracle_cls_save_pct": 22.913117546848383
+  }
+ }
+}

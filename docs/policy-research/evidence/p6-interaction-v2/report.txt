@@ -1,0 +1,149 @@
+== docs/policy-research/evidence/p6-interaction-v2/b1_ruy.jsonl.gz
+rows 1460 valid 1460 errors 0 committed_identity_diff 137 controls 4380/4380 early_cutoff_prefixes 3783
+  identity           n= 1460 ratio=1.0132 save=  -1.32% FH->FL=  0 FL->FH=  3
+  reverse            n= 1460 ratio=1.5349 save= -53.49% FH->FL= 23 FL->FH= 17
+  rotation           n= 1460 ratio=1.4007 save= -40.07% FH->FL= 23 FL->FH= 14
+  swap12             n= 1460 ratio=1.0116 save=  -1.16% FH->FL=  1 FL->FH=  3
+  swap23             n= 1460 ratio=1.0090 save=  -0.90% FH->FL=  1 FL->FH=  3
+  cheapest_first     n= 1460 ratio=0.7614 save=  23.86% FH->FL=  6 FL->FH= 11
+  references:
+    scalar_unc               27.62% (11812)
+    scalar_cls               26.90% (11930)
+    scalar_exact             12.11% (14343)
+    cheap                    23.86% (12426)
+    cheap_cls_fallback       23.16% (12541)
+    cheap_exact_fallback      7.61% (15078)
+    best                     27.39% (11850)
+    best_cls                 26.67% (11968)
+    best_exact               11.34% (14470)
+    interaction gap raw         3.53pp
+    interaction gap class       3.51pp
+    interaction gap exact       3.73pp
+== docs/policy-research/evidence/p6-interaction-v2/b3_qgd.jsonl.gz
+rows 996 valid 996 errors 0 committed_identity_diff 170 controls 2988/2988 early_cutoff_prefixes 2761
+  identity           n=  996 ratio=1.0287 save=  -2.87% FH->FL=  0 FL->FH=  3
+  reverse            n=  996 ratio=1.4105 save= -41.05% FH->FL= 14 FL->FH= 12
+  rotation           n=  996 ratio=1.2466 save= -24.66% FH->FL= 16 FL->FH= 20
+  swap12             n=  996 ratio=1.0567 save=  -5.67% FH->FL=  0 FL->FH=  5
+  swap23             n=  996 ratio=1.0334 save=  -3.34% FH->FL=  1 FL->FH=  3
+  cheapest_first     n=  996 ratio=0.8029 save=  19.71% FH->FL=  4 FL->FH= 17
+  references:
+    scalar_unc               25.40% (8110)
+    scalar_cls               21.90% (8491)
+    scalar_exact             14.12% (9337)
+    cheap                    19.71% (8729)
+    cheap_cls_fallback       17.57% (8962)
+    cheap_exact_fallback      8.66% (9930)
+    best                     27.42% (7891)
+    best_cls                 22.95% (8377)
+    best_exact               14.72% (9272)
+    interaction gap raw         7.71pp
+    interaction gap class       5.38pp
+    interaction gap exact       6.05pp
+== docs/policy-research/evidence/p6-interaction-v2/root_b_d8.jsonl.gz
+rows 1470 valid 1470 errors 0 committed_identity_diff 216 controls 4410/4410 early_cutoff_prefixes 4187
+  identity           n= 1470 ratio=1.0229 save=  -2.29% FH->FL=  0 FL->FH= 15
+  reverse            n= 1470 ratio=1.4964 save= -49.64% FH->FL= 27 FL->FH= 26
+  rotation           n= 1470 ratio=1.3788 save= -37.88% FH->FL= 22 FL->FH= 29
+  swap12             n= 1470 ratio=1.0018 save=  -0.18% FH->FL=  2 FL->FH= 17
+  swap23             n= 1470 ratio=1.0248 save=  -2.48% FH->FL=  2 FL->FH= 15
+  cheapest_first     n= 1470 ratio=0.7459 save=  25.41% FH->FL=  6 FL->FH= 27
+  references:
+    scalar_unc               28.24% (10137)
+    scalar_cls               23.93% (10747)
+    scalar_exact             13.09% (12278)
+    cheap                    25.41% (10538)
+    cheap_cls_fallback       21.94% (11028)
+    cheap_exact_fallback     10.67% (12619)
+    best                     28.88% (10047)
+    best_cls                 25.79% (10483)
+    best_exact               14.91% (12020)
+    interaction gap raw         3.48pp
+    interaction gap class       3.86pp
+    interaction gap exact       4.24pp
+== docs/policy-research/evidence/p6-interaction-v2/seed_a1.jsonl.gz
+rows 1356 valid 1356 errors 0 committed_identity_diff 147 controls 4068/4068 early_cutoff_prefixes 3830
+  identity           n= 1356 ratio=1.0191 save=  -1.91% FH->FL=  0 FL->FH=  4
+  reverse            n= 1356 ratio=1.5053 save= -50.53% FH->FL= 23 FL->FH= 12
+  rotation           n= 1356 ratio=1.3043 save= -30.43% FH->FL= 25 FL->FH= 15
+  swap12             n= 1356 ratio=1.0182 save=  -1.82% FH->FL=  1 FL->FH=  4
+  swap23             n= 1356 ratio=1.0142 save=  -1.42% FH->FL=  1 FL->FH=  4
+  cheapest_first     n= 1356 ratio=0.7964 save=  20.36% FH->FL=  9 FL->FH= 15
+  references:
+    scalar_unc               24.37% (9860)
+    scalar_cls               19.13% (10544)
+    scalar_exact              8.98% (11867)
+    cheap                    20.36% (10383)
+    cheap_cls_fallback       15.41% (11029)
+    cheap_exact_fallback      5.70% (12295)
+    best                     25.66% (9692)
+    best_cls                 21.55% (10228)
+    best_exact               10.22% (11706)
+    interaction gap raw         5.30pp
+    interaction gap class       6.14pp
+    interaction gap exact       4.52pp
+== POOLED
+rows 5282 valid 5282 errors 0 committed_identity_diff 670 controls 15846/15846 early_cutoff_prefixes 14561
+  identity           n= 5282 ratio=1.0203 save=  -2.03% FH->FL=  0 FL->FH= 25
+  reverse            n= 5282 ratio=1.4929 save= -49.29% FH->FL= 87 FL->FH= 67
+  rotation           n= 5282 ratio=1.3411 save= -34.11% FH->FL= 86 FL->FH= 78
+  swap12             n= 5282 ratio=1.0196 save=  -1.96% FH->FL=  4 FL->FH= 29
+  swap23             n= 5282 ratio=1.0192 save=  -1.92% FH->FL=  5 FL->FH= 25
+  cheapest_first     n= 5282 ratio=0.7741 save=  22.59% FH->FL= 25 FL->FH= 70
+  references:
+    scalar_unc               26.56% (39919)
+    scalar_cls               23.26% (41712)
+    scalar_exact             12.02% (47825)
+    cheap                    22.59% (42076)
+    cheap_cls_fallback       19.86% (43560)
+    cheap_exact_fallback      8.16% (49922)
+    best                     27.37% (39480)
+    best_cls                 24.47% (41056)
+    best_exact               12.67% (47468)
+    interaction gap raw         4.78pp
+    interaction gap class       4.61pp
+    interaction gap exact       4.51pp
+== POOLED baseline>=10
+rows 1276 valid 1276 errors 0 committed_identity_diff 66 controls 3828/3828 early_cutoff_prefixes 3163
+  identity           n= 1276 ratio=1.0045 save=  -0.45% FH->FL=  0 FL->FH=  3
+  reverse            n= 1276 ratio=1.1027 save= -10.27% FH->FL= 31 FL->FH= 37
+  rotation           n= 1276 ratio=1.0466 save=  -4.66% FH->FL= 29 FL->FH= 45
+  swap12             n= 1276 ratio=1.0003 save=  -0.03% FH->FL=  4 FL->FH=  6
+  swap23             n= 1276 ratio=1.0023 save=  -0.23% FH->FL=  5 FL->FH=  3
+  cheapest_first     n= 1276 ratio=0.7104 save=  28.96% FH->FL= 14 FL->FH= 42
+  references:
+    scalar_unc               31.94% (27874)
+    scalar_cls               27.75% (29591)
+    scalar_exact             14.74% (34921)
+    cheap                    28.96% (29096)
+    cheap_cls_fallback       25.43% (30541)
+    cheap_exact_fallback     11.21% (36365)
+    best                     33.05% (27422)
+    best_cls                 29.39% (28921)
+    best_exact               15.64% (34554)
+    interaction gap raw         4.09pp
+    interaction gap class       3.96pp
+    interaction gap exact       4.42pp
+== POOLED baseline>=25
+rows 446 valid 446 errors 0 committed_identity_diff 39 controls 1338/1338 early_cutoff_prefixes 1011
+  identity           n=  446 ratio=1.0046 save=  -0.46% FH->FL=  0 FL->FH=  0
+  reverse            n=  446 ratio=0.9786 save=   2.14% FH->FL= 20 FL->FH= 24
+  rotation           n=  446 ratio=0.9572 save=   4.28% FH->FL= 19 FL->FH= 29
+  swap12             n=  446 ratio=0.9912 save=   0.88% FH->FL=  4 FL->FH=  3
+  swap23             n=  446 ratio=1.0018 save=  -0.18% FH->FL=  4 FL->FH=  0
+  cheapest_first     n=  446 ratio=0.6713 save=  32.87% FH->FL=  9 FL->FH= 27
+  references:
+    scalar_unc               36.77% (18137)
+    scalar_cls               31.40% (19678)
+    scalar_exact             17.64% (23624)
+    cheap                    32.87% (19255)
+    cheap_cls_fallback       28.48% (20515)
+    cheap_exact_fallback     13.24% (24888)
+    best                     38.12% (17751)
+    best_cls                 33.54% (19063)
+    best_exact               18.79% (23296)
+    interaction gap raw         5.24pp
+    interaction gap class       5.06pp
+    interaction gap exact       5.55pp
+root best-order save mean 27.34% sd 1.32% range 25.66..28.88%
+wrote docs/policy-research/evidence/p6-interaction-v2/p6-interaction-results.json

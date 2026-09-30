@@ -1,0 +1,454 @@
+{
+ "pooled": {
+  "control_checks": 15846,
+  "early_cutoff_prefixes": 14561,
+  "identity_differences": 670,
+  "orders": {
+   "cheapest_first": {
+    "B": 54357,
+    "C": 42076,
+    "fhfl": 25,
+    "flfh": 70,
+    "n": 5282
+   },
+   "identity": {
+    "B": 54357,
+    "C": 55458,
+    "fhfl": 0,
+    "flfh": 25,
+    "n": 5282
+   },
+   "reverse": {
+    "B": 54357,
+    "C": 81149,
+    "fhfl": 87,
+    "flfh": 67,
+    "n": 5282
+   },
+   "rotation": {
+    "B": 54357,
+    "C": 72897,
+    "fhfl": 86,
+    "flfh": 78,
+    "n": 5282
+   },
+   "swap12": {
+    "B": 54357,
+    "C": 55424,
+    "fhfl": 4,
+    "flfh": 29,
+    "n": 5282
+   },
+   "swap23": {
+    "B": 54357,
+    "C": 55402,
+    "fhfl": 5,
+    "flfh": 25,
+    "n": 5282
+   }
+  },
+  "references": {
+   "B": 54357,
+   "best": 39480,
+   "best_cls": 41056,
+   "best_exact": 47468,
+   "cheap": 42076,
+   "cheap_cls_fallback": 43560,
+   "cheap_exact_fallback": 49922,
+   "scalar_cls": 41712,
+   "scalar_exact": 47825,
+   "scalar_unc": 39919
+  },
+  "rows": 5282,
+  "valid_rows": 5282,
+  "validation_errors": []
+ },
+ "roots": {
+  "docs/policy-research/evidence/p6-interaction-v2/b1_ruy.jsonl.gz": {
+   "control_checks": 4380,
+   "early_cutoff_prefixes": 3783,
+   "identity_differences": 137,
+   "orders": {
+    "cheapest_first": {
+     "B": 16320,
+     "C": 12426,
+     "fhfl": 6,
+     "flfh": 11,
+     "n": 1460
+    },
+    "identity": {
+     "B": 16320,
+     "C": 16536,
+     "fhfl": 0,
+     "flfh": 3,
+     "n": 1460
+    },
+    "reverse": {
+     "B": 16320,
+     "C": 25049,
+     "fhfl": 23,
+     "flfh": 17,
+     "n": 1460
+    },
+    "rotation": {
+     "B": 16320,
+     "C": 22860,
+     "fhfl": 23,
+     "flfh": 14,
+     "n": 1460
+    },
+    "swap12": {
+     "B": 16320,
+     "C": 16509,
+     "fhfl": 1,
+     "flfh": 3,
+     "n": 1460
+    },
+    "swap23": {
+     "B": 16320,
+     "C": 16467,
+     "fhfl": 1,
+     "flfh": 3,
+     "n": 1460
+    }
+   },
+   "references": {
+    "B": 16320,
+    "best": 11850,
+    "best_cls": 11968,
+    "best_exact": 14470,
+    "cheap": 12426,
+    "cheap_cls_fallback": 12541,
+    "cheap_exact_fallback": 15078,
+    "scalar_cls": 11930,
+    "scalar_exact": 14343,
+    "scalar_unc": 11812
+   },
+   "rows": 1460,
+   "valid_rows": 1460,
+   "validation_errors": []
+  },
+  "docs/policy-research/evidence/p6-interaction-v2/b3_qgd.jsonl.gz": {
+   "control_checks": 2988,
+   "early_cutoff_prefixes": 2761,
+   "identity_differences": 170,
+   "orders": {
+    "cheapest_first": {
+     "B": 10872,
+     "C": 8729,
+     "fhfl": 4,
+     "flfh": 17,
+     "n": 996
+    },
+    "identity": {
+     "B": 10872,
+     "C": 11184,
+     "fhfl": 0,
+     "flfh": 3,
+     "n": 996
+    },
+    "reverse": {
+     "B": 10872,
+     "C": 15335,
+     "fhfl": 14,
+     "flfh": 12,
+     "n": 996
+    },
+    "rotation": {
+     "B": 10872,
+     "C": 13553,
+     "fhfl": 16,
+     "flfh": 20,
+     "n": 996
+    },
+    "swap12": {
+     "B": 10872,
+     "C": 11488,
+     "fhfl": 0,
+     "flfh": 5,
+     "n": 996
+    },
+    "swap23": {
+     "B": 10872,
+     "C": 11235,
+     "fhfl": 1,
+     "flfh": 3,
+     "n": 996
+    }
+   },
+   "references": {
+    "B": 10872,
+    "best": 7891,
+    "best_cls": 8377,
+    "best_exact": 9272,
+    "cheap": 8729,
+    "cheap_cls_fallback": 8962,
+    "cheap_exact_fallback": 9930,
+    "scalar_cls": 8491,
+    "scalar_exact": 9337,
+    "scalar_unc": 8110
+   },
+   "rows": 996,
+   "valid_rows": 996,
+   "validation_errors": []
+  },
+  "docs/policy-research/evidence/p6-interaction-v2/root_b_d8.jsonl.gz": {
+   "control_checks": 4410,
+   "early_cutoff_prefixes": 4187,
+   "identity_differences": 216,
+   "orders": {
+    "cheapest_first": {
+     "B": 14127,
+     "C": 10538,
+     "fhfl": 6,
+     "flfh": 27,
+     "n": 1470
+    },
+    "identity": {
+     "B": 14127,
+     "C": 14451,
+     "fhfl": 0,
+     "flfh": 15,
+     "n": 1470
+    },
+    "reverse": {
+     "B": 14127,
+     "C": 21139,
+     "fhfl": 27,
+     "flfh": 26,
+     "n": 1470
+    },
+    "rotation": {
+     "B": 14127,
+     "C": 19479,
+     "fhfl": 22,
+     "flfh": 29,
+     "n": 1470
+    },
+    "swap12": {
+     "B": 14127,
+     "C": 14152,
+     "fhfl": 2,
+     "flfh": 17,
+     "n": 1470
+    },
+    "swap23": {
+     "B": 14127,
+     "C": 14477,
+     "fhfl": 2,
+     "flfh": 15,
+     "n": 1470
+    }
+   },
+   "references": {
+    "B": 14127,
+    "best": 10047,
+    "best_cls": 10483,
+    "best_exact": 12020,
+    "cheap": 10538,
+    "cheap_cls_fallback": 11028,
+    "cheap_exact_fallback": 12619,
+    "scalar_cls": 10747,
+    "scalar_exact": 12278,
+    "scalar_unc": 10137
+   },
+   "rows": 1470,
+   "valid_rows": 1470,
+   "validation_errors": []
+  },
+  "docs/policy-research/evidence/p6-interaction-v2/seed_a1.jsonl.gz": {
+   "control_checks": 4068,
+   "early_cutoff_prefixes": 3830,
+   "identity_differences": 147,
+   "orders": {
+    "cheapest_first": {
+     "B": 13038,
+     "C": 10383,
+     "fhfl": 9,
+     "flfh": 15,
+     "n": 1356
+    },
+    "identity": {
+     "B": 13038,
+     "C": 13287,
+     "fhfl": 0,
+     "flfh": 4,
+     "n": 1356
+    },
+    "reverse": {
+     "B": 13038,
+     "C": 19626,
+     "fhfl": 23,
+     "flfh": 12,
+     "n": 1356
+    },
+    "rotation": {
+     "B": 13038,
+     "C": 17005,
+     "fhfl": 25,
+     "flfh": 15,
+     "n": 1356
+    },
+    "swap12": {
+     "B": 13038,
+     "C": 13275,
+     "fhfl": 1,
+     "flfh": 4,
+     "n": 1356
+    },
+    "swap23": {
+     "B": 13038,
+     "C": 13223,
+     "fhfl": 1,
+     "flfh": 4,
+     "n": 1356
+    }
+   },
+   "references": {
+    "B": 13038,
+    "best": 9692,
+    "best_cls": 10228,
+    "best_exact": 11706,
+    "cheap": 10383,
+    "cheap_cls_fallback": 11029,
+    "cheap_exact_fallback": 12295,
+    "scalar_cls": 10544,
+    "scalar_exact": 11867,
+    "scalar_unc": 9860
+   },
+   "rows": 1356,
+   "valid_rows": 1356,
+   "validation_errors": []
+  }
+ },
+ "strata": {
+  "10": {
+   "control_checks": 3828,
+   "early_cutoff_prefixes": 3163,
+   "identity_differences": 66,
+   "orders": {
+    "cheapest_first": {
+     "B": 40958,
+     "C": 29096,
+     "fhfl": 14,
+     "flfh": 42,
+     "n": 1276
+    },
+    "identity": {
+     "B": 40958,
+     "C": 41143,
+     "fhfl": 0,
+     "flfh": 3,
+     "n": 1276
+    },
+    "reverse": {
+     "B": 40958,
+     "C": 45165,
+     "fhfl": 31,
+     "flfh": 37,
+     "n": 1276
+    },
+    "rotation": {
+     "B": 40958,
+     "C": 42866,
+     "fhfl": 29,
+     "flfh": 45,
+     "n": 1276
+    },
+    "swap12": {
+     "B": 40958,
+     "C": 40970,
+     "fhfl": 4,
+     "flfh": 6,
+     "n": 1276
+    },
+    "swap23": {
+     "B": 40958,
+     "C": 41052,
+     "fhfl": 5,
+     "flfh": 3,
+     "n": 1276
+    }
+   },
+   "references": {
+    "B": 40958,
+    "best": 27422,
+    "best_cls": 28921,
+    "best_exact": 34554,
+    "cheap": 29096,
+    "cheap_cls_fallback": 30541,
+    "cheap_exact_fallback": 36365,
+    "scalar_cls": 29591,
+    "scalar_exact": 34921,
+    "scalar_unc": 27874
+   },
+   "rows": 1276,
+   "valid_rows": 1276,
+   "validation_errors": []
+  },
+  "25": {
+   "control_checks": 1338,
+   "early_cutoff_prefixes": 1011,
+   "identity_differences": 39,
+   "orders": {
+    "cheapest_first": {
+     "B": 28685,
+     "C": 19255,
+     "fhfl": 9,
+     "flfh": 27,
+     "n": 446
+    },
+    "identity": {
+     "B": 28685,
+     "C": 28817,
+     "fhfl": 0,
+     "flfh": 0,
+     "n": 446
+    },
+    "reverse": {
+     "B": 28685,
+     "C": 28071,
+     "fhfl": 20,
+     "flfh": 24,
+     "n": 446
+    },
+    "rotation": {
+     "B": 28685,
+     "C": 27458,
+     "fhfl": 19,
+     "flfh": 29,
+     "n": 446
+    },
+    "swap12": {
+     "B": 28685,
+     "C": 28434,
+     "fhfl": 4,
+     "flfh": 3,
+     "n": 446
+    },
+    "swap23": {
+     "B": 28685,
+     "C": 28736,
+     "fhfl": 4,
+     "flfh": 0,
+     "n": 446
+    }
+   },
+   "references": {
+    "B": 28685,
+    "best": 17751,
+    "best_cls": 19063,
+    "best_exact": 23296,
+    "cheap": 19255,
+    "cheap_cls_fallback": 20515,
+    "cheap_exact_fallback": 24888,
+    "scalar_cls": 19678,
+    "scalar_exact": 23624,
+    "scalar_unc": 18137
+   },
+   "rows": 446,
+   "valid_rows": 446,
+   "validation_errors": []
+  }
+ }
+}

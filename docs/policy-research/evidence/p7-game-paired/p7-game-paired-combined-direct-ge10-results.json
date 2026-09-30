@@ -1,0 +1,346 @@
+{
+  "config": {
+    "classification_penalty": 1.0,
+    "group_manifest": "tools/policy_research/corpora/game-paired-combined.json",
+    "json": "docs/policy-research/evidence/p7-game-paired-combined-direct-ge10-results.json",
+    "min_baseline_nodes": 10,
+    "models": "ridge",
+    "paths": [
+      "docs/policy-research/evidence/p7-game-paired-v1",
+      "docs/policy-research/evidence/p7-game-paired-v2"
+    ],
+    "seeds": "7"
+  },
+  "groups": {
+    "game-0006": {
+      "ridge": {
+        "B": 1568,
+        "C": 1585,
+        "class_fallback": 1585,
+        "exact_fallback": 1568,
+        "fhfl": 0,
+        "flfh": 0,
+        "later": 5,
+        "objective": 1585,
+        "threshold": 0.4292280132975227
+      }
+    },
+    "game-0010": {
+      "ridge": {
+        "B": 28874,
+        "C": 28418,
+        "class_fallback": 28639,
+        "exact_fallback": 28778,
+        "fhfl": 2,
+        "flfh": 7,
+        "later": 117,
+        "objective": 28764.0,
+        "threshold": 0.43168587196343056
+      }
+    },
+    "game-0024": {
+      "ridge": {
+        "B": 15491,
+        "C": 15332,
+        "class_fallback": 15354,
+        "exact_fallback": 15400,
+        "fhfl": 0,
+        "flfh": 2,
+        "later": 58,
+        "objective": 15368.0,
+        "threshold": 0.3384219273931743
+      }
+    },
+    "game-0030": {
+      "ridge": {
+        "B": 5679,
+        "C": 5593,
+        "class_fallback": 5622,
+        "exact_fallback": 5679,
+        "fhfl": 0,
+        "flfh": 2,
+        "later": 38,
+        "objective": 5628.0,
+        "threshold": 0.25454079742154023
+      }
+    },
+    "game-0039": {
+      "ridge": {
+        "B": 5212,
+        "C": 5019,
+        "class_fallback": 5109,
+        "exact_fallback": 5183,
+        "fhfl": 1,
+        "flfh": 1,
+        "later": 36,
+        "objective": 5123.0,
+        "threshold": 0.19698608980858698
+      }
+    },
+    "game-0051": {
+      "ridge": {
+        "B": 7611,
+        "C": 7535,
+        "class_fallback": 7516,
+        "exact_fallback": 7585,
+        "fhfl": 1,
+        "flfh": 0,
+        "later": 27,
+        "objective": 7577.0,
+        "threshold": 0.4176791787216295
+      }
+    },
+    "game-0055": {
+      "ridge": {
+        "B": 24970,
+        "C": 24750,
+        "class_fallback": 24750,
+        "exact_fallback": 24915,
+        "fhfl": 0,
+        "flfh": 0,
+        "later": 36,
+        "objective": 24750,
+        "threshold": 0.37118079463102677
+      }
+    },
+    "game-0081": {
+      "ridge": {
+        "B": 5482,
+        "C": 5088,
+        "class_fallback": 5174,
+        "exact_fallback": 5344,
+        "fhfl": 1,
+        "flfh": 4,
+        "later": 67,
+        "objective": 5266.0,
+        "threshold": 0.1876222544701024
+      }
+    },
+    "game-0091": {
+      "ridge": {
+        "B": 7137,
+        "C": 6988,
+        "class_fallback": 6988,
+        "exact_fallback": 7084,
+        "fhfl": 0,
+        "flfh": 1,
+        "later": 43,
+        "objective": 6998.0,
+        "threshold": 0.3789533119155307
+      }
+    },
+    "game-0116": {
+      "ridge": {
+        "B": 17434,
+        "C": 17358,
+        "class_fallback": 17358,
+        "exact_fallback": 17442,
+        "fhfl": 0,
+        "flfh": 0,
+        "later": 40,
+        "objective": 17358,
+        "threshold": 0.3875092962272492
+      }
+    },
+    "game-0127": {
+      "ridge": {
+        "B": 22303,
+        "C": 22245,
+        "class_fallback": 22256,
+        "exact_fallback": 22345,
+        "fhfl": 1,
+        "flfh": 0,
+        "later": 54,
+        "objective": 22257.0,
+        "threshold": 0.5294812654606467
+      }
+    },
+    "game-0133": {
+      "ridge": {
+        "B": 14878,
+        "C": 14738,
+        "class_fallback": 14691,
+        "exact_fallback": 14812,
+        "fhfl": 2,
+        "flfh": 1,
+        "later": 82,
+        "objective": 14827.0,
+        "threshold": 0.37102594713560155
+      }
+    },
+    "game-0159": {
+      "ridge": {
+        "B": 26997,
+        "C": 26797,
+        "class_fallback": 26911,
+        "exact_fallback": 27082,
+        "fhfl": 1,
+        "flfh": 1,
+        "later": 154,
+        "objective": 26931.0,
+        "threshold": 0.17724058274525464
+      }
+    },
+    "game-0169": {
+      "ridge": {
+        "B": 15119,
+        "C": 14866,
+        "class_fallback": 14904,
+        "exact_fallback": 15056,
+        "fhfl": 0,
+        "flfh": 2,
+        "later": 77,
+        "objective": 14910.0,
+        "threshold": 0.15561489405961298
+      }
+    },
+    "game-0179": {
+      "ridge": {
+        "B": 3673,
+        "C": 3443,
+        "class_fallback": 3559,
+        "exact_fallback": 3628,
+        "fhfl": 0,
+        "flfh": 3,
+        "later": 35,
+        "objective": 3575.0,
+        "threshold": 0.2236220001799766
+      }
+    },
+    "game-0183": {
+      "ridge": {
+        "B": 5429,
+        "C": 5261,
+        "class_fallback": 5285,
+        "exact_fallback": 5397,
+        "fhfl": 0,
+        "flfh": 1,
+        "later": 50,
+        "objective": 5289.0,
+        "threshold": 0.2503013307716074
+      }
+    },
+    "game-0212": {
+      "ridge": {
+        "B": 37832,
+        "C": 37951,
+        "class_fallback": 37581,
+        "exact_fallback": 37816,
+        "fhfl": 6,
+        "flfh": 8,
+        "later": 146,
+        "objective": 38268.0,
+        "threshold": 0.2815559575607358
+      }
+    },
+    "game-0214": {
+      "ridge": {
+        "B": 11729,
+        "C": 11370,
+        "class_fallback": 11400,
+        "exact_fallback": 11481,
+        "fhfl": 4,
+        "flfh": 3,
+        "later": 74,
+        "objective": 11508.0,
+        "threshold": 0.280122666046346
+      }
+    },
+    "game-0216": {
+      "ridge": {
+        "B": 22982,
+        "C": 22587,
+        "class_fallback": 22576,
+        "exact_fallback": 22959,
+        "fhfl": 2,
+        "flfh": 2,
+        "later": 85,
+        "objective": 22667.0,
+        "threshold": 0.14162560135780242
+      }
+    },
+    "game-0223": {
+      "ridge": {
+        "B": 573,
+        "C": 565,
+        "class_fallback": 574,
+        "exact_fallback": 577,
+        "fhfl": 1,
+        "flfh": 0,
+        "later": 11,
+        "objective": 578.0,
+        "threshold": 0.19370092897178237
+      }
+    },
+    "game-0259": {
+      "ridge": {
+        "B": 4015,
+        "C": 4019,
+        "class_fallback": 4049,
+        "exact_fallback": 4056,
+        "fhfl": 1,
+        "flfh": 2,
+        "later": 37,
+        "objective": 4084.0,
+        "threshold": 0.18360064180993385
+      }
+    },
+    "game-0274": {
+      "ridge": {
+        "B": 9950,
+        "C": 9904,
+        "class_fallback": 9914,
+        "exact_fallback": 9933,
+        "fhfl": 0,
+        "flfh": 1,
+        "later": 25,
+        "objective": 9915.0,
+        "threshold": 0.4637859594414514
+      }
+    },
+    "game-0275": {
+      "ridge": {
+        "B": 13402,
+        "C": 13140,
+        "class_fallback": 13247,
+        "exact_fallback": 13373,
+        "fhfl": 0,
+        "flfh": 2,
+        "later": 37,
+        "objective": 13267.0,
+        "threshold": 0.5658715788753732
+      }
+    },
+    "game-0296": {
+      "ridge": {
+        "B": 5870,
+        "C": 5757,
+        "class_fallback": 5842,
+        "exact_fallback": 5870,
+        "fhfl": 0,
+        "flfh": 3,
+        "later": 34,
+        "objective": 5853.0,
+        "threshold": 0.565028765912263
+      }
+    }
+  },
+  "pooled": {
+    "ridge": {
+      "B": 314210,
+      "C": 310309,
+      "class_fallback": 310884,
+      "class_fallback_saving_pct": 1.058527736227366,
+      "exact_fallback": 313363,
+      "exact_fallback_saving_pct": 0.2695649406447953,
+      "fhfl": 23,
+      "flfh": 46,
+      "later": 1368,
+      "objective": 312346.0,
+      "positive_groups": 21,
+      "root_mean_pct": 1.7251961341167696,
+      "root_sd_pct": 1.8937642310114384,
+      "saving_pct": 1.2415263677158617
+    }
+  }
+}

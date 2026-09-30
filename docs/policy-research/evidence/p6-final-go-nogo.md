@@ -1,96 +1,141 @@
-# Phase 6 — final report and plan-11.5 go/no-go
+# Revised Phase 6/7 go/no-go
 
-Status of the four plan-11.5 questions on the accumulated Phase-6 evidence
-(/3 scalar force-next corpora: 12-root, 15,825 rows; p6-explanatory;
-p6-learnability LOO probe; /4 shared-permutation corpus: 4 roots, 5,282
-rows). All savings are ratio-of-sums over eligible decision nodes; all
-measurements are local (per-node), collected offline with Threads == 1 at
-fixed depth; the 12-16 root positions are manually selected opening lines
-(exploratory, not a random population sample).
+This revision supersedes the report at `490a44c7`. Two review findings changed
+the evidence: the original learnability scorer applied standardized-model
+coefficients to raw features, and schema `/4` did not always execute its
+requested permutation. Both are fixed and independently regression-tested.
+Schema `/5`, two seeded game-paired corpora, nested direct-ranking models and a
+live fixed-depth intervention now answer all five plan-11.5 questions.
 
-## Q1 — How much total cost can an oracle save?
+All offline savings are ratios of sums over local eligible-node replays. They
+are not additive root speedups because subtrees overlap and a live intervention
+changes its future call distribution.
 
-Local, top-four, ex-post: ~24% of eligible subtree nodes
-(classification-preserving; 19-30% per root), ~12.8% under exact-value
-equivalence, ~29% if whole multi-move orderings may be chosen per row
-(shared-permutation corpus). Savings concentrate in nontrivial nodes:
-rows with baseline >= 10 nodes are 23.8% of rows and hold ~90% of the
-savings; >= 25-node rows hold ~71%.
+## Q1 — How much local cost can an oracle save?
 
-## Q2 — Which contexts contain the opportunity?
+Opening corpus (12 roots, 15,825 rows):
 
-Opportunity correlates with subtree size/entry depth (deeper nodes are
-costlier and more reorderable) and with rows whose natural lead move is not
-a cut-on-arrival (86.8% of natural cutoffs already happen on ordinal 0).
-Whether pre-search features can identify the high-regret contexts at usable
-precision is NOT established (see Q3): gating remains the economically
-required architecture but its viability is unproven on this corpus.
+- 24.0% classification-preserving top-four force-first oracle;
+- 12.75% exact-value oracle.
 
-## Q3 — How much of the oracle is explained by q/e? (learnability)
+Two seeded game-paired corpora (24 games, 48 paired middlegame/endgame roots,
+35,603 rows):
 
-Ex-post decompositions: perfect own-cut knowledge plus cost-aware
-abstention captures 57-65% of the classification-preserving oracle
-(13.7-15.7% of 24.0%); ~41% of oracle picks and ~45% of oracle savings
-come from continuation effects (promoted candidate does not itself cut
-off). Whole-node scalar cost (measurement B) is the dominant ex-post
-signal; a q/e-style head restricted to own-cut labels is a minor component.
+- 20.7% classification-preserving oracle;
+- 9.2% exact-value oracle.
 
-Learnability probe (root-held-out, abstaining, feature-only ridge models
-on pre-search features; 12-fold LOO): **no positive capture**. Tuned
-q-gates and cost-gated rules choose full abstention on every fold;
-unrestricted cost-argmin loses 16.4%; QE loses 4.3%; even in-sample tuned
-rules do not beat baseline. Ranking diagnostics are strong (held-out own-
-cut AUC 0.87, log-cost Spearman 0.70) but choice-value is not: the
-features cannot resolve whether a later candidate beats THIS row's natural
-cost at the precision the asymmetric promotion penalty requires. On the
-baseline >= 10 stratum the same rules lose 0.7-1.0% against a 28% oracle.
+The opportunity is real and survives a broader phase-balanced corpus, though it
+is smaller than in the selected opening roots.
 
-## Q4 — How large is the TT/order interaction gap?
+## Q2 — Where is the opportunity?
 
-Measured with the shared-permutation machinery (schema /4): scalar-cost-
-ordered shared permutations realize 24.2% pooled vs 29.4% for the per-row
-best tested order and 23.3% for the classification-preserving single-
-promotion oracle. The interaction headroom beyond scalar costs is ~5-6pp
-of eligible subtree nodes — real but secondary; scalar whole-node costs
-predict shared-order costs almost fully. Blind orderings cost +27 to +49%;
-the (1,2) swap is nearly free (+1%).
+Savings remain concentrated in nontrivial/high-cost rows. Natural MovePicker is
+a strong prior: most rows have no cheaper later top-four candidate and most
+natural move-loop cutoffs already occur on ordinal 0. Hindsight baseline-cost
+strata have substantially more headroom, but baseline cost is unavailable at
+entry and is not a deployable gate.
 
-## Q5 — How many cycles per policy call can be afforded?
+## Q3 — Is any of it learnable from entry features?
 
-No composable number exists from local sums (eligible-subtree accounting
-overlaps ~2.4x root node counts; a deployed policy changes its own call
-distribution). Directional bounds: at these depths eligible nodes are
-~20-27% of all searched nodes, and the local oracle's average saving is
-~2.5 subtree nodes per eligible row (exact-value ~1.3); a universal scorer
-must cost a small fraction of one subtree node-equivalent per call, while
-stratified invocation on predicted-expensive nodes could afford more. The
-affordability test itself requires a live policy run (fixed-depth wall
-time with the scorer in the loop) — no such measurement exists yet.
+Yes, weakly. The original all-negative claim was caused by a feature-transform
+bug and is withdrawn.
 
-## Go/no-go
+Corrected opening-root LOO:
 
-- **GO (with strict scoping) to Phase 7-9 research modeling** — survival/
-  q/cost heads and a direct-ranking teacher — because: (a) local oracle
-  headroom is real, consistent (12-16 roots) and ~60% ex-post attributable
-  to cost-aware selection; (b) the interaction gap is small, so scalar-cost
-  labels are an adequate teacher target; (c) the current negative
-  learnability result is a linear-model result on tabular features and does
-  not bound richer models. Phase-7-9 work must be labeled as research:
-  no production integration.
-- **NO-GO to Phase 10+ (production student / engine integration) until**:
-  (1) a stronger model class (nonlinear/graph/neural over entry state)
-  demonstrates POSITIVE root-held-out capture on a broader corpus (random
-  game-derived middlegame/endgame positions, game-split holdout, multiple
-  declared seeds), or plan-21.1-style context restriction (near-root /
-  high-regret gated invocation) is shown viable with a cheap gate; (2) a
-  live-policy fixed-depth wall-time experiment measures real composable
-  savings and per-call cycle cost; (3) search-quality gates (root-result
-  agreement, deeper-reference checks) and later Elo/SPRT infrastructure
-  exist.
-- **Phases 11-13 (integration, DAgger, LMR shadow) stay unstarted**.
-- The universal, globally invoked proof-scheduler endpoint remains
-  plausible but is NOT supported by current evidence as profitable: every
-  measured feature-only rule that actually fires loses, and only ex-post
-  (hindsight) rules save. The project's next decisive milestone is a model
-  class that converts the strong ranking signal (AUC 0.87 / Spearman 0.70)
-  into positive choice value out-of-root.
+- QE +0.60% pooled, positive on 10/12 roots;
+- QE +2.06% in the hindsight baseline ≥10 stratum;
+- CHEAP −0.40%, demonstrating that absolute cost prediction is insufficient.
+
+Game-group-held-out replication over two disjoint seeded samples:
+
+- QE +0.59% pooled, positive on 16/24 groups;
+- QE +0.70% in the ≥10 stratum;
+- direct weighted ridge +0.37% raw / +0.34% class-fallback;
+- two-layer direct-regret MLP (seeds 7+19) +0.18% raw / +0.16% class-fallback.
+
+Own-cut AUC remains strong (~0.86), but later-vs-baseline cheaper-cost AUC is
+only ~0.56. The nonlinear model does not improve on linear QE. Realized offline
+capture remains about 3% of the classification-preserving oracle.
+
+## Q4 — How large is shared-order interaction?
+
+Schema `/4` is rejected: 3,822 entries did not execute the requested prefix,
+full-K controls were not semantically equivalent to force-next, and the
+analyzer mislabeled swap(2,3) as cheapest-first.
+
+Correct schema `/5` reserves the static prefix before search, serves it in the
+requested order and resumes from the correct picker suffix. Validation:
+
+- 5,282/5,282 valid rows;
+- zero invalid prefixes;
+- 15,846/15,846 exact force-next controls;
+- canonical `/3` baseline/probe byte parity.
+
+Aligned pooled references:
+
+- scalar unconstrained/class/exact: 26.56% / 23.26% / 12.02%;
+- best tested full schedule: 27.37% / 24.47% / 12.67%.
+
+Additional full-schedule oracle value over the aligned scalar oracle is only
+0.81pp raw, 1.21pp classification-preserving and 0.65pp exact. The plan-defined
+cheapest-first-to-best gap is ~4.5–4.8pp, but mostly reflects imperfect
+scalar-to-full-order conversion rather than extra deployable headroom.
+
+Committed identity costs 2.03% more than natural baseline because natural
+search may dynamically skip later quiets. Blind full-prefix scheduling remains
+harmful; selecting the first candidate is the dominant opportunity.
+
+## Q5 — Is a live policy affordable and composable?
+
+No for the tested universally invoked policy.
+
+A frozen linear QE model trained on all paired-game data was installed behind a
+research-only switch and tested on 26 held-out `corpus-v3` roots. The live path
+includes candidate enumeration, inference, actual force-first scheduling and
+all resulting TT/history distribution changes.
+
+Depth 8, seven trials/root:
+
+| gate | node ratio | wall ratio | paired median wall ratio |
+|---|---:|---:|---:|
+| universal | 1.055 | 1.522 | 1.323 |
+| decision depth ≥4 | 1.107 | 1.334 | 1.185 |
+| decision depth ≥6 | 1.100 | 1.197 | 1.056 |
+
+Depth 12, three trials/root:
+
+| gate | node ratio | wall ratio | paired median wall ratio |
+|---|---:|---:|---:|
+| universal | 1.219 | 1.741 | 1.518 |
+| decision depth ≥4 | 1.363 | 1.594 | 1.254 |
+| decision depth ≥6 | 1.581 | 1.631 | 1.084 |
+
+All modes fail both node and wall-time gates. Depth gating reduces inference
+calls but does not fix harmful on-policy tails. Exact fixed-depth bestmove/score
+changes are frequent; they are not labeled good or bad without deeper
+references, but they independently block a strength claim.
+
+## Revised decision
+
+### NO-GO: universal or broadly invoked proof scheduler
+
+The central universal-policy hypothesis is rejected for the measured feature
+set/model family. Positive offline local capture does not compose on-policy,
+and inference/candidate-enumeration overhead is far above the affordable global
+budget. No Phase-10+ production integration, NNUE coupling, Elo claim or SPRT is
+justified.
+
+### Narrow research GO only
+
+Further work is justified only if it changes the architecture materially:
+
+1. an extremely sparse, cheap, high-precision gate learned and evaluated
+   directly on-policy;
+2. no full candidate enumeration at the majority of nodes;
+3. a prespecified live fixed-depth node-and-wall gate passed on game-held-out
+   roots before any Elo test;
+4. deeper-reference checks for every root-result change.
+
+The local oracle remains scientifically useful and may guide targeted search
+heuristics. It no longer supports a universally invoked learned scheduler as a
+credible path to substantially stronger Stockfish.

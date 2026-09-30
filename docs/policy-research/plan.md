@@ -1367,6 +1367,14 @@ Before neural work, answer:
 
 If the affordable policy budget is below even a small table-based scorer, stop or restrict invocation to high-regret contexts.
 
+**Executed decision (revised after review):** corrected linear QE is weakly
+positive under opening-root and game-group holdout (+0.60%/+0.59% local replay
+cost), but the frozen live policy increases depth-8 nodes 5.5% and wall time
+52%; depth gates also lose. The stop/restrict branch is therefore active. The
+universal scheduler and Phase-10+ production path are NO-GO; only a materially
+different sparse high-regret gate may continue as research. See
+`evidence/p6-final-go-nogo.md`.
+
 ---
 
 # 12. Phase 7: proof-time survival modeling

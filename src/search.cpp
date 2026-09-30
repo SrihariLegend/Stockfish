@@ -1000,6 +1000,9 @@ Value Search::Worker::search(Position& pos,
 
     // Limit the depth if extensions made it too large
     depth = std::min(depth, MAX_PLY - 1);
+#ifdef POLICY_RESEARCH
+    const int researchEntryDepth = int(depth);
+#endif
 
     // Check if we have an upcoming move that draws by repetition
     if (!rootNode && alpha < VALUE_DRAW && pos.upcoming_repetition(ss->ply))
@@ -1462,9 +1465,54 @@ moves_loop:  // When in check, search starts here
       (ss - 1)->continuationHistory, (ss - 2)->continuationHistory, (ss - 3)->continuationHistory,
       (ss - 4)->continuationHistory, (ss - 5)->continuationHistory, (ss - 6)->continuationHistory};
 
+#ifdef POLICY_RESEARCH
+    // Research-only live intervention for the post-Phase-6 affordability
+    // test. It is deliberately independent of dataset logging and disabled by
+    // default. The returned variable-length prefix is exactly the force-next
+    // action [chosen, 0..chosen-1].
+    std::vector<Move> researchLiveQEPrefix;
+    int               researchLiveQENext = 0;
+    if (!rootNode && !PvNode && alpha + 1 == beta && !ss->inCheck
+        && excludedMove == Move::none() && is_mainthread() && Research::enabled()
+        && Research::config().liveQE && !Research::is_shadow_probe_active()
+        && researchEntryDepth >= Research::config().liveQEMinDepth)
+        researchLiveQEPrefix = Research::live_qe_prefix(
+          pos, *this, ss, ttData.move, researchEntryDepth, int(depth), int(rootDepth),
+          improving, ttHit, cutNode, contHist);
+#endif
 
     MovePicker mp(pos, ttData.move, depth, &mainHistory, &lowPlyHistory, &captureHistory, contHist,
                   &sharedHistory, ss->ply);
+
+#ifdef POLICY_RESEARCH
+    // Advance the real picker through the selected static prefix before any
+    // target search. This gives the live intervention the same suffix cursor
+    // semantics validated by schema /5 and force-next controls.
+    if (!researchLiveQEPrefix.empty())
+    {
+        int reserved = 0;
+        while (reserved < int(researchLiveQEPrefix.size()))
+        {
+            Move candidate = mp.next_move();
+            if (candidate == Move::none())
+            {
+                Research::note_live_qe_prepare_failure();
+                researchLiveQEPrefix.clear();
+                break;
+            }
+            if (candidate == excludedMove || !pos.legal(candidate))
+                continue;
+            if (std::find(researchLiveQEPrefix.begin(), researchLiveQEPrefix.end(), candidate)
+                == researchLiveQEPrefix.end())
+            {
+                Research::note_live_qe_prepare_failure();
+                researchLiveQEPrefix.clear();
+                break;
+            }
+            ++reserved;
+        }
+    }
+#endif
 
 #ifdef POLICY_RESEARCH
     // A scheduled-prefix replay first consumes the complete static prefix
@@ -1510,8 +1558,16 @@ moves_loop:  // When in check, search starts here
         // Shared scheduled-prefix replay (plan 11.3, schema /5): serve the
         // next reserved target directly. Once the prefix completes, the real
         // MovePicker is already positioned at the natural suffix.
-        const bool fromPermTarget = Research::perm_serve_next(posKey, ss->ply, move);
-        if (!fromPermTarget && !Research::force_next_buffer_pop(posKey, ss->ply, move))
+        bool fromLiveQE = false;
+        if (researchLiveQENext < int(researchLiveQEPrefix.size()))
+        {
+            move = researchLiveQEPrefix[researchLiveQENext++];
+            fromLiveQE = true;
+        }
+        const bool fromPermTarget =
+          !fromLiveQE && Research::perm_serve_next(posKey, ss->ply, move);
+        if (!fromLiveQE && !fromPermTarget
+            && !Research::force_next_buffer_pop(posKey, ss->ply, move))
         {
             if ((move = mp.next_move()) == Move::none())
                 break;
@@ -1540,7 +1596,8 @@ moves_loop:  // When in check, search starts here
         // worker_snapshot.h): natural emissions before the forced candidate
         // are swallowed and later restored. Scheduled-prefix targets have
         // already advanced the real picker during prefix preparation above.
-        if (!fromPermTarget && Research::force_next_step(posKey, ss->ply, move) == 1)
+        if (!fromLiveQE && !fromPermTarget
+            && Research::force_next_step(posKey, ss->ply, move) == 1)
             continue;
 #endif
 

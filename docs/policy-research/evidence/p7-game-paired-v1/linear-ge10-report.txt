@@ -1,0 +1,33 @@
+LOO over 12 roots; baseline nodes >= 10
+ORACLE_CLS pooled save 23.37%  ORACLE_EXACT refs in per-root json
+in-sample (train-root) pooled save of the tuned rules [overfit reference]:
+   Q            in-sample save   0.34%
+   CHEAP_SAFE   in-sample save   0.73%
+   QE           in-sample save   1.10%
+held-out q AUC mean 0.830 (per-fold: ['0.84', '0.87', '0.86', '0.82', '0.78', '0.85', '0.91', '0.73', '0.82', '0.81', '0.90', '0.80'])
+held-out log-cost Spearman mean 0.577 (per-fold: ['0.38', '0.64', '0.57', '0.63', '0.56', '0.56', '0.68', '0.61', '0.63', '0.60', '0.52', '0.55'])
+held-out cheaper-than-baseline AUC mean 0.543 (per-fold: ['0.51', '0.57', '0.50', '0.50', '0.57', '0.51', '0.52', '0.50', '0.62', '0.59', '0.56', '0.57'])
+held-out within-row cost argmin accuracy mean 0.366; always-baseline 0.476
+per-fold chosen params (theta/tau/lambda):
+   game-0006              theta 0.45 tau 0.45 lambda 0.50
+   game-0024              theta 0.50 tau 0.50 lambda 0.25
+   game-0030              theta 0.70 tau 0.45 lambda 0.50
+   game-0055              theta 0.65 tau 0.65 lambda 1.00
+   game-0091              theta 0.45 tau 0.45 lambda 1.00
+   game-0116              theta 0.70 tau 0.45 lambda 0.25
+   game-0159              theta 0.50 tau 0.50 lambda 2.00
+   game-0179              theta 0.45 tau 0.45 lambda 1.00
+   game-0183              theta 0.45 tau 0.45 lambda 0.50
+   game-0216              theta 0.50 tau 0.40 lambda 2.00
+   game-0259              theta 0.45 tau 0.45 lambda 0.50
+   game-0296              theta 0.70 tau 0.45 lambda 0.50
+BASE         save%   0.00  later%   0.0  FH->FL     0  FL->FH     0  pooled 141245 -> 141245
+Q            save%  -0.43  later%   4.7  FH->FL     1  FL->FH     4  pooled 141245 -> 141851
+CHEAP        save%  -7.39  later%  62.0  FH->FL    67  FL->FH    69  pooled 141245 -> 151685
+CHEAP_SAFE   save%  -0.02  later%   6.5  FH->FL     0  FL->FH     5  pooled 141245 -> 141276
+QE           save%   0.73  later%  30.6  FH->FL     6  FL->FH    23  pooled 141245 -> 140216
+capture vs ORACLE_CLS Q              -1.8%
+capture vs ORACLE_CLS CHEAP         -31.6%
+capture vs ORACLE_CLS CHEAP_SAFE     -0.1%
+capture vs ORACLE_CLS QE              3.1%
+wrote docs/policy-research/evidence/p7-game-paired-v1/linear-ge10-results.json

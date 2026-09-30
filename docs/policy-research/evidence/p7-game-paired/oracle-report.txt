@@ -1,0 +1,437 @@
+== docs/policy-research/evidence/p7-game-paired-v1/g0006-end.jsonl.gz
+   rows 100  baseline FH 51.0%
+   ord 0: n 100 FH 51.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 100 FH 40.0%  FH->FL 12.0%  FL->FH 1.0%  aggregate ratio 1.181 (+18.1%)  mean row ratio 1.538  censored 0
+   ord 2: n 100 FH 39.0%  FH->FL 12.0%  FL->FH 0.0%  aggregate ratio 1.209 (+20.9%)  mean row ratio 1.693  censored 0
+   ord 3: n 96 FH 39.6%  FH->FL 12.5%  FL->FH 0.0%  aggregate ratio 1.189 (+18.9%)  mean row ratio 1.661  censored 0
+   oracle (classification-preserving): 540 -> 459 (15.0% saved; later pick 22.0% of rows; censored-blocked probes 0)
+   oracle (exact-value): 540 -> 507 (6.1% saved)
+   meas-A: move-loop cutoffs 43/51 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 49; slot-1 unsearched 0; own-cut ord1..3 [19.0, 8.0, 3.0]
+== docs/policy-research/evidence/p7-game-paired-v1/g0006-mid.jsonl.gz
+   rows 337  baseline FH 47.5%
+   ord 0: n 337 FH 47.5%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 337 FH 46.6%  FH->FL 1.2%  FL->FH 0.3%  aggregate ratio 1.515 (+51.5%)  mean row ratio 2.505  censored 0
+   ord 2: n 337 FH 46.9%  FH->FL 0.9%  FL->FH 0.3%  aggregate ratio 1.480 (+48.0%)  mean row ratio 2.471  censored 0
+   ord 3: n 337 FH 46.9%  FH->FL 0.9%  FL->FH 0.3%  aggregate ratio 1.482 (+48.2%)  mean row ratio 2.446  censored 0
+   oracle (classification-preserving): 2206 -> 1864 (15.5% saved; later pick 20.5% of rows; censored-blocked probes 0)
+   oracle (exact-value): 2206 -> 2152 (2.4% saved)
+   meas-A: move-loop cutoffs 132/157 on ordinal 0; fail highs w/o cutoff hook 3; fail lows 177; slot-1 unsearched 3; own-cut ord1..3 [12.759643916913946, 5.637982195845697, 3.264094955489614]
+== docs/policy-research/evidence/p7-game-paired-v1/g0024-end.jsonl.gz
+   rows 365  baseline FH 52.9%
+   ord 0: n 365 FH 52.9%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 365 FH 53.2%  FH->FL 1.4%  FL->FH 1.6%  aggregate ratio 1.502 (+50.2%)  mean row ratio 2.171  censored 0
+   ord 2: n 365 FH 52.1%  FH->FL 1.6%  FL->FH 0.8%  aggregate ratio 1.491 (+49.1%)  mean row ratio 2.484  censored 0
+   ord 3: n 365 FH 52.1%  FH->FL 1.4%  FL->FH 0.5%  aggregate ratio 1.382 (+38.2%)  mean row ratio 2.072  censored 0
+   oracle (classification-preserving): 2934 -> 2603 (11.3% saved; later pick 17.8% of rows; censored-blocked probes 0)
+   oracle (exact-value): 2934 -> 2835 (3.4% saved)
+   meas-A: move-loop cutoffs 157/181 on ordinal 0; fail highs w/o cutoff hook 12; fail lows 172; slot-1 unsearched 12; own-cut ord1..3 [26.027397260273972, 12.32876712328767, 4.931506849315069]
+== docs/policy-research/evidence/p7-game-paired-v1/g0024-mid.jsonl.gz
+   rows 1444  baseline FH 58.0%
+   ord 0: n 1444 FH 58.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1444 FH 57.3%  FH->FL 1.2%  FL->FH 0.6%  aggregate ratio 1.435 (+43.5%)  mean row ratio 3.121  censored 0
+   ord 2: n 1444 FH 57.8%  FH->FL 1.4%  FL->FH 1.2%  aggregate ratio 1.439 (+43.9%)  mean row ratio 2.528  censored 0
+   ord 3: n 1444 FH 57.5%  FH->FL 1.7%  FL->FH 1.2%  aggregate ratio 1.532 (+53.2%)  mean row ratio 2.684  censored 0
+   oracle (classification-preserving): 16786 -> 13298 (20.8% saved; later pick 21.2% of rows; censored-blocked probes 0)
+   oracle (exact-value): 16786 -> 14735 (12.2% saved)
+   meas-A: move-loop cutoffs 664/747 on ordinal 0; fail highs w/o cutoff hook 90; fail lows 607; slot-1 unsearched 90; own-cut ord1..3 [28.25484764542936, 14.889196675900276, 9.833795013850416]
+== docs/policy-research/evidence/p7-game-paired-v1/g0030-end.jsonl.gz
+   rows 172  baseline FH 45.9%
+   ord 0: n 172 FH 45.9%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 172 FH 44.2%  FH->FL 2.9%  FL->FH 1.2%  aggregate ratio 1.186 (+18.6%)  mean row ratio 1.688  censored 0
+   ord 2: n 172 FH 43.6%  FH->FL 2.9%  FL->FH 0.6%  aggregate ratio 1.208 (+20.8%)  mean row ratio 1.788  censored 0
+   ord 3: n 172 FH 43.6%  FH->FL 2.9%  FL->FH 0.6%  aggregate ratio 1.240 (+24.0%)  mean row ratio 1.877  censored 0
+   oracle (classification-preserving): 1209 -> 1013 (16.2% saved; later pick 17.4% of rows; censored-blocked probes 0)
+   oracle (exact-value): 1209 -> 1179 (2.5% saved)
+   meas-A: move-loop cutoffs 64/79 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 93; slot-1 unsearched 0; own-cut ord1..3 [8.13953488372093, 2.9069767441860463, 2.3255813953488373]
+== docs/policy-research/evidence/p7-game-paired-v1/g0030-mid.jsonl.gz
+   rows 604  baseline FH 56.3%
+   ord 0: n 604 FH 56.3%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 604 FH 54.3%  FH->FL 2.6%  FL->FH 0.7%  aggregate ratio 1.139 (+13.9%)  mean row ratio 1.851  censored 0
+   ord 2: n 604 FH 54.1%  FH->FL 2.6%  FL->FH 0.5%  aggregate ratio 1.171 (+17.1%)  mean row ratio 1.712  censored 0
+   ord 3: n 604 FH 54.1%  FH->FL 2.6%  FL->FH 0.5%  aggregate ratio 1.230 (+23.0%)  mean row ratio 1.715  censored 0
+   oracle (classification-preserving): 6378 -> 5107 (19.9% saved; later pick 27.0% of rows; censored-blocked probes 0)
+   oracle (exact-value): 6378 -> 5862 (8.1% saved)
+   meas-A: move-loop cutoffs 286/329 on ordinal 0; fail highs w/o cutoff hook 11; fail lows 264; slot-1 unsearched 11; own-cut ord1..3 [17.880794701986755, 8.278145695364238, 7.28476821192053]
+== docs/policy-research/evidence/p7-game-paired-v1/g0055-end.jsonl.gz
+   rows 1671  baseline FH 58.3%
+   ord 0: n 1671 FH 58.3%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1671 FH 58.0%  FH->FL 2.9%  FL->FH 2.6%  aggregate ratio 1.401 (+40.1%)  mean row ratio 2.351  censored 0
+   ord 2: n 1652 FH 57.9%  FH->FL 2.7%  FL->FH 2.1%  aggregate ratio 1.434 (+43.4%)  mean row ratio 2.207  censored 0
+   ord 3: n 1636 FH 58.0%  FH->FL 2.6%  FL->FH 2.3%  aggregate ratio 1.508 (+50.8%)  mean row ratio 2.286  censored 0
+   oracle (classification-preserving): 26940 -> 21213 (21.3% saved; later pick 26.2% of rows; censored-blocked probes 0)
+   oracle (exact-value): 26940 -> 25488 (5.4% saved)
+   meas-A: move-loop cutoffs 776/946 on ordinal 0; fail highs w/o cutoff hook 28; fail lows 697; slot-1 unsearched 28; own-cut ord1..3 [23.877917414721722, 17.65409934171155, 12.447636146020347]
+== docs/policy-research/evidence/p7-game-paired-v1/g0055-mid.jsonl.gz
+   rows 520  baseline FH 55.0%
+   ord 0: n 520 FH 55.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 520 FH 54.0%  FH->FL 2.7%  FL->FH 1.7%  aggregate ratio 1.456 (+45.6%)  mean row ratio 2.212  censored 0
+   ord 2: n 520 FH 54.0%  FH->FL 2.3%  FL->FH 1.3%  aggregate ratio 1.593 (+59.3%)  mean row ratio 2.581  censored 0
+   ord 3: n 520 FH 54.0%  FH->FL 2.3%  FL->FH 1.3%  aggregate ratio 1.508 (+50.8%)  mean row ratio 2.428  censored 0
+   oracle (classification-preserving): 3626 -> 2987 (17.6% saved; later pick 17.9% of rows; censored-blocked probes 0)
+   oracle (exact-value): 3626 -> 3514 (3.1% saved)
+   meas-A: move-loop cutoffs 237/261 on ordinal 0; fail highs w/o cutoff hook 25; fail lows 234; slot-1 unsearched 25; own-cut ord1..3 [30.384615384615383, 9.423076923076923, 1.9230769230769231]
+== docs/policy-research/evidence/p7-game-paired-v1/g0091-end.jsonl.gz
+   rows 674  baseline FH 70.8%
+   ord 0: n 674 FH 70.8%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 674 FH 69.0%  FH->FL 3.0%  FL->FH 1.2%  aggregate ratio 1.195 (+19.5%)  mean row ratio 1.793  censored 0
+   ord 2: n 674 FH 72.0%  FH->FL 2.2%  FL->FH 3.4%  aggregate ratio 1.201 (+20.1%)  mean row ratio 1.852  censored 0
+   ord 3: n 674 FH 72.6%  FH->FL 3.4%  FL->FH 5.2%  aggregate ratio 1.250 (+25.0%)  mean row ratio 2.048  censored 0
+   oracle (classification-preserving): 3971 -> 3050 (23.2% saved; later pick 22.1% of rows; censored-blocked probes 0)
+   oracle (exact-value): 3971 -> 3416 (14.0% saved)
+   meas-A: move-loop cutoffs 384/477 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 197; slot-1 unsearched 0; own-cut ord1..3 [37.0919881305638, 31.15727002967359, 29.228486646884274]
+== docs/policy-research/evidence/p7-game-paired-v1/g0091-mid.jsonl.gz
+   rows 800  baseline FH 57.6%
+   ord 0: n 800 FH 57.6%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 800 FH 57.2%  FH->FL 1.5%  FL->FH 1.1%  aggregate ratio 1.388 (+38.8%)  mean row ratio 1.984  censored 0
+   ord 2: n 800 FH 57.5%  FH->FL 1.4%  FL->FH 1.2%  aggregate ratio 1.381 (+38.1%)  mean row ratio 2.136  censored 0
+   ord 3: n 800 FH 58.2%  FH->FL 1.1%  FL->FH 1.8%  aggregate ratio 1.401 (+40.1%)  mean row ratio 2.230  censored 0
+   oracle (classification-preserving): 6586 -> 5398 (18.0% saved; later pick 25.2% of rows; censored-blocked probes 0)
+   oracle (exact-value): 6586 -> 5909 (10.3% saved)
+   meas-A: move-loop cutoffs 370/450 on ordinal 0; fail highs w/o cutoff hook 11; fail lows 339; slot-1 unsearched 11; own-cut ord1..3 [19.25, 13.625, 9.5]
+== docs/policy-research/evidence/p7-game-paired-v1/g0116-end.jsonl.gz
+   rows 634  baseline FH 57.3%
+   ord 0: n 634 FH 57.3%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 634 FH 55.7%  FH->FL 3.0%  FL->FH 1.4%  aggregate ratio 1.108 (+10.8%)  mean row ratio 1.942  censored 0
+   ord 2: n 634 FH 56.3%  FH->FL 2.8%  FL->FH 1.9%  aggregate ratio 1.177 (+17.7%)  mean row ratio 2.016  censored 0
+   ord 3: n 634 FH 55.5%  FH->FL 3.0%  FL->FH 1.3%  aggregate ratio 1.210 (+21.0%)  mean row ratio 2.125  censored 0
+   oracle (classification-preserving): 6920 -> 5259 (24.0% saved; later pick 20.7% of rows; censored-blocked probes 0)
+   oracle (exact-value): 6920 -> 6238 (9.9% saved)
+   meas-A: move-loop cutoffs 279/332 on ordinal 0; fail highs w/o cutoff hook 31; fail lows 271; slot-1 unsearched 31; own-cut ord1..3 [22.397476340694006, 14.195583596214512, 5.678233438485805]
+== docs/policy-research/evidence/p7-game-paired-v1/g0116-mid.jsonl.gz
+   rows 966  baseline FH 52.7%
+   ord 0: n 966 FH 52.7%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 966 FH 52.6%  FH->FL 1.4%  FL->FH 1.3%  aggregate ratio 1.470 (+47.0%)  mean row ratio 2.930  censored 0
+   ord 2: n 966 FH 53.1%  FH->FL 1.2%  FL->FH 1.7%  aggregate ratio 1.338 (+33.8%)  mean row ratio 2.105  censored 0
+   ord 3: n 966 FH 52.3%  FH->FL 1.7%  FL->FH 1.2%  aggregate ratio 1.337 (+33.7%)  mean row ratio 1.943  censored 0
+   oracle (classification-preserving): 14222 -> 11236 (21.0% saved; later pick 22.2% of rows; censored-blocked probes 0)
+   oracle (exact-value): 14222 -> 12517 (12.0% saved)
+   meas-A: move-loop cutoffs 401/468 on ordinal 0; fail highs w/o cutoff hook 41; fail lows 457; slot-1 unsearched 41; own-cut ord1..3 [17.391304347826086, 10.455486542443063, 7.246376811594203]
+== docs/policy-research/evidence/p7-game-paired-v1/g0159-end.jsonl.gz
+   rows 236  baseline FH 58.9%
+   ord 0: n 236 FH 58.9%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 236 FH 58.5%  FH->FL 0.8%  FL->FH 0.4%  aggregate ratio 1.240 (+24.0%)  mean row ratio 2.099  censored 0
+   ord 2: n 236 FH 58.9%  FH->FL 1.3%  FL->FH 1.3%  aggregate ratio 1.406 (+40.6%)  mean row ratio 2.319  censored 0
+   ord 3: n 236 FH 59.7%  FH->FL 1.3%  FL->FH 2.1%  aggregate ratio 1.437 (+43.7%)  mean row ratio 2.384  censored 0
+   oracle (classification-preserving): 1619 -> 1330 (17.9% saved; later pick 19.9% of rows; censored-blocked probes 0)
+   oracle (exact-value): 1619 -> 1540 (4.9% saved)
+   meas-A: move-loop cutoffs 116/136 on ordinal 0; fail highs w/o cutoff hook 3; fail lows 97; slot-1 unsearched 3; own-cut ord1..3 [27.54237288135593, 20.338983050847457, 16.949152542372882]
+== docs/policy-research/evidence/p7-game-paired-v1/g0159-mid.jsonl.gz
+   rows 2328  baseline FH 56.8%
+   ord 0: n 2328 FH 56.8%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 2328 FH 56.5%  FH->FL 0.8%  FL->FH 0.6%  aggregate ratio 1.244 (+24.4%)  mean row ratio 2.042  censored 0
+   ord 2: n 2328 FH 56.3%  FH->FL 0.9%  FL->FH 0.5%  aggregate ratio 1.337 (+33.7%)  mean row ratio 2.390  censored 0
+   ord 3: n 2328 FH 56.9%  FH->FL 0.8%  FL->FH 0.9%  aggregate ratio 1.336 (+33.6%)  mean row ratio 2.511  censored 0
+   oracle (classification-preserving): 32202 -> 24794 (23.0% saved; later pick 23.4% of rows; censored-blocked probes 0)
+   oracle (exact-value): 32202 -> 27753 (13.8% saved)
+   meas-A: move-loop cutoffs 1031/1146 on ordinal 0; fail highs w/o cutoff hook 176; fail lows 1006; slot-1 unsearched 176; own-cut ord1..3 [34.83676975945017, 25.257731958762886, 20.146048109965637]
+== docs/policy-research/evidence/p7-game-paired-v1/g0179-end.jsonl.gz
+   rows 321  baseline FH 69.8%
+   ord 0: n 321 FH 69.8%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 321 FH 67.6%  FH->FL 3.7%  FL->FH 1.6%  aggregate ratio 1.148 (+14.8%)  mean row ratio 1.748  censored 0
+   ord 2: n 321 FH 69.2%  FH->FL 3.7%  FL->FH 3.1%  aggregate ratio 1.155 (+15.5%)  mean row ratio 1.849  censored 0
+   ord 3: n 321 FH 69.2%  FH->FL 3.1%  FL->FH 2.5%  aggregate ratio 1.263 (+26.3%)  mean row ratio 1.905  censored 0
+   oracle (classification-preserving): 2133 -> 1706 (20.0% saved; later pick 35.2% of rows; censored-blocked probes 0)
+   oracle (exact-value): 2133 -> 1968 (7.7% saved)
+   meas-A: move-loop cutoffs 179/224 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 97; slot-1 unsearched 0; own-cut ord1..3 [36.44859813084112, 31.46417445482866, 21.18380062305296]
+== docs/policy-research/evidence/p7-game-paired-v1/g0179-mid.jsonl.gz
+   rows 261  baseline FH 62.1%
+   ord 0: n 261 FH 62.1%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 261 FH 62.1%  FH->FL 1.1%  FL->FH 1.1%  aggregate ratio 1.114 (+11.4%)  mean row ratio 2.179  censored 0
+   ord 2: n 261 FH 61.7%  FH->FL 1.1%  FL->FH 0.8%  aggregate ratio 1.083 (+8.3%)  mean row ratio 2.085  censored 0
+   ord 3: n 261 FH 61.3%  FH->FL 1.1%  FL->FH 0.4%  aggregate ratio 1.107 (+10.7%)  mean row ratio 1.949  censored 0
+   oracle (classification-preserving): 3090 -> 2476 (19.9% saved; later pick 18.0% of rows; censored-blocked probes 0)
+   oracle (exact-value): 3090 -> 2828 (8.5% saved)
+   meas-A: move-loop cutoffs 131/148 on ordinal 0; fail highs w/o cutoff hook 14; fail lows 99; slot-1 unsearched 14; own-cut ord1..3 [25.28735632183908, 10.727969348659004, 8.045977011494253]
+== docs/policy-research/evidence/p7-game-paired-v1/g0183-end.jsonl.gz
+   rows 151  baseline FH 41.7%
+   ord 0: n 151 FH 41.7%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 151 FH 40.4%  FH->FL 4.0%  FL->FH 2.6%  aggregate ratio 1.304 (+30.4%)  mean row ratio 2.107  censored 0
+   ord 2: n 151 FH 39.7%  FH->FL 3.3%  FL->FH 1.3%  aggregate ratio 1.366 (+36.6%)  mean row ratio 2.132  censored 0
+   ord 3: n 151 FH 42.4%  FH->FL 2.6%  FL->FH 3.3%  aggregate ratio 1.277 (+27.7%)  mean row ratio 2.174  censored 0
+   oracle (classification-preserving): 871 -> 778 (10.7% saved; later pick 18.5% of rows; censored-blocked probes 0)
+   oracle (exact-value): 871 -> 851 (2.3% saved)
+   meas-A: move-loop cutoffs 51/63 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 88; slot-1 unsearched 0; own-cut ord1..3 [8.609271523178808, 4.635761589403973, 5.960264900662252]
+== docs/policy-research/evidence/p7-game-paired-v1/g0183-mid.jsonl.gz
+   rows 641  baseline FH 56.5%
+   ord 0: n 641 FH 56.5%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 641 FH 56.0%  FH->FL 1.1%  FL->FH 0.6%  aggregate ratio 1.238 (+23.8%)  mean row ratio 1.961  censored 0
+   ord 2: n 641 FH 56.5%  FH->FL 0.8%  FL->FH 0.8%  aggregate ratio 1.314 (+31.4%)  mean row ratio 1.983  censored 0
+   ord 3: n 641 FH 56.5%  FH->FL 0.8%  FL->FH 0.8%  aggregate ratio 1.325 (+32.5%)  mean row ratio 1.987  censored 0
+   oracle (classification-preserving): 6548 -> 5185 (20.8% saved; later pick 20.9% of rows; censored-blocked probes 0)
+   oracle (exact-value): 6548 -> 6120 (6.5% saved)
+   meas-A: move-loop cutoffs 305/357 on ordinal 0; fail highs w/o cutoff hook 5; fail lows 279; slot-1 unsearched 5; own-cut ord1..3 [12.792511700468019, 8.892355694227769, 7.644305772230889]
+== docs/policy-research/evidence/p7-game-paired-v1/g0216-end.jsonl.gz
+   rows 55  baseline FH 47.3%
+   ord 0: n 55 FH 47.3%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 55 FH 49.1%  FH->FL 3.6%  FL->FH 5.5%  aggregate ratio 1.395 (+39.5%)  mean row ratio 1.725  censored 0
+   ord 2: n 55 FH 47.3%  FH->FL 3.6%  FL->FH 3.6%  aggregate ratio 1.432 (+43.2%)  mean row ratio 1.901  censored 0
+   ord 3: n 55 FH 45.5%  FH->FL 3.6%  FL->FH 1.8%  aggregate ratio 1.480 (+48.0%)  mean row ratio 1.919  censored 0
+   oracle (classification-preserving): 271 -> 257 (5.2% saved; later pick 10.9% of rows; censored-blocked probes 0)
+   oracle (exact-value): 271 -> 258 (4.8% saved)
+   meas-A: move-loop cutoffs 20/26 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 29; slot-1 unsearched 0; own-cut ord1..3 [7.2727272727272725, 5.454545454545454, 0.0]
+== docs/policy-research/evidence/p7-game-paired-v1/g0216-mid.jsonl.gz
+   rows 1356  baseline FH 53.8%
+   ord 0: n 1356 FH 53.8%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1356 FH 52.7%  FH->FL 2.7%  FL->FH 1.7%  aggregate ratio 1.191 (+19.1%)  mean row ratio 1.900  censored 0
+   ord 2: n 1356 FH 53.1%  FH->FL 2.6%  FL->FH 1.9%  aggregate ratio 1.250 (+25.0%)  mean row ratio 2.219  censored 0
+   ord 3: n 1356 FH 53.3%  FH->FL 2.7%  FL->FH 2.2%  aggregate ratio 1.202 (+20.2%)  mean row ratio 1.993  censored 0
+   oracle (classification-preserving): 25879 -> 20473 (20.9% saved; later pick 25.0% of rows; censored-blocked probes 0)
+   oracle (exact-value): 25879 -> 23914 (7.6% saved)
+   meas-A: move-loop cutoffs 544/688 on ordinal 0; fail highs w/o cutoff hook 41; fail lows 627; slot-1 unsearched 41; own-cut ord1..3 [18.067846607669615, 8.923303834808259, 7.153392330383481]
+== docs/policy-research/evidence/p7-game-paired-v1/g0259-end.jsonl.gz
+   rows 254  baseline FH 48.4%
+   ord 0: n 254 FH 48.4%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 254 FH 46.9%  FH->FL 2.4%  FL->FH 0.8%  aggregate ratio 1.262 (+26.2%)  mean row ratio 1.640  censored 0
+   ord 2: n 254 FH 46.9%  FH->FL 2.8%  FL->FH 1.2%  aggregate ratio 1.319 (+31.9%)  mean row ratio 1.688  censored 0
+   ord 3: n 254 FH 46.9%  FH->FL 2.8%  FL->FH 1.2%  aggregate ratio 1.341 (+34.1%)  mean row ratio 1.762  censored 0
+   oracle (classification-preserving): 2560 -> 2287 (10.7% saved; later pick 23.6% of rows; censored-blocked probes 0)
+   oracle (exact-value): 2560 -> 2536 (0.9% saved)
+   meas-A: move-loop cutoffs 97/122 on ordinal 0; fail highs w/o cutoff hook 1; fail lows 131; slot-1 unsearched 1; own-cut ord1..3 [14.173228346456693, 5.118110236220472, 3.543307086614173]
+== docs/policy-research/evidence/p7-game-paired-v1/g0259-mid.jsonl.gz
+   rows 318  baseline FH 56.0%
+   ord 0: n 318 FH 56.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 318 FH 56.3%  FH->FL 0.6%  FL->FH 0.9%  aggregate ratio 1.281 (+28.1%)  mean row ratio 1.927  censored 0
+   ord 2: n 318 FH 55.3%  FH->FL 0.9%  FL->FH 0.3%  aggregate ratio 1.367 (+36.7%)  mean row ratio 2.129  censored 0
+   ord 3: n 318 FH 55.7%  FH->FL 0.9%  FL->FH 0.6%  aggregate ratio 1.492 (+49.2%)  mean row ratio 2.285  censored 0
+   oracle (classification-preserving): 2834 -> 2396 (15.5% saved; later pick 21.4% of rows; censored-blocked probes 0)
+   oracle (exact-value): 2834 -> 2626 (7.3% saved)
+   meas-A: move-loop cutoffs 162/172 on ordinal 0; fail highs w/o cutoff hook 6; fail lows 140; slot-1 unsearched 6; own-cut ord1..3 [21.38364779874214, 6.918238993710692, 3.7735849056603774]
+== docs/policy-research/evidence/p7-game-paired-v1/g0296-end.jsonl.gz
+   rows 175  baseline FH 53.7%
+   ord 0: n 175 FH 53.7%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 175 FH 48.6%  FH->FL 5.7%  FL->FH 0.6%  aggregate ratio 1.366 (+36.6%)  mean row ratio 2.141  censored 0
+   ord 2: n 175 FH 49.7%  FH->FL 5.1%  FL->FH 1.1%  aggregate ratio 1.319 (+31.9%)  mean row ratio 2.072  censored 0
+   ord 3: n 175 FH 48.6%  FH->FL 5.7%  FL->FH 0.6%  aggregate ratio 1.511 (+51.1%)  mean row ratio 2.341  censored 0
+   oracle (classification-preserving): 1072 -> 956 (10.8% saved; later pick 20.0% of rows; censored-blocked probes 0)
+   oracle (exact-value): 1072 -> 1010 (5.8% saved)
+   meas-A: move-loop cutoffs 83/94 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 81; slot-1 unsearched 0; own-cut ord1..3 [11.428571428571429, 12.0, 5.714285714285714]
+== docs/policy-research/evidence/p7-game-paired-v1/g0296-mid.jsonl.gz
+   rows 770  baseline FH 58.4%
+   ord 0: n 770 FH 58.4%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 770 FH 59.5%  FH->FL 0.5%  FL->FH 1.6%  aggregate ratio 1.155 (+15.5%)  mean row ratio 1.850  censored 0
+   ord 2: n 770 FH 58.8%  FH->FL 0.5%  FL->FH 0.9%  aggregate ratio 1.203 (+20.3%)  mean row ratio 1.765  censored 0
+   ord 3: n 770 FH 60.1%  FH->FL 0.4%  FL->FH 2.1%  aggregate ratio 1.223 (+22.3%)  mean row ratio 1.950  censored 0
+   oracle (classification-preserving): 7300 -> 5799 (20.6% saved; later pick 26.4% of rows; censored-blocked probes 0)
+   oracle (exact-value): 7300 -> 6793 (6.9% saved)
+   meas-A: move-loop cutoffs 365/424 on ordinal 0; fail highs w/o cutoff hook 26; fail lows 320; slot-1 unsearched 26; own-cut ord1..3 [25.844155844155843, 15.844155844155845, 5.974025974025974]
+== docs/policy-research/evidence/p7-game-paired-v2/g0010-end.jsonl.gz
+   rows 584  baseline FH 78.3%
+   ord 0: n 584 FH 78.3%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 584 FH 79.6%  FH->FL 1.9%  FL->FH 3.3%  aggregate ratio 1.090 (+9.0%)  mean row ratio 1.515  censored 0
+   ord 2: n 584 FH 80.0%  FH->FL 2.6%  FL->FH 4.3%  aggregate ratio 1.149 (+14.9%)  mean row ratio 1.480  censored 0
+   ord 3: n 584 FH 80.5%  FH->FL 2.7%  FL->FH 5.0%  aggregate ratio 1.139 (+13.9%)  mean row ratio 1.558  censored 0
+   oracle (classification-preserving): 3395 -> 2759 (18.7% saved; later pick 40.2% of rows; censored-blocked probes 0)
+   oracle (exact-value): 3395 -> 2933 (13.6% saved)
+   meas-A: move-loop cutoffs 354/457 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 127; slot-1 unsearched 0; own-cut ord1..3 [50.342465753424655, 44.69178082191781, 46.06164383561644]
+== docs/policy-research/evidence/p7-game-paired-v2/g0010-mid.jsonl.gz
+   rows 1851  baseline FH 52.9%
+   ord 0: n 1851 FH 52.9%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1851 FH 52.9%  FH->FL 2.6%  FL->FH 2.6%  aggregate ratio 1.195 (+19.5%)  mean row ratio 1.731  censored 0
+   ord 2: n 1851 FH 52.9%  FH->FL 2.6%  FL->FH 2.7%  aggregate ratio 1.275 (+27.5%)  mean row ratio 1.782  censored 0
+   ord 3: n 1851 FH 53.3%  FH->FL 2.5%  FL->FH 3.0%  aggregate ratio 1.176 (+17.6%)  mean row ratio 1.749  censored 0
+   oracle (classification-preserving): 30917 -> 24789 (19.8% saved; later pick 23.5% of rows; censored-blocked probes 0)
+   oracle (exact-value): 30917 -> 27356 (11.5% saved)
+   meas-A: move-loop cutoffs 792/950 on ordinal 0; fail highs w/o cutoff hook 29; fail lows 872; slot-1 unsearched 29; own-cut ord1..3 [16.369529983792546, 7.671528903295516, 6.0507833603457595]
+== docs/policy-research/evidence/p7-game-paired-v2/g0039-end.jsonl.gz
+   rows 573  baseline FH 67.0%
+   ord 0: n 573 FH 67.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 573 FH 67.2%  FH->FL 1.2%  FL->FH 1.4%  aggregate ratio 1.499 (+49.9%)  mean row ratio 2.159  censored 0
+   ord 2: n 573 FH 67.0%  FH->FL 1.2%  FL->FH 1.2%  aggregate ratio 1.523 (+52.3%)  mean row ratio 2.336  censored 0
+   ord 3: n 573 FH 67.2%  FH->FL 1.2%  FL->FH 1.4%  aggregate ratio 1.471 (+47.1%)  mean row ratio 2.092  censored 0
+   oracle (classification-preserving): 4844 -> 4348 (10.2% saved; later pick 19.5% of rows; censored-blocked probes 0)
+   oracle (exact-value): 4844 -> 4695 (3.1% saved)
+   meas-A: move-loop cutoffs 356/381 on ordinal 0; fail highs w/o cutoff hook 3; fail lows 189; slot-1 unsearched 3; own-cut ord1..3 [14.834205933682373, 9.075043630017452, 6.806282722513089]
+== docs/policy-research/evidence/p7-game-paired-v2/g0039-mid.jsonl.gz
+   rows 400  baseline FH 50.5%
+   ord 0: n 400 FH 50.5%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 400 FH 50.0%  FH->FL 1.2%  FL->FH 0.8%  aggregate ratio 1.108 (+10.8%)  mean row ratio 1.841  censored 0
+   ord 2: n 400 FH 49.5%  FH->FL 1.5%  FL->FH 0.5%  aggregate ratio 1.293 (+29.3%)  mean row ratio 1.948  censored 0
+   ord 3: n 400 FH 49.5%  FH->FL 1.8%  FL->FH 0.8%  aggregate ratio 1.350 (+35.0%)  mean row ratio 1.973  censored 0
+   oracle (classification-preserving): 2966 -> 2292 (22.7% saved; later pick 23.5% of rows; censored-blocked probes 0)
+   oracle (exact-value): 2966 -> 2870 (3.2% saved)
+   meas-A: move-loop cutoffs 161/190 on ordinal 0; fail highs w/o cutoff hook 12; fail lows 198; slot-1 unsearched 12; own-cut ord1..3 [25.75, 16.75, 8.75]
+== docs/policy-research/evidence/p7-game-paired-v2/g0051-end.jsonl.gz
+   rows 539  baseline FH 53.6%
+   ord 0: n 539 FH 53.6%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 539 FH 53.2%  FH->FL 1.1%  FL->FH 0.7%  aggregate ratio 1.444 (+44.4%)  mean row ratio 2.532  censored 0
+   ord 2: n 539 FH 54.0%  FH->FL 0.9%  FL->FH 1.3%  aggregate ratio 1.327 (+32.7%)  mean row ratio 2.559  censored 0
+   ord 3: n 539 FH 53.8%  FH->FL 0.9%  FL->FH 1.1%  aggregate ratio 1.364 (+36.4%)  mean row ratio 2.495  censored 0
+   oracle (classification-preserving): 6172 -> 4818 (21.9% saved; later pick 22.6% of rows; censored-blocked probes 0)
+   oracle (exact-value): 6172 -> 5959 (3.5% saved)
+   meas-A: move-loop cutoffs 231/265 on ordinal 0; fail highs w/o cutoff hook 24; fail lows 250; slot-1 unsearched 24; own-cut ord1..3 [13.172541743970315, 11.131725417439704, 6.4935064935064934]
+== docs/policy-research/evidence/p7-game-paired-v2/g0051-mid.jsonl.gz
+   rows 933  baseline FH 68.5%
+   ord 0: n 933 FH 68.5%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 933 FH 67.6%  FH->FL 1.3%  FL->FH 0.4%  aggregate ratio 1.383 (+38.3%)  mean row ratio 2.721  censored 0
+   ord 2: n 933 FH 68.7%  FH->FL 1.2%  FL->FH 1.4%  aggregate ratio 1.322 (+32.2%)  mean row ratio 2.593  censored 0
+   ord 3: n 933 FH 68.4%  FH->FL 1.3%  FL->FH 1.2%  aggregate ratio 1.502 (+50.2%)  mean row ratio 2.853  censored 0
+   oracle (classification-preserving): 5445 -> 4255 (21.9% saved; later pick 28.6% of rows; censored-blocked probes 0)
+   oracle (exact-value): 5445 -> 4961 (8.9% saved)
+   meas-A: move-loop cutoffs 566/638 on ordinal 0; fail highs w/o cutoff hook 1; fail lows 294; slot-1 unsearched 1; own-cut ord1..3 [36.01286173633441, 26.688102893890676, 13.290460878885316]
+== docs/policy-research/evidence/p7-game-paired-v2/g0081-end.jsonl.gz
+   rows 866  baseline FH 64.3%
+   ord 0: n 866 FH 64.3%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 866 FH 64.8%  FH->FL 1.8%  FL->FH 2.3%  aggregate ratio 1.236 (+23.6%)  mean row ratio 1.409  censored 0
+   ord 2: n 862 FH 65.7%  FH->FL 2.0%  FL->FH 3.0%  aggregate ratio 1.239 (+23.9%)  mean row ratio 1.446  censored 0
+   ord 3: n 860 FH 67.7%  FH->FL 1.4%  FL->FH 4.3%  aggregate ratio 1.257 (+25.7%)  mean row ratio 1.475  censored 0
+   oracle (classification-preserving): 5809 -> 4529 (22.0% saved; later pick 32.0% of rows; censored-blocked probes 0)
+   oracle (exact-value): 5809 -> 5098 (12.2% saved)
+   meas-A: move-loop cutoffs 393/556 on ordinal 0; fail highs w/o cutoff hook 1; fail lows 309; slot-1 unsearched 1; own-cut ord1..3 [33.60277136258661, 30.71593533487298, 32.79445727482679]
+== docs/policy-research/evidence/p7-game-paired-v2/g0081-mid.jsonl.gz
+   rows 245  baseline FH 53.1%
+   ord 0: n 245 FH 53.1%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 245 FH 52.2%  FH->FL 2.9%  FL->FH 2.0%  aggregate ratio 1.075 (+7.5%)  mean row ratio 1.876  censored 0
+   ord 2: n 245 FH 51.0%  FH->FL 2.4%  FL->FH 0.4%  aggregate ratio 1.092 (+9.2%)  mean row ratio 1.766  censored 0
+   ord 3: n 245 FH 50.6%  FH->FL 2.9%  FL->FH 0.4%  aggregate ratio 1.239 (+23.9%)  mean row ratio 1.810  censored 0
+   oracle (classification-preserving): 2393 -> 1959 (18.1% saved; later pick 19.2% of rows; censored-blocked probes 0)
+   oracle (exact-value): 2393 -> 2215 (7.4% saved)
+   meas-A: move-loop cutoffs 108/128 on ordinal 0; fail highs w/o cutoff hook 2; fail lows 115; slot-1 unsearched 2; own-cut ord1..3 [9.795918367346939, 6.122448979591836, 6.938775510204081]
+== docs/policy-research/evidence/p7-game-paired-v2/g0127-end.jsonl.gz
+   rows 250  baseline FH 63.6%
+   ord 0: n 250 FH 63.6%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 250 FH 62.0%  FH->FL 2.8%  FL->FH 1.2%  aggregate ratio 1.555 (+55.5%)  mean row ratio 2.458  censored 0
+   ord 2: n 250 FH 62.4%  FH->FL 2.0%  FL->FH 0.8%  aggregate ratio 1.567 (+56.7%)  mean row ratio 2.309  censored 0
+   ord 3: n 250 FH 62.4%  FH->FL 2.4%  FL->FH 1.2%  aggregate ratio 1.557 (+55.7%)  mean row ratio 2.446  censored 0
+   oracle (classification-preserving): 2104 -> 1766 (16.1% saved; later pick 17.2% of rows; censored-blocked probes 0)
+   oracle (exact-value): 2104 -> 2012 (4.4% saved)
+   meas-A: move-loop cutoffs 138/150 on ordinal 0; fail highs w/o cutoff hook 9; fail lows 91; slot-1 unsearched 9; own-cut ord1..3 [22.0, 16.8, 13.2]
+== docs/policy-research/evidence/p7-game-paired-v2/g0127-mid.jsonl.gz
+   rows 1466  baseline FH 60.2%
+   ord 0: n 1466 FH 60.2%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1466 FH 58.7%  FH->FL 2.7%  FL->FH 1.2%  aggregate ratio 1.156 (+15.6%)  mean row ratio 2.228  censored 0
+   ord 2: n 1466 FH 59.1%  FH->FL 2.5%  FL->FH 1.4%  aggregate ratio 1.200 (+20.0%)  mean row ratio 2.469  censored 0
+   ord 3: n 1466 FH 58.6%  FH->FL 2.9%  FL->FH 1.2%  aggregate ratio 1.219 (+21.9%)  mean row ratio 2.523  censored 0
+   oracle (classification-preserving): 23835 -> 18070 (24.2% saved; later pick 23.2% of rows; censored-blocked probes 0)
+   oracle (exact-value): 23835 -> 20872 (12.4% saved)
+   meas-A: move-loop cutoffs 775/859 on ordinal 0; fail highs w/o cutoff hook 24; fail lows 583; slot-1 unsearched 24; own-cut ord1..3 [21.41882673942701, 12.005457025920872, 8.185538881309686]
+== docs/policy-research/evidence/p7-game-paired-v2/g0133-end.jsonl.gz
+   rows 1391  baseline FH 63.2%
+   ord 0: n 1391 FH 63.2%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1391 FH 62.7%  FH->FL 1.8%  FL->FH 1.3%  aggregate ratio 1.148 (+14.8%)  mean row ratio 1.963  censored 0
+   ord 2: n 1391 FH 62.3%  FH->FL 1.9%  FL->FH 1.1%  aggregate ratio 1.201 (+20.1%)  mean row ratio 2.199  censored 0
+   ord 3: n 1391 FH 62.6%  FH->FL 2.0%  FL->FH 1.4%  aggregate ratio 1.218 (+21.8%)  mean row ratio 2.128  censored 0
+   oracle (classification-preserving): 13278 -> 10620 (20.0% saved; later pick 27.6% of rows; censored-blocked probes 0)
+   oracle (exact-value): 13278 -> 12040 (9.3% saved)
+   meas-A: move-loop cutoffs 727/864 on ordinal 0; fail highs w/o cutoff hook 15; fail lows 512; slot-1 unsearched 15; own-cut ord1..3 [30.8411214953271, 17.541337167505393, 17.397555715312723]
+== docs/policy-research/evidence/p7-game-paired-v2/g0133-mid.jsonl.gz
+   rows 759  baseline FH 52.0%
+   ord 0: n 759 FH 52.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 759 FH 51.6%  FH->FL 3.2%  FL->FH 2.8%  aggregate ratio 1.212 (+21.2%)  mean row ratio 1.820  censored 0
+   ord 2: n 759 FH 50.9%  FH->FL 2.6%  FL->FH 1.4%  aggregate ratio 1.298 (+29.8%)  mean row ratio 1.993  censored 0
+   ord 3: n 759 FH 50.6%  FH->FL 2.8%  FL->FH 1.3%  aggregate ratio 1.303 (+30.3%)  mean row ratio 1.973  censored 0
+   oracle (classification-preserving): 6863 -> 5843 (14.9% saved; later pick 24.0% of rows; censored-blocked probes 0)
+   oracle (exact-value): 6863 -> 6469 (5.7% saved)
+   meas-A: move-loop cutoffs 303/345 on ordinal 0; fail highs w/o cutoff hook 50; fail lows 364; slot-1 unsearched 50; own-cut ord1..3 [20.948616600790515, 15.2832674571805, 9.090909090909092]
+== docs/policy-research/evidence/p7-game-paired-v2/g0169-end.jsonl.gz
+   rows 926  baseline FH 58.1%
+   ord 0: n 926 FH 58.1%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 926 FH 57.5%  FH->FL 1.1%  FL->FH 0.4%  aggregate ratio 1.427 (+42.7%)  mean row ratio 2.672  censored 0
+   ord 2: n 926 FH 57.2%  FH->FL 1.5%  FL->FH 0.6%  aggregate ratio 1.490 (+49.0%)  mean row ratio 2.844  censored 0
+   ord 3: n 926 FH 56.7%  FH->FL 1.8%  FL->FH 0.4%  aggregate ratio 1.492 (+49.2%)  mean row ratio 2.809  censored 0
+   oracle (classification-preserving): 6641 -> 5510 (17.0% saved; later pick 22.8% of rows; censored-blocked probes 0)
+   oracle (exact-value): 6641 -> 6347 (4.4% saved)
+   meas-A: move-loop cutoffs 433/481 on ordinal 0; fail highs w/o cutoff hook 57; fail lows 388; slot-1 unsearched 57; own-cut ord1..3 [20.086393088552917, 13.06695464362851, 11.23110151187905]
+== docs/policy-research/evidence/p7-game-paired-v2/g0169-mid.jsonl.gz
+   rows 1441  baseline FH 60.4%
+   ord 0: n 1441 FH 60.4%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1441 FH 60.0%  FH->FL 1.4%  FL->FH 0.9%  aggregate ratio 1.140 (+14.0%)  mean row ratio 2.442  censored 0
+   ord 2: n 1441 FH 60.0%  FH->FL 1.6%  FL->FH 1.2%  aggregate ratio 1.164 (+16.4%)  mean row ratio 2.414  censored 0
+   ord 3: n 1441 FH 59.8%  FH->FL 1.5%  FL->FH 0.9%  aggregate ratio 1.209 (+20.9%)  mean row ratio 2.689  censored 0
+   oracle (classification-preserving): 14490 -> 10292 (29.0% saved; later pick 25.3% of rows; censored-blocked probes 0)
+   oracle (exact-value): 14490 -> 13639 (5.9% saved)
+   meas-A: move-loop cutoffs 723/834 on ordinal 0; fail highs w/o cutoff hook 37; fail lows 570; slot-1 unsearched 37; own-cut ord1..3 [24.98265093684941, 18.25121443442054, 9.646079111727966]
+== docs/policy-research/evidence/p7-game-paired-v2/g0212-end.jsonl.gz
+   rows 1644  baseline FH 48.2%
+   ord 0: n 1644 FH 48.2%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1644 FH 47.3%  FH->FL 2.7%  FL->FH 1.8%  aggregate ratio 1.410 (+41.0%)  mean row ratio 2.022  censored 0
+   ord 2: n 1642 FH 47.8%  FH->FL 2.6%  FL->FH 2.2%  aggregate ratio 1.262 (+26.2%)  mean row ratio 1.784  censored 0
+   ord 3: n 1642 FH 47.8%  FH->FL 2.6%  FL->FH 2.1%  aggregate ratio 1.249 (+24.9%)  mean row ratio 1.847  censored 0
+   oracle (classification-preserving): 23524 -> 19459 (17.3% saved; later pick 24.3% of rows; censored-blocked probes 0)
+   oracle (exact-value): 23524 -> 22346 (5.0% saved)
+   meas-A: move-loop cutoffs 634/753 on ordinal 0; fail highs w/o cutoff hook 40; fail lows 851; slot-1 unsearched 40; own-cut ord1..3 [13.564476885644769, 10.279805352798054, 7.846715328467154]
+== docs/policy-research/evidence/p7-game-paired-v2/g0212-mid.jsonl.gz
+   rows 1449  baseline FH 56.1%
+   ord 0: n 1449 FH 56.1%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1449 FH 54.6%  FH->FL 3.9%  FL->FH 2.4%  aggregate ratio 1.123 (+12.3%)  mean row ratio 1.829  censored 0
+   ord 2: n 1449 FH 55.0%  FH->FL 3.3%  FL->FH 2.2%  aggregate ratio 1.138 (+13.8%)  mean row ratio 1.872  censored 0
+   ord 3: n 1449 FH 54.2%  FH->FL 3.7%  FL->FH 1.8%  aggregate ratio 1.164 (+16.4%)  mean row ratio 1.931  censored 0
+   oracle (classification-preserving): 21888 -> 16970 (22.5% saved; later pick 24.6% of rows; censored-blocked probes 0)
+   oracle (exact-value): 21888 -> 18870 (13.8% saved)
+   meas-A: move-loop cutoffs 656/779 on ordinal 0; fail highs w/o cutoff hook 34; fail lows 636; slot-1 unsearched 34; own-cut ord1..3 [19.392684610075914, 11.663216011042097, 8.62663906142167]
+== docs/policy-research/evidence/p7-game-paired-v2/g0214-end.jsonl.gz
+   rows 714  baseline FH 65.0%
+   ord 0: n 714 FH 65.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 714 FH 64.6%  FH->FL 2.0%  FL->FH 1.5%  aggregate ratio 1.070 (+7.0%)  mean row ratio 1.824  censored 0
+   ord 2: n 714 FH 64.7%  FH->FL 2.4%  FL->FH 2.1%  aggregate ratio 1.173 (+17.3%)  mean row ratio 1.987  censored 0
+   ord 3: n 714 FH 65.0%  FH->FL 2.5%  FL->FH 2.5%  aggregate ratio 1.245 (+24.5%)  mean row ratio 1.994  censored 0
+   oracle (classification-preserving): 5622 -> 4245 (24.5% saved; later pick 22.8% of rows; censored-blocked probes 0)
+   oracle (exact-value): 5622 -> 4931 (12.3% saved)
+   meas-A: move-loop cutoffs 379/463 on ordinal 0; fail highs w/o cutoff hook 1; fail lows 250; slot-1 unsearched 1; own-cut ord1..3 [28.431372549019606, 23.10924369747899, 21.008403361344538]
+== docs/policy-research/evidence/p7-game-paired-v2/g0214-mid.jsonl.gz
+   rows 1233  baseline FH 64.0%
+   ord 0: n 1233 FH 64.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1233 FH 62.6%  FH->FL 3.0%  FL->FH 1.6%  aggregate ratio 1.260 (+26.0%)  mean row ratio 2.449  censored 0
+   ord 2: n 1233 FH 62.9%  FH->FL 2.9%  FL->FH 1.9%  aggregate ratio 1.219 (+21.9%)  mean row ratio 2.375  censored 0
+   ord 3: n 1233 FH 63.1%  FH->FL 3.0%  FL->FH 2.1%  aggregate ratio 1.304 (+30.4%)  mean row ratio 2.531  censored 0
+   oracle (classification-preserving): 10725 -> 7862 (26.7% saved; later pick 24.4% of rows; censored-blocked probes 0)
+   oracle (exact-value): 10725 -> 8976 (16.3% saved)
+   meas-A: move-loop cutoffs 665/779 on ordinal 0; fail highs w/o cutoff hook 10; fail lows 444; slot-1 unsearched 10; own-cut ord1..3 [24.087591240875913, 15.166261151662612, 8.75912408759124]
+== docs/policy-research/evidence/p7-game-paired-v2/g0223-end.jsonl.gz
+   rows 96  baseline FH 45.8%
+   ord 0: n 96 FH 45.8%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 96 FH 45.8%  FH->FL 1.0%  FL->FH 1.0%  aggregate ratio 1.147 (+14.7%)  mean row ratio 1.432  censored 0
+   ord 2: n 96 FH 46.9%  FH->FL 1.0%  FL->FH 2.1%  aggregate ratio 1.126 (+12.6%)  mean row ratio 1.285  censored 0
+   ord 3: n 95 FH 46.3%  FH->FL 1.1%  FL->FH 1.1%  aggregate ratio 1.137 (+13.7%)  mean row ratio 1.298  censored 0
+   oracle (classification-preserving): 733 -> 630 (14.1% saved; later pick 27.1% of rows; censored-blocked probes 0)
+   oracle (exact-value): 733 -> 689 (6.0% saved)
+   meas-A: move-loop cutoffs 29/44 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 52; slot-1 unsearched 0; own-cut ord1..3 [8.333333333333334, 13.541666666666666, 8.333333333333334]
+== docs/policy-research/evidence/p7-game-paired-v2/g0223-mid.jsonl.gz
+   rows 75  baseline FH 48.0%
+   ord 0: n 75 FH 48.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 75 FH 46.7%  FH->FL 1.3%  FL->FH 0.0%  aggregate ratio 1.639 (+63.9%)  mean row ratio 2.943  censored 0
+   ord 2: n 75 FH 46.7%  FH->FL 1.3%  FL->FH 0.0%  aggregate ratio 1.648 (+64.8%)  mean row ratio 2.897  censored 0
+   ord 3: n 75 FH 46.7%  FH->FL 1.3%  FL->FH 0.0%  aggregate ratio 1.678 (+67.8%)  mean row ratio 2.925  censored 0
+   oracle (classification-preserving): 335 -> 319 (4.8% saved; later pick 6.7% of rows; censored-blocked probes 0)
+   oracle (exact-value): 335 -> 334 (0.3% saved)
+   meas-A: move-loop cutoffs 36/36 on ordinal 0; fail highs w/o cutoff hook 0; fail lows 39; slot-1 unsearched 0; own-cut ord1..3 [2.6666666666666665, 0.0, 0.0]
+== docs/policy-research/evidence/p7-game-paired-v2/g0274-end.jsonl.gz
+   rows 1450  baseline FH 71.0%
+   ord 0: n 1450 FH 71.0%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 1450 FH 70.1%  FH->FL 1.9%  FL->FH 1.0%  aggregate ratio 1.290 (+29.0%)  mean row ratio 1.705  censored 0
+   ord 2: n 1450 FH 70.5%  FH->FL 1.9%  FL->FH 1.4%  aggregate ratio 1.381 (+38.1%)  mean row ratio 1.852  censored 0
+   ord 3: n 1450 FH 71.2%  FH->FL 1.9%  FL->FH 2.2%  aggregate ratio 1.386 (+38.6%)  mean row ratio 1.887  censored 0
+   oracle (classification-preserving): 11623 -> 9183 (21.0% saved; later pick 31.4% of rows; censored-blocked probes 0)
+   oracle (exact-value): 11623 -> 10233 (12.0% saved)
+   meas-A: move-loop cutoffs 804/1011 on ordinal 0; fail highs w/o cutoff hook 18; fail lows 421; slot-1 unsearched 18; own-cut ord1..3 [33.793103448275865, 26.344827586206897, 26.275862068965516]
+== docs/policy-research/evidence/p7-game-paired-v2/g0274-mid.jsonl.gz
+   rows 337  baseline FH 54.6%
+   ord 0: n 337 FH 54.6%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 337 FH 55.2%  FH->FL 1.8%  FL->FH 2.4%  aggregate ratio 1.294 (+29.4%)  mean row ratio 1.931  censored 0
+   ord 2: n 337 FH 54.6%  FH->FL 1.8%  FL->FH 1.8%  aggregate ratio 1.376 (+37.6%)  mean row ratio 2.235  censored 0
+   ord 3: n 337 FH 54.3%  FH->FL 1.8%  FL->FH 1.5%  aggregate ratio 1.291 (+29.1%)  mean row ratio 2.144  censored 0
+   oracle (classification-preserving): 2857 -> 2406 (15.8% saved; later pick 20.5% of rows; censored-blocked probes 0)
+   oracle (exact-value): 2857 -> 2676 (6.3% saved)
+   meas-A: move-loop cutoffs 165/183 on ordinal 0; fail highs w/o cutoff hook 1; fail lows 153; slot-1 unsearched 1; own-cut ord1..3 [18.397626112759642, 10.089020771513352, 8.308605341246292]
+== docs/policy-research/evidence/p7-game-paired-v2/g0275-end.jsonl.gz
+   rows 558  baseline FH 55.2%
+   ord 0: n 558 FH 55.2%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 558 FH 52.7%  FH->FL 3.6%  FL->FH 1.1%  aggregate ratio 1.269 (+26.9%)  mean row ratio 1.976  censored 0
+   ord 2: n 558 FH 53.2%  FH->FL 4.1%  FL->FH 2.2%  aggregate ratio 1.316 (+31.6%)  mean row ratio 2.042  censored 0
+   ord 3: n 554 FH 53.6%  FH->FL 3.6%  FL->FH 1.6%  aggregate ratio 1.384 (+38.4%)  mean row ratio 2.129  censored 0
+   oracle (classification-preserving): 7286 -> 5922 (18.7% saved; later pick 22.4% of rows; censored-blocked probes 0)
+   oracle (exact-value): 7286 -> 6861 (5.8% saved)
+   meas-A: move-loop cutoffs 267/306 on ordinal 0; fail highs w/o cutoff hook 2; fail lows 250; slot-1 unsearched 2; own-cut ord1..3 [14.157706093189963, 9.31899641577061, 5.913978494623656]
+== docs/policy-research/evidence/p7-game-paired-v2/g0275-mid.jsonl.gz
+   rows 670  baseline FH 53.9%
+   ord 0: n 670 FH 53.9%  FH->FL 0.0%  FL->FH 0.0%  aggregate ratio 1.000 (+0.0%)  mean row ratio 1.000  censored 0
+   ord 1: n 670 FH 54.5%  FH->FL 0.3%  FL->FH 0.9%  aggregate ratio 1.217 (+21.7%)  mean row ratio 1.771  censored 0
+   ord 2: n 670 FH 53.9%  FH->FL 0.4%  FL->FH 0.4%  aggregate ratio 1.175 (+17.5%)  mean row ratio 1.797  censored 0
+   ord 3: n 670 FH 54.6%  FH->FL 0.4%  FL->FH 1.2%  aggregate ratio 1.280 (+28.0%)  mean row ratio 1.869  censored 0
+   oracle (classification-preserving): 9066 -> 7478 (17.5% saved; later pick 24.9% of rows; censored-blocked probes 0)
+   oracle (exact-value): 9066 -> 8631 (4.8% saved)
+   meas-A: move-loop cutoffs 300/344 on ordinal 0; fail highs w/o cutoff hook 17; fail lows 309; slot-1 unsearched 17; own-cut ord1..3 [17.01492537313433, 11.492537313432836, 7.313432835820896]
+POOLED: 35603 rows; aggregate blind-promotion cost at ordinals 1-3 (sum forced / sum baseline, complete probes only; plan 11.1):
+   ord 1: n 35603 aggregate ratio 1.263 (+26.3%)
+   ord 2: n 35578 aggregate ratio 1.288 (+28.8%)
+   ord 3: n 35551 aggregate ratio 1.304 (+30.4%)
+   oracle: baseline 401508 -> 318248 (20.7% saved; exact 9.2%); later picks 24.4% of rows; censored-blocked probes 0

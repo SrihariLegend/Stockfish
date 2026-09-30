@@ -91,6 +91,11 @@ struct Config {
     // replays (schema internal-counterfactual/5) measuring the interaction
     // gap with TT/history/cutoff context shared inside each permutation.
     bool         permBattery = false;
+    // Research-only live linear-QE intervention. Unlike dataset collection,
+    // this intentionally changes move order and is used only for fixed-depth
+    // wall-time/economic validation with Threads=1.
+    bool         liveQE = false;
+    int          liveQEMinDepth = 0;
 };
 
 // Finite internal guard rail for internal counterfactual probing (Phase 5).
@@ -255,6 +260,15 @@ inline void register_options(OptionsMap& options) {
 
     options.add("PolicyResearchPermBattery", Option("off", [](const Option& o) {
                     return parse_switch(std::string(o), config().permBattery);
+                }));
+
+    options.add("PolicyResearchLiveQE", Option("off", [](const Option& o) {
+                    return parse_switch(std::string(o), config().liveQE);
+                }));
+
+    options.add("PolicyResearchLiveQEMinDepth", Option(0, 0, 256, [](const Option& o) {
+                    config().liveQEMinDepth = static_cast<int>(o);
+                    return std::nullopt;
                 }));
 }
 

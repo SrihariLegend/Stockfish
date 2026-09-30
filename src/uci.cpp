@@ -179,6 +179,17 @@ void UCIEngine::loop() {
             bool ok = Research::run_sandbox_unit_tests(engine);
             sync_cout << (ok ? "SANDBOX_TEST_OK" : "SANDBOX_TEST_FAIL") << sync_endl;
         }
+        else if (token == "policy_research_live_qe_stats")
+        {
+            std::string action;
+            is >> action;
+            if (action == "reset")
+                Research::reset_live_qe_stats();
+            const auto stats = Research::live_qe_stats();
+            sync_cout << "LIVE_QE_STATS calls " << stats.calls << " candidates "
+                      << stats.candidates << " promotions " << stats.promotions
+                      << " prepare_failures " << stats.prepareFailures << sync_endl;
+        }
         else if (token == "policy_research_enumerate_candidates")
         {
             // Debug/enumeration inspection command: prints the full legal

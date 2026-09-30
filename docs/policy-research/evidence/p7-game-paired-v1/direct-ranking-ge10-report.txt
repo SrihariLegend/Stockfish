@@ -1,0 +1,38 @@
+== hold out game-0006 (77 rows)
+  ridge  threshold=  0.279 save=  0.574% classfb=  0.574% exactfb=  0.064% later=  13 flips=  0
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0024 (431 rows)
+  ridge  threshold=  0.791 save=  1.569% classfb=  1.569% exactfb=  0.445% later=  38 flips=  0
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0030 (192 rows)
+  ridge  threshold=  0.242 save=  0.810% classfb=  0.299% exactfb= -0.053% later=  34 flips=  2
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0055 (532 rows)
+  ridge  threshold=  0.272 save=  3.256% classfb=  1.538% exactfb=  0.216% later=  60 flips=  4
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0091 (283 rows)
+  ridge  threshold=  0.736 save=  0.238% classfb=  0.238% exactfb= -0.070% later=  21 flips=  0
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0116 (394 rows)
+  ridge  threshold=  0.573 save=  0.069% classfb=  0.069% exactfb= -0.057% later=  29 flips=  0
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0159 (579 rows)
+  ridge  threshold=  0.565 save=  0.522% classfb=  0.522% exactfb= -0.289% later= 117 flips=  0
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0179 (117 rows)
+  ridge  threshold=  0.573 save=  2.586% classfb=  1.525% exactfb=  1.007% later=  14 flips=  1
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0183 (160 rows)
+  ridge  threshold=  0.331 save=  2.671% classfb=  2.229% exactfb=  0.239% later=  42 flips=  1
+  mlp    threshold=  2.431 save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0216 (417 rows)
+  ridge  threshold=  0.256 save=  0.292% classfb=  1.149% exactfb= -0.170% later=  88 flips=  8
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0259 (143 rows)
+  ridge  threshold=  0.250 save= -2.914% classfb= -3.163% exactfb= -2.067% later=  42 flips=  2
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0296 (211 rows)
+  ridge  threshold=  0.176 save=  4.310% classfb=  2.862% exactfb=  1.022% later=  90 flips=  3
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+POOLED ridge  141245->139521 save=1.221% classfb=0.924% exactfb=0.011% positive=11/12 root mean/sd=1.165/1.885
+POOLED mlp    141245->141245 save=0.000% classfb=0.000% exactfb=0.000% positive=0/12 root mean/sd=0.000/0.000

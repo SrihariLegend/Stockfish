@@ -163,47 +163,41 @@ commits of this round:
    arguments so the 12-root pooled reproduction is one command; README
    reproduction commands corrected; stale wording in this file and the
    overview fixed.
-7. **Experiment-design gaps (not yet closed)** — corpus remains 12 manually
-   selected opening positions (no game-random middlegame/endgame roots, no
-   game-split holdout, Threads=1 fixed-depth only); Phase-6.3 corpus adds
-   real breadth; stronger generalization claims wait on a representative
-   corpus.
+7. **Experiment-design breadth — PARTLY CLOSED** — two disjoint seeded
+   samples now provide 48 paired middlegame/endgame roots from 24 actual
+   engine games. Both roots from a game are held out together. This removes
+   the opening-only and root-leakage defects, but one source match and fixed
+   depth/Threads=1 still limit population claims.
 
-## R8 — Shared-permutation interaction gap + final go/no-go — DONE
+## R8 — Shared-permutation interaction gap + final go/no-go — CORRECTED
 
-Engine mode implemented and validated (`1870e277`; schema /4 battery with
-identity/control/reverse/rotation/swaps/cheapest-first orders, per-slot
-attribution); first corpus (4 roots, 5,282 rows, `8c994eea`): probes equal
-controls on 99.86% of rows (values 100%), identity equals baseline on
-99.7%, canonical reruns byte-identical to /3, zero censoring. Interaction
-gap small: cheapest-first shared order 9.8% pooled (24.2% per-row),
-per-row best shared permutation 29.4% vs scalar oracle 23.3% - scalar
-whole-node costs predict shared-order costs almost fully. Final
-plan-11.5 go/no-go (`evidence/p6-final-go-nogo.md`): GO (research-scoped)
-to Phases 7-9; NO-GO to Phase 10+ production until positive root-held-out
-capture on a broader corpus or gated-context viability + live wall-time
-experiment; Phases 11-13 unstarted.
+The original schema `/4` result is superseded. Review found 3,822 replays
+whose slots were not a prefix of the request, invalid full-K force-next
+controls, and a swap(2,3)-as-cheapest analyzer bug. Schema `/5` reserves the
+static prefix before search and uses variable-length `[k,0..k-1]` controls:
+5,282/5,282 valid rows, zero invalid prefixes, 15,846/15,846 exact controls,
+and canonical `/3` byte parity. Aligned extra best-full-order headroom over
+the scalar oracle is only 0.81pp raw, 1.21pp classification-preserving and
+0.65pp exact. The plan-defined scalar-order-to-best gap is ~4.5-4.8pp but
+also measures scalar-to-order conversion error. Evidence:
+`evidence/p6-interaction-v2/`.
 
-## R7 — Learnability probe (root-held-out, abstaining, feature-only) — DONE
+## R7 — Learnability probe — CORRECTED AND BROADENED
 
-Review recommendation ("the best next decisive result is a root-held-out,
-abstaining, entry-feature-only policy evaluated on the exact measured top-1
-costs") implemented as `tools/policy_research/p6_learnability.py`, evidence
-in `evidence/p6-learnability/`:
+The original negative result was invalid: models were trained on standardized
+features but policy inference used raw features. The scorer now applies each
+fold's training transform and a regression test compares single and batch
+prediction paths.
 
-- Leave-one-root-out over the 12 roots; ridge logistic q-hat and ridge
-  log-cost c-hat on pre-search row features; thresholds tuned by total
-  measured cost on training roots with full abstention in the grid;
-  evaluation charges each row's measured cost of the chosen ordinal.
-- Result: NO positive capture. Tuned q-gates and cost-gated rules choose
-  full abstention on every fold (0.0%); CHEAP -16.4% (promotes 67% of
-  rows), QE -4.3%, CHEAP_SAFE ~0; in-sample tuned rules also <= 0. On the
-  baseline >= 10 stratum (oracle 28.3%) the same rules lose 0.7-1.0%.
-  Held-out ranking diagnostics are strong (q AUC 0.87, cost Spearman
-  0.70): the features rank well but do not resolve the choice-value
-  quantity (whether a later candidate beats THIS row's natural cost) at the
-  precision the asymmetric promotion penalty requires.
-- The ex-post oracle headroom (~24%) therefore remains UNREALIZED by cheap
-  linear predictors on this corpus; model-class and corpus caveats are
-  documented. Plan 21.1 fallback options are now the live comparison for
-  the go/no-go.
+- Corrected 12-opening-root LOO: QE +0.60% pooled, positive on 10/12 roots;
+  baseline>=10 QE +2.06%. CHEAP is -0.40%, not -16.4%.
+- Two disjoint seeded game samples: 48 paired middlegame/endgame roots from
+  24 games, held out by game. QE replicates at +0.59% pooled; direct nested
+  ridge +0.37%; two-layer MLP (seeds 7+19) +0.18%.
+- The positive offline sign satisfies the research prerequisite for a live
+  test but captures <3% of the local oracle.
+- Live held-out fixed-depth intervention fails decisively: universal QE is
+  +5.5% nodes/+52% wall at depth 8 and +21.9%/+74% at depth 12; simple depth
+  gates also lose. The revised `evidence/p6-final-go-nogo.md` is therefore a
+  NO-GO for universal/production integration and permits only a materially
+  different sparse-gating research hypothesis.

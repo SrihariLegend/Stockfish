@@ -135,9 +135,8 @@ enum class CandidateStage : u8 {
 // node, in real MovePicker emission order (Phase 3 §8.3/§8.4, Phase 5 §10.4).
 struct CandidateFeature {
     Move           move = Move::none();
-    u16            ordinal = 0;      // 0-based slot among legal candidates in real
-                                     // MovePicker order (search-visible moveCount
-                                     // for this move is ordinal + 1)
+    u16            ordinal = 0;      // 0-based static legal rank from a fresh
+                                     // pre-search MovePicker enumeration
     CandidateStage stage = CandidateStage::GoodQuiet;
     int            stageScore = 0;   // the real MovePicker sort value at emission
                                      // (select()-based stages only; TT stage has none)
@@ -700,8 +699,9 @@ class LiveExitScope {
 // REAL MovePicker (same construction parameters as the step-14 move loop in
 // search.cpp: live worker histories, ss continuation window, search depth) to
 // exhaustion, filtering pos.legal() exactly like the search does. The returned
-// vector is therefore in exact search-visible emission order with search-visible
-// ordinals and per-candidate features; stageScore is the picker's own sort
+// vector is the static pre-search emission order. Ordinal 0 is the actual first
+// slot; later ordinals are intervention candidates, not promises that live
+// search would emit them after dynamic quiet skipping. stageScore is the picker's own sort
 // value (research accessor, no formula duplication). ttMove is the node's TT
 // move. depth must be the node's search depth (affects the picker's quiet
 // partial sort cutoff). contHist, when non-null, must be the search's own
@@ -713,6 +713,25 @@ std::vector<CandidateFeature> enumerate_candidates(const Position&            po
                                                    Move                        ttMove,
                                                    Depth                       depth,
                                                    const PieceToHistory**      contHist = nullptr);
+
+// Frozen linear-QE research policy trained on the paired game corpus. Returns
+// an empty vector to keep natural order, otherwise [chosen, 0..chosen-1] for
+// the caller to reserve and serve as a force-first prefix.
+std::vector<Move> live_qe_prefix(const Position& pos, const Search::Worker& worker,
+                                 const Search::Stack* ss, Move ttMove,
+                                 int entryDepth, int decisionDepth, int rootDepth,
+                                 bool improving, bool ttHit, bool cutNode,
+                                 const PieceToHistory** contHist);
+
+struct LiveQEStats {
+    u64 calls = 0;
+    u64 candidates = 0;
+    u64 promotions = 0;
+    u64 prepareFailures = 0;
+};
+LiveQEStats live_qe_stats();
+void reset_live_qe_stats();
+void note_live_qe_prepare_failure();
 
 // IsolatedWorker owns an isolated Search::Worker and its private SharedHistories.
 // It allows running isolated shadow searches (e.g. via ResearchTTOverlay) without

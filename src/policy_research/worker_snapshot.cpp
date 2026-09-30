@@ -21,7 +21,10 @@
 #ifdef POLICY_RESEARCH
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cassert>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -35,6 +38,7 @@
 #include "../movepick.h"
 #include "../thread.h"
 #include "../uci.h"
+#include "qe_model.h"
 #include "research_log.h"
 #include "research_options.h"
 
@@ -1991,6 +1995,95 @@ std::vector<CandidateFeature> enumerate_candidates(const Position&            po
         result.push_back(cf);
     }
     return result;
+}
+
+namespace {
+std::atomic<u64> gLiveQECalls{0};
+std::atomic<u64> gLiveQECandidates{0};
+std::atomic<u64> gLiveQEPromotions{0};
+std::atomic<u64> gLiveQEPrepareFailures{0};
+}
+
+LiveQEStats live_qe_stats() {
+    return {gLiveQECalls.load(std::memory_order_relaxed),
+            gLiveQECandidates.load(std::memory_order_relaxed),
+            gLiveQEPromotions.load(std::memory_order_relaxed),
+            gLiveQEPrepareFailures.load(std::memory_order_relaxed)};
+}
+
+void reset_live_qe_stats() {
+    gLiveQECalls.store(0, std::memory_order_relaxed);
+    gLiveQECandidates.store(0, std::memory_order_relaxed);
+    gLiveQEPromotions.store(0, std::memory_order_relaxed);
+    gLiveQEPrepareFailures.store(0, std::memory_order_relaxed);
+}
+
+void note_live_qe_prepare_failure() {
+    gLiveQEPrepareFailures.fetch_add(1, std::memory_order_relaxed);
+}
+
+std::vector<Move> live_qe_prefix(const Position& pos, const Search::Worker& worker,
+                                 const Search::Stack* ss, Move ttMove,
+                                 int entryDepth, int decisionDepth, int rootDepth,
+                                 bool improving, bool ttHit, bool cutNode,
+                                 const PieceToHistory** contHist) {
+    const auto candidates =
+      enumerate_candidates(pos, worker, ss, ttMove, Depth(decisionDepth), contHist);
+    gLiveQECalls.fetch_add(1, std::memory_order_relaxed);
+    gLiveQECandidates.fetch_add(candidates.size(), std::memory_order_relaxed);
+    const int K = std::min(4, int(candidates.size()));
+    if (K < 2)
+        return {};
+
+    auto score = [&](const CandidateFeature& cf) {
+        std::array<double, QEModel::FEATURE_COUNT> f = {
+          double(ss->ply), double(entryDepth), double(decisionDepth), double(rootDepth),
+          improving ? 1.0 : 0.0, ttHit ? 1.0 : 0.0, cutNode ? 1.0 : 0.0,
+          double(pos.state()->rule50), double(candidates.size()),
+          ss->staticEval == VALUE_NONE ? 0.0 : double(ss->staticEval),
+          ss->staticEval == VALUE_NONE ? 1.0 : 0.0, double(cf.ordinal),
+          cf.stage == CandidateStage::TT ? 0.0 : double(cf.stageScore),
+          double(cf.mainHist), double(cf.captureHist), double(cf.pawnHist),
+          double(cf.contHist), double(cf.lowPlyHist), double(cf.seeScore),
+          cf.isCheck ? 1.0 : 0.0, cf.isCapture ? 1.0 : 0.0,
+          cf.isTTMove ? 1.0 : 0.0, cf.stage == CandidateStage::TT ? 1.0 : 0.0,
+          cf.stage == CandidateStage::GoodCapture ? 1.0 : 0.0,
+          cf.stage == CandidateStage::GoodQuiet ? 1.0 : 0.0,
+          cf.stage == CandidateStage::BadCapture ? 1.0 : 0.0,
+          cf.stage == CandidateStage::BadQuiet ? 1.0 : 0.0};
+        double qz = QEModel::Q_INTERCEPT;
+        double cz = QEModel::COST_INTERCEPT;
+        for (std::size_t i = 0; i < f.size(); ++i)
+        {
+            const double clipped = std::clamp(f[i], QEModel::P1[i], QEModel::P99[i]);
+            const double x = (clipped - QEModel::MEAN[i]) / QEModel::SD[i];
+            qz += QEModel::Q_COEF[i] * x;
+            cz += QEModel::COST_COEF[i] * x;
+        }
+        const double q = 1.0 / (1.0 + std::exp(-std::clamp(qz, -30.0, 30.0)));
+        return std::log(std::max(q, 1e-4)) - QEModel::LAMBDA * cz;
+    };
+
+    int best = 0;
+    double bestScore = score(candidates[0]);
+    for (int i = 1; i < K; ++i)
+    {
+        const double candidateScore = score(candidates[i]);
+        if (candidateScore > bestScore)
+        {
+            best = i;
+            bestScore = candidateScore;
+        }
+    }
+    if (best == 0)
+        return {};
+    gLiveQEPromotions.fetch_add(1, std::memory_order_relaxed);
+    std::vector<Move> prefix;
+    prefix.reserve(best + 1);
+    prefix.push_back(candidates[best].move);
+    for (int i = 0; i < best; ++i)
+        prefix.push_back(candidates[i].move);
+    return prefix;
 }
 
 namespace {

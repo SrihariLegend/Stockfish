@@ -1,4 +1,11 @@
-# Phase 6.3 — shared-permutation interaction-gap corpus (schema /4)
+# Phase 6.3 — shared-permutation interaction-gap corpus (schema /4, superseded)
+
+> **Superseded by `../p6-interaction-v2/` (schema `/5`).** Schema `/4`
+> included 3,822 replays whose observed slots were not a prefix of the
+> requested order, conflated target skips with early cutoffs, used invalid
+> full-K force-next controls, and mislabeled every swap(2,3) entry as
+> `cheap` in the analyzer. This directory is retained only as an audit trail;
+> its headline tables must not be cited.
 
 First interaction-gap corpus measured with the plan-11.3 shared-permutation
 engine mode (`1870e277`): each decision row carries a fixed battery of top-K

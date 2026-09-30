@@ -12,6 +12,13 @@ tools/policy_research/
   decode_research_log.py        binary log decoder / validator / compare / JSONL
   p3_dataset.py                 Phase 3 dataset collector + baseline reporter
   p4_force_first.py             Phase 4 force-first root-order pilot driver
+  collect_internal_corpus.py    parallel frozen-root schema-/3 collector
+  build_game_corpus.py          seeded paired mid/end-game corpus builder
+  p6_learnability.py            transformed grouped linear policy evaluation
+  p6_interaction.py             schema-/5 scheduled-prefix analyzer
+  p7_direct_ranking.py          nested grouped ridge/MLP direct-regret probe
+  export_linear_qe.py           frozen JSON/constexpr live-QE model exporter
+  p7_live_benchmark.py          paired live fixed-depth affordability runner
   corpora/corpus-v1.json        versioned root corpus (schema corpus/v1)
   tests/test_run_corpus.py      unit tests (stdlib unittest)
   tests/test_p3_dataset.py      unit tests (stdlib unittest)
@@ -20,7 +27,8 @@ tools/policy_research/
 
 ## Requirements
 
-- Python >= 3.10 (standard library only).
+- Python >= 3.10. Core harness tools use the standard library; Phase-6/7
+  analyses require NumPy, and the optional MLP probe requires PyTorch.
 - A Stockfish executable built from the repository (default
   `<repo>/src/stockfish`), plus the value-network `.nnue` file next to it
   (`make net` in `src/` if missing).
@@ -310,6 +318,32 @@ Pilot semantics and limits are documented in `overview.md` (P4.1) and
 own top-k at a shallower depth (self-referential upper bound), and the tool
 measures fixed-depth node cost, not yet the plan-§9.3 wall-time / reference
 measurements.
+
+## Phase 6/7 internal-node analysis
+
+The canonical internal-node pipeline is:
+
+```bash
+python3 tools/policy_research/collect_internal_corpus.py ...
+python3 tools/policy_research/p5b_analysis.py <logs...> --measurement-a
+python3 tools/policy_research/p6_learnability.py <logs...> \
+  --group-manifest tools/policy_research/corpora/game-paired-combined.json
+PYTHONPATH=tools/policy_research python3 tools/policy_research/p7_direct_ranking.py ...
+```
+
+`build_game_corpus.py` replays a PGN with python-chess, freezes deterministic
+seeded paired middlegame/endgame FENs and records the source hash. Use
+`--exclude-corpus` for independent selection seeds. Both roots from a game must
+share a holdout group.
+
+Schema `/4` permutation data is superseded. `p6_interaction.py` accepts only the
+schema `/5` scheduled-prefix contract and rejects invalid prefixes or any
+failed force-next control.
+
+After positive grouped offline capture, `export_linear_qe.py` freezes the model
+transform and coefficients. `p7_live_benchmark.py` measures the research-only
+live intervention in fresh, warmed, clear-hash processes. The current evidence
+fails this gate; the options remain off by default and are not production code.
 
 ## Extending the corpus
 

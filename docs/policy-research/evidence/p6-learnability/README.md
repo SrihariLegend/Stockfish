@@ -105,6 +105,8 @@ absolute whole-node cost.
    call before inference overhead, and local subtree costs overlap.
 3. The ≥10-node concentration supports a cheap learned gate or near-root/depth
    restriction, but measured baseline cost itself cannot be that gate.
-4. This is a GO for cheap nonlinear/direct-regret offline models and a NO-GO for
-   production integration until broader game-level holdout and live wall-time,
-   search-quality and later Elo gates pass.
+4. This justified cheap nonlinear/direct-regret and broader game-held-out
+   experiments. Those later results replicate the small offline sign, but the
+   frozen live QE policy increases both nodes and wall time. The production
+   gate therefore remains a NO-GO; see `../p7-game-paired/` and
+   `../p7-live-qe/`.

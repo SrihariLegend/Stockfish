@@ -1,0 +1,156 @@
+{
+  "corpus": "tools/policy_research/corpora/game-paired-v2.json",
+  "depth": 8,
+  "hash_mb": 16,
+  "node_budget": 5000,
+  "roots": {
+    "g0010-end": {
+      "baseline_nodes": 3395,
+      "bestmove": "f1f2",
+      "censored": 0,
+      "rows": 584
+    },
+    "g0010-mid": {
+      "baseline_nodes": 30917,
+      "bestmove": "g8h7",
+      "censored": 0,
+      "rows": 1851
+    },
+    "g0039-end": {
+      "baseline_nodes": 4844,
+      "bestmove": "e2e1",
+      "censored": 0,
+      "rows": 573
+    },
+    "g0039-mid": {
+      "baseline_nodes": 2966,
+      "bestmove": "e2e5",
+      "censored": 0,
+      "rows": 400
+    },
+    "g0051-end": {
+      "baseline_nodes": 6172,
+      "bestmove": "a6a2",
+      "censored": 0,
+      "rows": 539
+    },
+    "g0051-mid": {
+      "baseline_nodes": 5445,
+      "bestmove": "e7e6",
+      "censored": 0,
+      "rows": 933
+    },
+    "g0081-end": {
+      "baseline_nodes": 5809,
+      "bestmove": "f8f7",
+      "censored": 0,
+      "rows": 866
+    },
+    "g0081-mid": {
+      "baseline_nodes": 2393,
+      "bestmove": "e7g7",
+      "censored": 0,
+      "rows": 245
+    },
+    "g0127-end": {
+      "baseline_nodes": 2104,
+      "bestmove": "f4g3",
+      "censored": 0,
+      "rows": 250
+    },
+    "g0127-mid": {
+      "baseline_nodes": 23835,
+      "bestmove": "a1c1",
+      "censored": 0,
+      "rows": 1466
+    },
+    "g0133-end": {
+      "baseline_nodes": 13278,
+      "bestmove": "d1d4",
+      "censored": 0,
+      "rows": 1391
+    },
+    "g0133-mid": {
+      "baseline_nodes": 6863,
+      "bestmove": "d6e5",
+      "censored": 0,
+      "rows": 759
+    },
+    "g0169-end": {
+      "baseline_nodes": 6641,
+      "bestmove": "h3g2",
+      "censored": 0,
+      "rows": 926
+    },
+    "g0169-mid": {
+      "baseline_nodes": 14490,
+      "bestmove": "e5e6",
+      "censored": 0,
+      "rows": 1441
+    },
+    "g0212-end": {
+      "baseline_nodes": 23524,
+      "bestmove": "d3e4",
+      "censored": 0,
+      "rows": 1644
+    },
+    "g0212-mid": {
+      "baseline_nodes": 21888,
+      "bestmove": "a4b4",
+      "censored": 0,
+      "rows": 1449
+    },
+    "g0214-end": {
+      "baseline_nodes": 5622,
+      "bestmove": "f4g3",
+      "censored": 0,
+      "rows": 714
+    },
+    "g0214-mid": {
+      "baseline_nodes": 10725,
+      "bestmove": "h5d1",
+      "censored": 0,
+      "rows": 1233
+    },
+    "g0223-end": {
+      "baseline_nodes": 733,
+      "bestmove": "f7f6",
+      "censored": 0,
+      "rows": 96
+    },
+    "g0223-mid": {
+      "baseline_nodes": 335,
+      "bestmove": "d4c6",
+      "censored": 0,
+      "rows": 75
+    },
+    "g0274-end": {
+      "baseline_nodes": 11623,
+      "bestmove": "e5b2",
+      "censored": 0,
+      "rows": 1450
+    },
+    "g0274-mid": {
+      "baseline_nodes": 2857,
+      "bestmove": "e5e4",
+      "censored": 0,
+      "rows": 337
+    },
+    "g0275-end": {
+      "baseline_nodes": 7286,
+      "bestmove": "h3h2",
+      "censored": 0,
+      "rows": 558
+    },
+    "g0275-mid": {
+      "baseline_nodes": 9066,
+      "bestmove": "e7d6",
+      "censored": 0,
+      "rows": 670
+    }
+  },
+  "sample_rate": 1.0,
+  "schema": "internal-counterfactual-corpus-run/1",
+  "threads": 1,
+  "top_k": 4
+}

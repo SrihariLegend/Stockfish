@@ -1,6 +1,11 @@
-# Phase 6.3 — shared-permutation interaction-gap measurement: design spec
+# Phase 6.3 — shared-permutation interaction-gap measurement: schema `/4` audit
 
-Status: **implemented and validated** (`1870e277`); first corpus and results in this directory (README.md). The K=1 control question resolved as specified below (identity == baseline serves as the machinery control; the force-next controls are the cross-machinery equivalence). Battery, schema, per-slot attribution and the cheapest-first reference are all implemented as designed; validation caveats (identity/control divergence on ~0.1-0.3% of rows, value-preserving, enumeration-order quirk) are quantified in the README. This is the last missing Phase-6
+> **Superseded.** Path-dependent `skip_quiet_moves()` invalidated the static
+> identity/control assumptions and 3,822 replay prefixes. See
+> `../p6-interaction-v2/DESIGN.md` for the corrected schema `/5` treatment.
+> The material below is retained only to document the rejected design.
+
+Original status at collection time: implemented as `1870e277`. This was considered the last missing Phase-6
 measurement (plan §11.3) and the decisive input to the go/no-go: whether
 local single-candidate savings (Phase 6.2) survive when whole top-K
 prefixes are reordered inside one continuing replay (TT writes, history

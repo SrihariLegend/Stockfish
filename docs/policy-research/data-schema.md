@@ -503,7 +503,7 @@ emissions at probability 1 plus one/two marginal candidate(s) at
   consistent with row presence and diagnostics; `root_end` targets
   (`target_depth`/`target_nodes`) equal the `root_start` targets.
 - Every decision row: candidates non-empty, ordinals `0..n-1` contiguous and
-  matching emission order, exactly the legal-move count of the recorded FEN at
+  matching the fresh pre-search MovePicker enumeration order, exactly the legal-move count of the recorded FEN at
   the recorded side to move; selected/probed candidates have `prob > 0`; probes
   reference candidate moves; every kept row has at least one `forced_slot1`.
 - `baseline.decision_point_nodes <= baseline.nodes`.
@@ -513,3 +513,53 @@ emissions at probability 1 plus one/two marginal candidate(s) at
 - Censored probes (incomplete/stopped) carry `value == null` and
   `fail_high == null`; completed probes carry integer `value` and boolean
   `fail_high`.
+
+# Scheduled-prefix extension (JSONL, schema `internal-counterfactual/5`)
+
+Schema `/5` extends `/3` decision rows with `permutations`. Schema `/4` is
+superseded and must not be used for quantitative claims: it allowed dynamic
+`skip_quiet_moves()` to erase requested targets and conflated that mismatch
+with ordinary early cutoff.
+
+Each `/5` permutation object contains:
+
+```json
+{
+  "order": [2, 0, 1, 3],
+  "nodes": 42,
+  "completed": true,
+  "stop": "none",
+  "budget_hit": false,
+  "value": 31,
+  "fail_high": true,
+  "served": 2,
+  "fully_served": false,
+  "order_valid": true,
+  "slots": [
+    {"slot": 1, "move": "...", "ordinal": 2,
+     "searched": true, "child_nodes": 17, "value": 31}
+  ],
+  "first": {},
+  "cutoff": {}
+}
+```
+
+`order` is a schedule over the static pre-search candidate ordinals. Before
+searching a target, the replay's real MovePicker consumes the entire requested
+natural prefix, leaving its cursor at the correct suffix. Reserved targets are
+then emitted in requested order through the ordinary search loop. A node may
+terminate after a proper prefix; therefore `fully_served=false` is valid only
+when `slots[*].ordinal` still equals a prefix of `order` and
+`order_valid=true`.
+
+Battery entries are:
+
+- force-next controls `[k,0..k-1]`, after which the natural suffix resumes;
+- committed full-K identity, reverse, rotation and adjacent swaps;
+- committed full-K scalar-cost cheapest-first.
+
+Committed identity is not required to equal natural baseline because natural
+search may dynamically skip a later quiet. Every force-next control is required
+to equal its `/3` scalar probe exactly in nodes, value and fail-high status.
+The analyzer rejects an entire decision row on any missing/censored order,
+invalid observed prefix, duplicate order or failed control.

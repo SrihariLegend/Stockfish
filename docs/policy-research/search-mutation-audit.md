@@ -186,5 +186,28 @@ count as described above.
 Exit gate satisfied: every mutable object reachable from recursive search is
 accounted for in sections A-F, with update sites and a proposed treatment. The
 design decisions for the eight original open questions are recorded in
-`architecture-inventory.md` §10. Concrete overlay/worker-clone implementation is
-still deferred to its planned phase and must satisfy the listed verification gates.
+`architecture-inventory.md` §10. The overlay/isolated-worker implementation now
+exists in `src/policy_research/` and is covered by the sandbox and macro-off
+parity gates.
+
+## H. Research-only live QE intervention (Phase 7)
+
+`PolicyResearchLiveQE` is deliberately different from a shadow probe: it changes
+the real search order. At each eligible null-window node it performs a separate,
+read-only MovePicker enumeration, computes the frozen linear QE score, and, on a
+promotion, reserves the selected static prefix from the node's actual local
+MovePicker. The local loop then serves `[chosen,0..chosen-1]` before resuming at
+the real suffix cursor. Recursive children have independent stack-local prefix
+buffers; no TLS permutation arm is nested.
+
+Mutation/ownership consequences:
+
+- feature enumeration only reads live histories and position state;
+- the actual reordered search intentionally changes TT, histories, pruning and
+  descendant call distribution exactly as ordinary search would;
+- the model and options compile only under `POLICY_RESEARCH`, default off;
+- all experiments require Threads 1 and no concurrent dataset probes;
+- default-off research parity and macro-off bench remain mandatory.
+
+The live benchmark fails node and wall-time gates, so this hook is evidence
+infrastructure, not a production candidate.

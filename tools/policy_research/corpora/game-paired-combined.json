@@ -1,0 +1,883 @@
+{
+  "schema": "policy-research-game-corpus-set/1",
+  "description": "Two disjoint seeded paired middlegame/endgame samples; split by game_group.",
+  "members": [
+    "tools/policy_research/corpora/game-paired-v1.json",
+    "tools/policy_research/corpora/game-paired-v2.json"
+  ],
+  "source_sha256": "4adacac9e2065ef1aa4f987c9f0f7a410d336949ab9a34c0938744b8d9cc96f4",
+  "selection_seeds": [
+    20260906,
+    20260916
+  ],
+  "ply_seeds": [
+    20260907,
+    20260917
+  ],
+  "roots": [
+    {
+      "id": "g0006-mid",
+      "game_group": "game-0006",
+      "phase": "middlegame",
+      "fen": "6k1/pp3p1p/4pp2/1Prn3q/2nN4/1Q2P1PP/P4PB1/2R3K1 b - - 5 19",
+      "source_game_index": 6,
+      "source_ply": 37,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "5",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606047498
+    },
+    {
+      "id": "g0006-end",
+      "game_group": "game-0006",
+      "phase": "endgame",
+      "fen": "6k1/7p/3N2PP/3n1P1K/8/8/8/8 b - - 0 58",
+      "source_game_index": 6,
+      "source_ply": 115,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "5",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606047499
+    },
+    {
+      "id": "g0024-mid",
+      "game_group": "game-0024",
+      "phase": "middlegame",
+      "fen": "2r1r3/1p1npbkp/6p1/3p1pP1/5P1P/1Pq1PN2/P2Q2B1/1R3RK1 w - - 3 17",
+      "source_game_index": 24,
+      "source_ply": 32,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "8",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1606047534
+    },
+    {
+      "id": "g0024-end",
+      "game_group": "game-0024",
+      "phase": "endgame",
+      "fen": "6b1/4p2p/3k4/PP4Pp/1n6/5N2/2BK4/8 w - - 1 41",
+      "source_game_index": 24,
+      "source_ply": 80,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "8",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1606047535
+    },
+    {
+      "id": "g0030-mid",
+      "game_group": "game-0030",
+      "phase": "middlegame",
+      "fen": "1r3r2/3b1qbk/1p1pp1pp/2p2B2/1PPP4/4NN1P/2Q2PP1/3RR1K1 b - - 0 20",
+      "source_game_index": 30,
+      "source_ply": 39,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "14",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606047546
+    },
+    {
+      "id": "g0030-end",
+      "game_group": "game-0030",
+      "phase": "endgame",
+      "fen": "8/5k2/7p/1P1Nb3/3R4/5K1b/5P2/8 w - - 6 55",
+      "source_game_index": 30,
+      "source_ply": 108,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "14",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606047547
+    },
+    {
+      "id": "g0055-mid",
+      "game_group": "game-0055",
+      "phase": "middlegame",
+      "fen": "4kr2/q2p1p1Q/bp2p3/2r5/2P3p1/6P1/P4PBP/3RR1K1 w - - 1 19",
+      "source_game_index": 55,
+      "source_ply": 36,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "25",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606047596
+    },
+    {
+      "id": "g0055-end",
+      "game_group": "game-0055",
+      "phase": "endgame",
+      "fen": "k7/4R3/4B3/2K5/8/8/8/1r6 b - - 48 119",
+      "source_game_index": 55,
+      "source_ply": 237,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "25",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606047597
+    },
+    {
+      "id": "g0091-mid",
+      "game_group": "game-0091",
+      "phase": "middlegame",
+      "fen": "5k2/p3qpbp/1p1p2p1/2nB4/2P2PP1/1P4NP/P2Q2K1/8 b - - 4 27",
+      "source_game_index": 91,
+      "source_ply": 53,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "44",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1606047668
+    },
+    {
+      "id": "g0091-end",
+      "game_group": "game-0091",
+      "phase": "endgame",
+      "fen": "5k2/p7/1p1pK1P1/7B/P1P5/8/1b6/8 b - - 4 52",
+      "source_game_index": 91,
+      "source_ply": 103,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "44",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1606047669
+    },
+    {
+      "id": "g0116-mid",
+      "game_group": "game-0116",
+      "phase": "middlegame",
+      "fen": "2r3k1/4bpp1/pqn4p/1p1r4/1P2Q3/P1P2NP1/1B3PBP/4R1K1 b - - 0 20",
+      "source_game_index": 116,
+      "source_ply": 39,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "58",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "0-1"
+      },
+      "engine_seed": 1606047718
+    },
+    {
+      "id": "g0116-end",
+      "game_group": "game-0116",
+      "phase": "endgame",
+      "fen": "6k1/3n2p1/3b1p1p/p7/3B4/6P1/1N2KP1P/8 b - - 1 42",
+      "source_game_index": 116,
+      "source_ply": 83,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "58",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "0-1"
+      },
+      "engine_seed": 1606047719
+    },
+    {
+      "id": "g0159-mid",
+      "game_group": "game-0159",
+      "phase": "middlegame",
+      "fen": "2r1r1qk/1p2b3/pB1p1n1p/P2PpQ2/5p2/2N2P1P/1P3RP1/R5K1 w - - 11 25",
+      "source_game_index": 159,
+      "source_ply": 48,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "80",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1606047804
+    },
+    {
+      "id": "g0159-end",
+      "game_group": "game-0159",
+      "phase": "endgame",
+      "fen": "8/1p6/p2br2p/P4k2/4pp2/3R1P1P/1P3BP1/5K2 w - - 0 37",
+      "source_game_index": 159,
+      "source_ply": 72,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "80",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1606047805
+    },
+    {
+      "id": "g0179-mid",
+      "game_group": "game-0179",
+      "phase": "middlegame",
+      "fen": "2r3k1/2q1bppp/b2p2n1/3p4/p1N1P1P1/3BB3/1P2QPP1/2R3K1 w - - 0 17",
+      "source_game_index": 179,
+      "source_ply": 32,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "90",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1606047844
+    },
+    {
+      "id": "g0179-end",
+      "game_group": "game-0179",
+      "phase": "endgame",
+      "fen": "8/6k1/5R1p/4P1p1/3K4/6P1/8/6r1 w - - 5 49",
+      "source_game_index": 179,
+      "source_ply": 96,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "90",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1606047845
+    },
+    {
+      "id": "g0183-mid",
+      "game_group": "game-0183",
+      "phase": "middlegame",
+      "fen": "2r1r2k/1p1b1pqp/6p1/p2pP3/Pn1p1P1Q/1B1P1RNP/1P4PK/2R5 w - - 6 20",
+      "source_game_index": 183,
+      "source_ply": 38,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "91",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606047852
+    },
+    {
+      "id": "g0183-end",
+      "game_group": "game-0183",
+      "phase": "endgame",
+      "fen": "8/8/3K2k1/P7/2B3P1/1P6/8/4r3 b - - 3 58",
+      "source_game_index": 183,
+      "source_ply": 115,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "91",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606047853
+    },
+    {
+      "id": "g0216-mid",
+      "game_group": "game-0216",
+      "phase": "middlegame",
+      "fen": "3r2k1/1N4pp/p1n2q2/3b1pN1/4p3/4Q3/PPP2PPP/4R1K1 b - - 0 17",
+      "source_game_index": 216,
+      "source_ply": 33,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "107",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "0-1"
+      },
+      "engine_seed": 1606047918
+    },
+    {
+      "id": "g0216-end",
+      "game_group": "game-0216",
+      "phase": "endgame",
+      "fen": "8/8/R7/3nk1p1/3N3p/2r1p2P/6P1/6K1 w - - 2 50",
+      "source_game_index": 216,
+      "source_ply": 98,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "107",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "0-1"
+      },
+      "engine_seed": 1606047919
+    },
+    {
+      "id": "g0259-mid",
+      "game_group": "game-0259",
+      "phase": "middlegame",
+      "fen": "r3r1k1/3q1p2/p2P1n1p/2B2pp1/PPB1b3/2Q4P/6PK/3RR3 b - - 2 31",
+      "source_game_index": 259,
+      "source_ply": 61,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "130",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606048004
+    },
+    {
+      "id": "g0259-end",
+      "game_group": "game-0259",
+      "phase": "endgame",
+      "fen": "2r5/5p2/3P1k1p/1P3pp1/4b3/7P/6PK/3RR3 b - - 0 38",
+      "source_game_index": 259,
+      "source_ply": 75,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "130",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606048005
+    },
+    {
+      "id": "g0296-mid",
+      "game_group": "game-0296",
+      "phase": "middlegame",
+      "fen": "2rnr3/1p3pk1/4b1p1/qP6/4BQ2/4N1Pp/4PP1P/3RR1K1 b - - 0 23",
+      "source_game_index": 296,
+      "source_ply": 45,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "147",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606048078
+    },
+    {
+      "id": "g0296-end",
+      "game_group": "game-0296",
+      "phase": "endgame",
+      "fen": "8/7k/4r1p1/1R6/7P/5PPK/8/8 b - - 1 53",
+      "source_game_index": 296,
+      "source_ply": 105,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "147",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1-0"
+      },
+      "engine_seed": 1606048079
+    },
+    {
+      "id": "g0010-mid",
+      "game_group": "game-0010",
+      "phase": "middlegame",
+      "fen": "6kr/p4p2/2Nq1nbp/1P1p4/2pQ2P1/5P2/PP4B1/2R3K1 b - - 1 22",
+      "source_game_index": 10,
+      "source_ply": 43,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "2",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047536
+    },
+    {
+      "id": "g0010-end",
+      "game_group": "game-0010",
+      "phase": "endgame",
+      "fen": "2B5/8/8/4K1k1/4R3/8/8/5r2 b - - 88 108",
+      "source_game_index": 10,
+      "source_ply": 215,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "2",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047537
+    },
+    {
+      "id": "g0039-mid",
+      "game_group": "game-0039",
+      "phase": "middlegame",
+      "fen": "2rq3r/pb3pk1/4p1p1/2P1b1Np/8/2R5/PP2QPP1/4R1K1 w - - 0 17",
+      "source_game_index": 39,
+      "source_ply": 32,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "20",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047594
+    },
+    {
+      "id": "g0039-end",
+      "game_group": "game-0039",
+      "phase": "endgame",
+      "fen": "8/5p2/2P1p3/5P1p/1PR2Pk1/4K1p1/4R3/3rr3 w - - 1 37",
+      "source_game_index": 39,
+      "source_ply": 72,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "20",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047595
+    },
+    {
+      "id": "g0051-mid",
+      "game_group": "game-0051",
+      "phase": "middlegame",
+      "fen": "2r5/1q2ppk1/1p1p2p1/2rR3p/P1P1Q3/1P4P1/5P1P/3R2K1 b - - 6 26",
+      "source_game_index": 51,
+      "source_ply": 51,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "25",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1-0"
+      },
+      "engine_seed": 1616047618
+    },
+    {
+      "id": "g0051-end",
+      "game_group": "game-0051",
+      "phase": "endgame",
+      "fen": "8/8/r5p1/5pKp/3k3P/4R1P1/5P2/8 b - - 13 55",
+      "source_game_index": 51,
+      "source_ply": 109,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "25",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1-0"
+      },
+      "engine_seed": 1616047619
+    },
+    {
+      "id": "g0081-mid",
+      "game_group": "game-0081",
+      "phase": "middlegame",
+      "fen": "r1b3k1/1p2q1B1/p1nppp2/8/4P3/3B1NQ1/P1P3P1/5RK1 b - - 0 21",
+      "source_game_index": 81,
+      "source_ply": 41,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "40",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047678
+    },
+    {
+      "id": "g0081-end",
+      "game_group": "game-0081",
+      "phase": "endgame",
+      "fen": "2n2k2/7B/8/4K1P1/8/8/8/8 b - - 0 68",
+      "source_game_index": 81,
+      "source_ply": 135,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "40",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047679
+    },
+    {
+      "id": "g0127-mid",
+      "game_group": "game-0127",
+      "phase": "middlegame",
+      "fen": "r4r1k/pbp3b1/1p1p1n2/4q1p1/2P1P2p/PQ2PB1P/1P1N2P1/R3BRK1 w - - 5 17",
+      "source_game_index": 127,
+      "source_ply": 32,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "64",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047770
+    },
+    {
+      "id": "g0127-end",
+      "game_group": "game-0127",
+      "phase": "endgame",
+      "fen": "8/pb3nk1/1p1p4/2p4B/2P2K1P/PP6/3N3r/3R4 w - - 5 39",
+      "source_game_index": 127,
+      "source_ply": 76,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "64",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047771
+    },
+    {
+      "id": "g0133-mid",
+      "game_group": "game-0133",
+      "phase": "middlegame",
+      "fen": "7k/3b1r1p/2pq1p1P/p2p3r/2p2R1N/1PP2P2/P2Q2P1/R6K b - - 0 23",
+      "source_game_index": 133,
+      "source_ply": 45,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "65",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047782
+    },
+    {
+      "id": "g0133-end",
+      "game_group": "game-0133",
+      "phase": "endgame",
+      "fen": "8/4N2k/8/6Kp/8/5bP1/5r2/3R4 w - - 0 68",
+      "source_game_index": 133,
+      "source_ply": 134,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "65",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047783
+    },
+    {
+      "id": "g0169-mid",
+      "game_group": "game-0169",
+      "phase": "middlegame",
+      "fen": "2r2rk1/4q1bp/6p1/1p1pP3/1P1N2Pn/4Q3/1B5P/R3R2K w - - 2 18",
+      "source_game_index": 169,
+      "source_ply": 34,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "85",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047854
+    },
+    {
+      "id": "g0169-end",
+      "game_group": "game-0169",
+      "phase": "endgame",
+      "fen": "8/8/1R4p1/4r1k1/1p1p4/2b2RPK/8/8 w - - 12 41",
+      "source_game_index": 169,
+      "source_ply": 80,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "85",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047855
+    },
+    {
+      "id": "g0212-mid",
+      "game_group": "game-0212",
+      "phase": "middlegame",
+      "fen": "r4rk1/4pp1p/B5p1/p2P2B1/Qq6/1Pb3P1/4PP1P/5RK1 w - - 2 17",
+      "source_game_index": 212,
+      "source_ply": 32,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "105",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "0-1"
+      },
+      "engine_seed": 1616047940
+    },
+    {
+      "id": "g0212-end",
+      "game_group": "game-0212",
+      "phase": "endgame",
+      "fen": "8/8/5p2/3r1P1R/8/1K1k4/8/8 b - - 10 59",
+      "source_game_index": 212,
+      "source_ply": 117,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "105",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "0-1"
+      },
+      "engine_seed": 1616047941
+    },
+    {
+      "id": "g0214-mid",
+      "game_group": "game-0214",
+      "phase": "middlegame",
+      "fen": "6k1/b4pp1/p3bq1p/1p2p2Q/8/1PP1N1NP/P4PP1/6K1 w - - 1 23",
+      "source_game_index": 214,
+      "source_ply": 44,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "107",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047944
+    },
+    {
+      "id": "g0214-end",
+      "game_group": "game-0214",
+      "phase": "endgame",
+      "fen": "8/3b4/6N1/2k4p/5Kp1/8/8/8 w - - 4 56",
+      "source_game_index": 214,
+      "source_ply": 110,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "107",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616047945
+    },
+    {
+      "id": "g0223-mid",
+      "game_group": "game-0223",
+      "phase": "middlegame",
+      "fen": "4rk2/R3npb1/2p4p/1pP3pP/1P1NQ3/3P2P1/3q1PK1/8 w - - 0 30",
+      "source_game_index": 223,
+      "source_ply": 58,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "111",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "0-1"
+      },
+      "engine_seed": 1616047962
+    },
+    {
+      "id": "g0223-end",
+      "game_group": "game-0223",
+      "phase": "endgame",
+      "fen": "8/5k2/7p/2P1n2P/3N2p1/6P1/5PK1/1r6 b - - 1 56",
+      "source_game_index": 223,
+      "source_ply": 111,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "111",
+        "White": "r15_candidate",
+        "Black": "r15_control",
+        "Result": "0-1"
+      },
+      "engine_seed": 1616047963
+    },
+    {
+      "id": "g0274-mid",
+      "game_group": "game-0274",
+      "phase": "middlegame",
+      "fen": "1k2r3/rp6/p1qp1p1Q/P1b1pB1p/8/1R6/P4PPP/1R4K1 b - - 18 29",
+      "source_game_index": 274,
+      "source_ply": 57,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "135",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616048064
+    },
+    {
+      "id": "g0274-end",
+      "game_group": "game-0274",
+      "phase": "endgame",
+      "fen": "3k4/8/R1B3P1/2r1b3/6K1/8/8/8 b - - 46 84",
+      "source_game_index": 274,
+      "source_ply": 167,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "135",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1/2-1/2"
+      },
+      "engine_seed": 1616048065
+    },
+    {
+      "id": "g0275-mid",
+      "game_group": "game-0275",
+      "phase": "middlegame",
+      "fen": "r4q2/3pk3/1QbNnbpr/p6p/3P4/1PPB4/6PP/4RRK1 b - - 1 20",
+      "source_game_index": 275,
+      "source_ply": 39,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "138",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1-0"
+      },
+      "engine_seed": 1616048066
+    },
+    {
+      "id": "g0275-end",
+      "game_group": "game-0275",
+      "phase": "endgame",
+      "fen": "3R4/1k6/8/2P3n1/2K5/7p/8/8 b - - 0 59",
+      "source_game_index": 275,
+      "source_ply": 117,
+      "headers": {
+        "Event": "Fastchess Tournament",
+        "Site": "?",
+        "Date": "2026.08.27",
+        "Round": "138",
+        "White": "r15_control",
+        "Black": "r15_candidate",
+        "Result": "1-0"
+      },
+      "engine_seed": 1616048067
+    }
+  ]
+}

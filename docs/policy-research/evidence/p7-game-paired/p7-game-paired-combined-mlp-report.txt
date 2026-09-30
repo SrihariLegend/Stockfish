@@ -1,0 +1,49 @@
+== hold out game-0006 (437 rows)
+  mlp    threshold=  0.636 save=  1.092% classfb=  1.092% exactfb= -0.109% later=  15 flips=  0
+== hold out game-0010 (2435 rows)
+  mlp    threshold=  0.716 save=  0.321% classfb=  0.271% exactfb=  0.460% later=  66 flips=  3
+== hold out game-0024 (1809 rows)
+  mlp    threshold=  0.711 save= -0.603% classfb= -0.659% exactfb= -0.603% later=  27 flips=  1
+== hold out game-0030 (776 rows)
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0039 (973 rows)
+  mlp    threshold=  1.017 save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0051 (1472 rows)
+  mlp    threshold=  0.767 save=  0.000% classfb=  0.000% exactfb=  0.052% later=   6 flips=  0
+== hold out game-0055 (2191 rows)
+  mlp    threshold=  0.543 save=  0.471% classfb=  0.471% exactfb=  0.088% later=  52 flips=  0
+== hold out game-0081 (1111 rows)
+  mlp    threshold=  0.750 save=  2.231% classfb=  1.658% exactfb=  0.256% later=  23 flips=  1
+== hold out game-0091 (1474 rows)
+  mlp    threshold=  0.775 save=  0.379% classfb=  0.379% exactfb=  0.161% later=  12 flips=  0
+== hold out game-0116 (1600 rows)
+  mlp    threshold=  0.891 save=  0.099% classfb=  0.099% exactfb=  0.019% later=  19 flips=  0
+== hold out game-0127 (1716 rows)
+  mlp    threshold=  1.029 save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0133 (2150 rows)
+  mlp    threshold=    inf save=  0.000% classfb=  0.000% exactfb=  0.000% later=   0 flips=  0
+== hold out game-0159 (2564 rows)
+  mlp    threshold=  0.687 save= -0.035% classfb= -0.035% exactfb=  0.071% later=  11 flips=  0
+== hold out game-0169 (2367 rows)
+  mlp    threshold=  0.844 save=  0.497% classfb=  0.497% exactfb=  0.071% later=  26 flips=  0
+== hold out game-0179 (582 rows)
+  mlp    threshold=  0.864 save=  0.019% classfb=  0.019% exactfb=  0.019% later=   2 flips=  0
+== hold out game-0183 (792 rows)
+  mlp    threshold=  0.895 save=  0.121% classfb=  0.121% exactfb=  0.121% later=   8 flips=  0
+== hold out game-0212 (3093 rows)
+  mlp    threshold=  0.438 save= -0.392% classfb= -0.341% exactfb= -0.205% later= 169 flips=  2
+== hold out game-0214 (1947 rows)
+  mlp    threshold=  0.705 save=  0.752% classfb=  0.752% exactfb=  0.710% later=  21 flips=  0
+== hold out game-0216 (1411 rows)
+  mlp    threshold=  0.783 save=  0.432% classfb=  0.432% exactfb=  0.076% later=  22 flips=  0
+== hold out game-0223 (171 rows)
+  mlp    threshold=  0.599 save=  1.124% classfb=  1.124% exactfb=  0.187% later=   4 flips=  0
+== hold out game-0259 (572 rows)
+  mlp    threshold=  0.829 save= -0.093% classfb= -0.093% exactfb= -0.093% later=   8 flips=  0
+== hold out game-0274 (1787 rows)
+  mlp    threshold=  0.744 save=  0.235% classfb=  0.235% exactfb=  0.235% later=  22 flips=  1
+== hold out game-0275 (1228 rows)
+  mlp    threshold=  0.584 save=  0.465% classfb=  0.434% exactfb=  0.251% later=  39 flips=  2
+== hold out game-0296 (945 rows)
+  mlp    threshold=  0.500 save=  0.323% classfb=  0.323% exactfb=  0.526% later=  45 flips=  0
+POOLED mlp    401508->400794 save=0.178% classfb=0.164% exactfb=0.079% positive=15/24 root mean/sd=0.310/0.572
