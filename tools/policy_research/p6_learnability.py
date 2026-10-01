@@ -48,6 +48,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from p6_explanatory import ORACLES, load, row_costs  # noqa: E402
+import stats  # noqa: E402
 
 RNG = np.random.RandomState(0)
 LAMBDA_RIDGE = 1e-3
@@ -138,72 +139,16 @@ def feature_matrix(examples, train_scale=None):
     return X, train_scale
 
 
-def ridge_fit(X, y, lam=LAMBDA_RIDGE):
-    """Closed-form ridge solution; y numeric. Returns (coef, intercept)."""
-    XtX = X.T @ X
-    XtX.flat[:: XtX.shape[0] + 1] += lam
-    Xty = X.T @ y
-    w = np.linalg.solve(XtX, Xty)
-    return w[:-1], w[-1]
-
-
-def ridge_logistic(X, y, lam=LAMBDA_RIDGE, iters=40):
-    """IRLS ridge logistic regression (for the q-hat model; plain
-    ridge-on-0/1 nearly interpolates and saturates sigmoid probabilities,
-    which breaks threshold semantics). Returns (coef, intercept)."""
-    w = np.zeros(X.shape[1])
-    for _ in range(iters):
-        z = np.clip(X @ w, -30, 30)
-        p = 1.0 / (1.0 + np.exp(-z))
-        s = np.clip(p * (1 - p), 1e-9, None)
-        zstar = z + (y - p) / s
-        W = np.sqrt(s)
-        Xw = X * W[:, None]
-        H = Xw.T @ Xw
-        H.flat[:: H.shape[0] + 1] += lam
-        w_new = np.linalg.solve(H, Xw.T @ (W * zstar))
-        if np.allclose(w_new, w, atol=1e-8, rtol=1e-6):
-            w = w_new
-            break
-        w = w_new
-    return w[:-1], w[-1]
 def logistic(X, w, b):
     z = X @ np.hstack([w, b])
     return 1.0 / (1.0 + np.exp(-np.clip(z, -30, 30)))
 
 
-def average_ranks(x):
-    """Zero-based average ranks (ties receive their group's mean rank)."""
-    x = np.asarray(x)
-    order = np.argsort(x, kind="mergesort")
-    ranks = np.empty(len(x), dtype=np.float64)
-    i = 0
-    while i < len(x):
-        j = i + 1
-        while j < len(x) and x[order[j]] == x[order[i]]:
-            j += 1
-        ranks[order[i:j]] = (i + j - 1) / 2.0
-        i = j
-    return ranks
-
-
-def binary_auc(scores, labels):
-    """Mann-Whitney AUC with correct zero-based/tie-aware ranks."""
-    scores = np.asarray(scores, dtype=np.float64)
-    labels = np.asarray(labels, dtype=bool)
-    npos = int(labels.sum())
-    nneg = len(labels) - npos
-    if npos == 0 or nneg == 0:
-        return float("nan")
-    ranks = average_ranks(scores)
-    return float((ranks[labels].sum() - npos * (npos - 1) / 2.0) / (npos * nneg))
-
-
 def spearman(scores, labels):
     if len(scores) < 2:
         return float("nan")
-    a = average_ranks(scores)
-    b = average_ranks(labels)
+    a = stats.average_ranks(scores)
+    b = stats.average_ranks(labels)
     if np.std(a) == 0 or np.std(b) == 0:
         return float("nan")
     return float(np.corrcoef(a, b)[0, 1])
@@ -351,8 +296,11 @@ def main():
         Xtr, scale = feature_matrix(tr_ex)
         yq = np.array([e[2] for e in tr_ex])
         yc = np.log(np.maximum(np.array([e[3] for e in tr_ex]), 1.0))
-        wq, bq = ridge_logistic(Xtr, yq)
-        wc, bc = ridge_fit(Xtr, yc)
+        wq, bq, _, _ = stats.irls_logistic(
+            Xtr[:, :-1], yq, lam=LAMBDA_RIDGE, penalize_intercept=True,
+            tol=1e-8, max_iter=40)
+        wc, bc = stats.ridge_fit(
+            Xtr[:, :-1], yc, lam=LAMBDA_RIDGE, penalize_intercept=True)
         # scale test folds the same way
         te_ex = [e for r in test for e in row_examples(r)]
         Xte, _ = feature_matrix(te_ex, train_scale=scale)
@@ -399,7 +347,7 @@ def main():
         if len(te_ex) > 0:
             zq = Xte @ np.hstack([wq, bq])
             yq_te = np.array([e[2] for e in te_ex])
-            diag["q_auc"].append(binary_auc(zq, yq_te))
+            diag["q_auc"].append(stats.auc(yq_te, zq))
             zc = Xte @ np.hstack([wc, bc])
             yc_te = np.log(np.maximum(np.array([e[3] for e in te_ex]), 1.0))
             diag["c_spearman"].append(spearman(zc, yc_te))
@@ -422,7 +370,8 @@ def main():
                 for o in range(1, len(exs)):
                     cheaper_scores.append(pred[0] - pred[o])
                     cheaper_labels.append(measured[o] < measured[0])
-            diag["c_cheaper_auc"].append(binary_auc(cheaper_scores, cheaper_labels))
+            diag["c_cheaper_auc"].append(
+                stats.auc(cheaper_labels, cheaper_scores))
             diag["c_top1_accuracy"].append(float(np.mean(top1)))
             diag["baseline_top1_accuracy"].append(float(np.mean(baseline_top1)))
 

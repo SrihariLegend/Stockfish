@@ -21,6 +21,7 @@ import p6_explanatory
 import p6_interaction
 import p6_learnability
 import p7_direct_ranking
+import stats
 
 MOVES = ["p0", "p1", "p2", "p3"] + [f"q{i}" for i in range(4)]
 
@@ -310,7 +311,8 @@ class P6LearnabilitySmoke(unittest.TestCase):
         examples = [e for r in rows for e in p6_learnability.row_examples(r)]
         X, scale = p6_learnability.feature_matrix(examples)
         y = np.linspace(0.1, 0.9, len(examples))
-        w, b = p6_learnability.ridge_fit(X, y)
+        w, b = stats.ridge_fit(X[:, :-1], y, lam=p6_learnability.LAMBDA_RIDGE,
+                               penalize_intercept=True)
         for i, (feats, *_rest) in enumerate(examples):
             direct = p6_learnability.predict_cost(feats, w, b, scale)
             batch = float(np.exp(np.clip(X[i:i + 1]
@@ -318,9 +320,9 @@ class P6LearnabilitySmoke(unittest.TestCase):
             self.assertAlmostEqual(direct, batch, places=12)
 
     def test_auc_uses_zero_based_tie_aware_ranks(self):
-        self.assertAlmostEqual(p6_learnability.binary_auc([0, 1], [0, 1]), 1.0)
-        self.assertAlmostEqual(p6_learnability.binary_auc([1, 0], [0, 1]), 0.0)
-        self.assertAlmostEqual(p6_learnability.binary_auc([1, 1], [0, 1]), 0.5)
+        self.assertAlmostEqual(stats.auc([0, 1], [0, 1]), 1.0)
+        self.assertAlmostEqual(stats.auc([0, 1], [1, 0]), 0.0)
+        self.assertAlmostEqual(stats.auc([0, 1], [1, 1]), 0.5)
 
     def test_loo_smoke_and_base_accounting(self):
         import subprocess

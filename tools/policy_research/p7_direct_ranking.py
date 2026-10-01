@@ -22,6 +22,7 @@ import statistics
 
 import numpy as np
 
+import stats
 from p6_explanatory import row_costs
 from p6_learnability import (NUM_FEATURES, feature_matrix, row_examples,
                              transform_feature_dicts)
@@ -109,18 +110,17 @@ def training_matrix(rows, scale, class_penalty):
     return X, y, weights
 
 
-class WeightedRidge:
-    def __init__(self, lam=1.0):
-        self.lam = lam
+class RidgeModel:
+    """Adapter over stats.ridge_fit so the model-object call shape is kept."""
 
     def fit(self, X, y, weights, seed=0):
         del seed
-        Xa = np.hstack([X, np.ones((len(X), 1))])
-        sw = np.sqrt(weights)[:, None]
-        A = (Xa * sw).T @ (Xa * sw)
-        reg = np.eye(A.shape[0]) * self.lam
-        reg[-1, -1] = 0.0
-        self.coef = np.linalg.solve(A + reg, (Xa * sw).T @ (y * sw[:, 0]))
+        coef, intercept = stats.ridge_fit(X, y, lam=1.0,
+                                          penalize_intercept=False,
+                                          weights=weights)
+        # Old predict multiplied the full (intercept-last) vector; the solver
+        # returns the intercept separately, so rejoin it in the old position.
+        self.coef = np.concatenate((coef, [intercept]))
         return self
 
     def predict(self, X):
@@ -179,7 +179,7 @@ def fit_predict(model_name, train_rows, test_rows, seeds, class_penalty):
     Xte = np.asarray(test_parts, dtype=np.float64)
     predictions = np.zeros(len(Xte), dtype=np.float64)
     for seed in seeds:
-        model = WeightedRidge() if model_name == "ridge" else TinyMLP()
+        model = RidgeModel() if model_name == "ridge" else TinyMLP()
         model.fit(Xtr, ytr, wtr, seed)
         predictions += model.predict(Xte) / len(seeds)
     by_row = []

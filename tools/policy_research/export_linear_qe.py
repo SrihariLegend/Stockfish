@@ -8,8 +8,9 @@ import os
 
 import numpy as np
 
-from p6_learnability import (NUM_FEATURES, feature_matrix, ridge_fit,
-                             ridge_logistic, row_examples)
+import stats
+from p6_learnability import (LAMBDA_RIDGE, NUM_FEATURES, feature_matrix,
+                             row_examples)
 
 
 def main():
@@ -36,8 +37,11 @@ def main():
     X, scale = feature_matrix(examples)
     q = np.array([e[2] for e in examples], dtype=np.float64)
     log_cost = np.log(np.maximum(np.array([e[3] for e in examples]), 1.0))
-    wq, bq = ridge_logistic(X, q)
-    wc, bc = ridge_fit(X, log_cost)
+    wq, bq, _, _ = stats.irls_logistic(X[:, :-1], q, lam=LAMBDA_RIDGE,
+                                       penalize_intercept=True, tol=1e-8,
+                                       max_iter=40)
+    wc, bc = stats.ridge_fit(X[:, :-1], log_cost, lam=LAMBDA_RIDGE,
+                             penalize_intercept=True)
     p1, p99, mu, sd = scale
     model = {"schema": "linear-qe-model/1", "features": NUM_FEATURES,
              "lambda": args.lambda_, "training_rows": len(rows),

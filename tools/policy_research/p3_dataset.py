@@ -55,6 +55,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_corpus as rc
 import decode_research_log as dlog
+import stats
 
 import numpy as np
 import pandas as pd
@@ -627,7 +628,8 @@ def _macro_quant_table(frame, bucket, value, group=None,
             per = pd.DataFrame({"g": gr_all[m], "v": v}).groupby("g")["v"].mean()
         else:
             ww = wt[m]
-            q = _weighted_quantile(v, ww, np.asarray(quantiles, dtype=np.float64))
+            q = stats.weighted_quantile(
+                v, ww, np.asarray(quantiles, dtype=np.float64))
             mean = _weighted_rate(v, ww)
             agg = pd.DataFrame({"g": gr_all[m], "vw": v * ww, "w": ww}
                                ).groupby("g")[["vw", "w"]].sum()
@@ -640,118 +642,11 @@ def _macro_quant_table(frame, bucket, value, group=None,
     return pd.DataFrame(out)
 
 # --- calibration helpers (numpy only, no sklearn) -------------------------
-def _logistic_irls_std(Z: np.ndarray, y: np.ndarray, reg: float = 1e-3,
-                       max_iter: int = 80, tol: float = 1e-9,
-                       row_w: np.ndarray | None = None):
-    """Ridge-regularized IRLS logistic regression on *standardized* features
-    (Z holds no intercept column). The intercept is added and is NOT ridge
-    penalized (regularization applies to feature coefficients only).
-
-    ``row_w`` optionally weights each observation (weights enter the IRLS
-    Hessian and gradient and are normalized to sum to the row count so the
-    ridge scale is unchanged).  row_w = None / all-equal gives the
-    unweighted fit.
-    """
-    Xb = np.column_stack([np.ones(len(Z)), Z])
-    pen = np.zeros(Xb.shape[1])
-    pen[1:] = reg
-    wt = np.ones(len(y), dtype=np.float64) if row_w is None \
-        else np.asarray(row_w, dtype=np.float64)
-    wsum = float(wt.sum())
-    if wsum > 0:
-        wt = wt * (len(y) / wsum)
-    beta = np.zeros(Xb.shape[1])
-    iters = 0
-    converged = False
-    for it in range(1, max_iter + 1):
-        iters = it
-        eta = Xb @ beta
-        p = 1.0 / (1.0 + np.exp(-np.clip(eta, -30, 30)))
-        H = (Xb * (wt * p * (1 - p))[:, None]).T @ Xb + np.diag(pen)
-        g = Xb.T @ (wt * (y - p)) - pen * beta
-        try:
-            step = np.linalg.solve(H, g)
-        except np.linalg.LinAlgError:
-            step = np.linalg.lstsq(H, g, rcond=None)[0]
-        beta = beta + step
-        if np.max(np.abs(step)) < tol:
-            converged = True
-            break
-    return beta, iters, converged
-
 def _predict_std(Z, mu, sd, w) -> np.ndarray:
     Zs = (Z - mu) / sd
     Xb = np.column_stack([np.ones(len(Zs)), Zs])
     return 1.0 / (1.0 + np.exp(-np.clip(Xb @ w, -30, 30)))
 
-def _weighted_std_stats(X: np.ndarray, row_w: np.ndarray
-                        ) -> tuple[np.ndarray, np.ndarray]:
-    """Weighted feature mean / population sd used for standardization."""
-    tot = float(row_w.sum())
-    mu = np.dot(row_w, X) / tot
-    sd = np.sqrt(np.dot(row_w, (X - mu) ** 2) / tot)
-    sd[sd == 0] = 1.0
-    return mu, sd
-
-
-def _weighted_quantile(x: np.ndarray, row_w: np.ndarray,
-                       q) -> np.ndarray:
-    """Weighted quantile (midpoint-CDF generalized inverse).
-
-    c_i = (weighted prefix up to i-1 + prefix up to i) / 2 normalized by the
-    total weight, linearly interpolated over the sorted sample.  Used only
-    when weights are non-uniform (uniform weights keep the np.quantile path
-    so canonical numbers are unchanged).  Deterministic.
-    """
-    x = np.asarray(x, dtype=np.float64)
-    row_w = np.asarray(row_w, dtype=np.float64)
-    order = np.argsort(x, kind="mergesort")
-    xs = x[order]
-    ws = row_w[order]
-    c = np.cumsum(ws) - 0.5 * ws
-    c = c / c[-1]
-    return np.interp(q, c, xs)
-
-
-
-def _pav_monotone(y: np.ndarray, w: np.ndarray) -> np.ndarray:
-    """Nondecreasing isotonic regression over weighted means (small arrays).
-
-    Classic PAV: block means that violate monotonicity are pooled. Returns the
-    fitted (calibrated) value for each input position.
-    """
-    vals = y.astype(np.float64).copy()
-    wt = w.astype(np.float64).copy()
-    n = len(vals)
-    out = np.empty(n)
-    if n == 0:
-        return out
-    starts = list(range(n))
-    bv = vals.copy()
-    bw = wt.copy()
-    while True:
-        merged = False
-        new_s, new_bv, new_bw = [starts[0]], [bv[0]], [bw[0]]
-        for i in range(1, len(starts)):
-            # means of last block and current block
-            m_prev = new_bv[-1] / new_bw[-1]
-            m_cur = bv[i] / bw[i]
-            if m_prev <= m_cur:
-                new_s.append(starts[i]); new_bv.append(bv[i]); new_bw.append(bw[i])
-            else:
-                # pool current into previous block
-                new_bv[-1] += bv[i]
-                new_bw[-1] += bw[i]
-                merged = True
-        starts, bv, bw = new_s, new_bv, new_bw
-        if not merged:
-            break
-    pos = 0
-    for blk in range(len(bv)):
-        end = starts[blk + 1] if blk + 1 < len(starts) else n
-        m = bv[blk] / bw[blk]
-        out[starts[blk]: end] = m
-    return out
 
 def _fit_isotonic_map(p_cal: np.ndarray, y_cal: np.ndarray,
                       n_bin: int = 100,
@@ -769,7 +664,7 @@ def _fit_isotonic_map(p_cal: np.ndarray, y_cal: np.ndarray,
     if wt is None:
         edges = np.unique(np.quantile(p_cal, np.linspace(0, 1, n_bin + 1)))
     else:
-        edges = np.unique(_weighted_quantile(
+        edges = np.unique(stats.weighted_quantile(
             p_cal, wt, np.linspace(0, 1, n_bin + 1)))
     if len(edges) < 2:
         edges = np.array([0.0, 1.0])
@@ -790,7 +685,7 @@ def _fit_isotonic_map(p_cal: np.ndarray, y_cal: np.ndarray,
     elif len(nb) == 1:
         cal[:] = sm[nb[0]] / cnt[nb[0]]
     else:
-        fit = _pav_monotone(sm[nb], cnt[nb])
+        fit = stats.pav_isotonic(sm[nb], cnt[nb])
         cal = np.interp(np.arange(n_b), nb.astype(np.float64), fit)
     return edges, cal
 
@@ -800,41 +695,10 @@ def _apply_isotonic(p_eval: np.ndarray, edges: np.ndarray,
     return cal_bins[b]
 
 
-def _log_loss(y: np.ndarray, p: np.ndarray) -> float:
-    p = np.clip(p, 1e-6, 1 - 1e-6)
-    return float(-np.mean(y * np.log(p) + (1 - y) * np.log1p(-p)))
-
-
-def _brier(y: np.ndarray, p: np.ndarray) -> float:
-    return float(np.mean((y - p) ** 2))
-
-
-def _auc(y: np.ndarray, p: np.ndarray) -> float:
-    """Mann-Whitney U AUC on predicted probabilities."""
-    order = np.argsort(p, kind="mergesort")
-    r = np.arange(1, len(p) + 1, dtype=np.float64)
-    ranks = np.empty(len(p), dtype=np.float64)
-    i = 0
-    while i < len(p):
-        j = i + 1
-        while j < len(p) and p[order[j]] == p[order[i]]:
-            j += 1
-        ranks[order[i:j]] = r[i:j].mean()
-        i = j
-    y = np.asarray(y)
-    pos_sum = ranks[y == 1].sum()
-    n1 = int((y == 1).sum())
-    n0 = int((y == 0).sum())
-    if n1 == 0 or n0 == 0:
-        return float("nan")
-    return float((pos_sum - n1 * (n1 + 1) / 2) / (n1 * n0))
-
-
 def _ece_table(y: np.ndarray, p: np.ndarray, bins: int = 10
                ) -> tuple[float, list[dict]]:
     edges = np.linspace(0, 1, bins + 1)
     idx = np.clip(np.digitize(p, edges[1:-1]), 0, bins - 1)
-    ece = 0.0
     table = []
     for b in range(bins):
         m = idx == b
@@ -843,17 +707,17 @@ def _ece_table(y: np.ndarray, p: np.ndarray, bins: int = 10
             continue
         acc = float(y[m].mean())
         conf = float(p[m].mean())
-        ece += (n / len(y)) * abs(acc - conf)
         table.append({"bin": f"[{edges[b]:.1f},{edges[b + 1]:.1f})",
                       "rows": n, "accuracy": acc, "confidence": conf,
                       "gap": acc - conf})
-    return float(ece), table
+    return stats.ece(y, p, bins=bins), table
 
 
 def _metrics(y: np.ndarray, p: np.ndarray) -> dict:
     return {"n": int(len(y)), "base_rate": float(np.mean(y)),
-            "auc": _auc(y, p), "brier": _brier(y, p),
-            "logloss": _log_loss(y, p), "ece10": _ece_table(y, p)[0]}
+            "auc": stats.auc(y, p), "brier": stats.brier(y, p),
+            "logloss": stats.log_loss(y, p),
+            "ece10": stats.ece(y, p, bins=10)}
 
 
 def _metrics_block(y: np.ndarray, p: np.ndarray,
@@ -1147,8 +1011,10 @@ def _grouped_calibration(df: pd.DataFrame) -> dict:
         mu = X_dev.mean(axis=0)
         sd = X_dev.std(axis=0)
         sd[sd == 0] = 1.0
-        w, iters, conv = _logistic_irls_std((X_dev - mu) / sd, y_dev,
-                                            row_w=ipw_dev)
+        coef, intercept, iters, conv = stats.irls_logistic(
+            (X_dev - mu) / sd, y_dev, lam=1e-3, penalize_intercept=False,
+            tol=1e-9, max_iter=80, weights=ipw_dev)
+        w = np.concatenate(([intercept], coef))
         p_val = _predict_std(val[feats].to_numpy(dtype=np.float64), mu, sd, w)
         p_test = _predict_std(test[feats].to_numpy(dtype=np.float64), mu, sd, w)
         models[name] = {
@@ -1180,9 +1046,11 @@ def _grouped_calibration(df: pd.DataFrame) -> dict:
     # Root-balanced sensitivity: equal full-rate mass per corpus root.
     X_dev = dev[all_feats].to_numpy(dtype=np.float64)
     bal_dev = _root_equal_weights(dev)
-    mu_b, sd_b = _weighted_std_stats(X_dev, bal_dev)
-    w_b, it_b, conv_b = _logistic_irls_std((X_dev - mu_b) / sd_b, y_dev,
-                                           row_w=bal_dev)
+    mu_b, sd_b = stats.weighted_std_stats(X_dev, bal_dev)
+    coef_b, intercept_b, it_b, conv_b = stats.irls_logistic(
+        (X_dev - mu_b) / sd_b, y_dev, lam=1e-3, penalize_intercept=False,
+        tol=1e-9, max_iter=80, weights=bal_dev)
+    w_b = np.concatenate(([intercept_b], coef_b))
     X_val = val[all_feats].to_numpy(dtype=np.float64)
     X_test = test[all_feats].to_numpy(dtype=np.float64)
     p_val_b = _predict_std(X_val, mu_b, sd_b, w_b)

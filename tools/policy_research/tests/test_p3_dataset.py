@@ -18,6 +18,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import p3_dataset as p3
+import stats
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -203,19 +204,19 @@ class TestNodeFrame(unittest.TestCase):
 
 class TestPav(unittest.TestCase):
     def test_unit_weights(self):
-        out = p3._pav_monotone(np.array([1.0, 0.0, 2.0]),
-                               np.array([1.0, 1.0, 1.0]))
+        out = stats.pav_isotonic(np.array([1.0, 0.0, 2.0]),
+                                 np.array([1.0, 1.0, 1.0]))
         np.testing.assert_allclose(out, [0.5, 0.5, 2.0])
 
     def test_weighted_sums(self):
         # observations {1,1,0,0,0,2,2,2,2} -> block means 2/5 then 2 -> ok
-        out = p3._pav_monotone(np.array([1.0, 0.0, 2.0]),
-                               np.array([2.0, 3.0, 4.0]))
+        out = stats.pav_isotonic(np.array([1.0, 0.0, 2.0]),
+                                 np.array([2.0, 3.0, 4.0]))
         np.testing.assert_allclose(out, [0.2, 0.2, 0.5])
 
     def test_already_monotone_is_identity(self):
-        out = p3._pav_monotone(np.array([1.0, 2.0, 3.0]),
-                               np.array([1.0, 1.0, 1.0]))
+        out = stats.pav_isotonic(np.array([1.0, 2.0, 3.0]),
+                                 np.array([1.0, 1.0, 1.0]))
         np.testing.assert_allclose(out, [1.0, 2.0, 3.0])
 
 
@@ -479,13 +480,13 @@ class TestWeights(unittest.TestCase):
         self.assertAlmostEqual(p3._weighted_rate(
             np.array([1.0, 0.0, 1.0]), np.array([1.0, 1.0, 2.0])), 0.75)
 
-    def test_weighted_quantile_monotone_and_direction(self):
+    def test_quantile_monotone_and_direction(self):
         x = np.array([1.0, 2.0, 3.0, 100.0])
         q = np.array([0.1, 0.5, 0.9])
-        a = p3._weighted_quantile(x, np.ones(4), q)
+        a = stats.weighted_quantile(x, np.ones(4), q)
         self.assertTrue(np.all(np.diff(a) >= 0))
         # moving all mass to the largest value pushes interior quantiles up
-        c = p3._weighted_quantile(x, np.array([0.0, 0.0, 0.0, 1.0]), q)
+        c = stats.weighted_quantile(x, np.array([0.0, 0.0, 0.0, 1.0]), q)
         self.assertGreater(c[1], a[1])
         self.assertGreater(c[2], a[2])
 
@@ -511,9 +512,13 @@ class TestWeights(unittest.TestCase):
         mu, sd = X.mean(0), X.std(0)
         sd[sd == 0] = 1.0
         Z = (X - mu) / sd
-        w1 = p3._logistic_irls_std(Z, y)
-        w2 = p3._logistic_irls_std(Z, y, row_w=np.ones(len(y)))
-        np.testing.assert_allclose(w1[0], w2[0], atol=1e-12)
+        c1, b1, _, _ = stats.irls_logistic(
+            Z, y, lam=1e-3, penalize_intercept=False, tol=1e-9, max_iter=80)
+        c2, b2, _, _ = stats.irls_logistic(
+            Z, y, lam=1e-3, penalize_intercept=False, tol=1e-9, max_iter=80,
+            weights=np.ones(len(y)))
+        np.testing.assert_allclose(c1, c2, atol=1e-12)
+        np.testing.assert_allclose(b1, b2, atol=1e-12)
 
     def test_weighted_logistic_sign_flip_under_imbalance(self):
         rng = np.random.default_rng(5)
@@ -524,8 +529,12 @@ class TestWeights(unittest.TestCase):
         Z = z[:, None]
         w = np.ones(1000)
         w[:100] = 60.0
-        c_unw = p3._logistic_irls_std(Z, y)[0][1]
-        c_ipw = p3._logistic_irls_std(Z, y, row_w=w)[0][1]
+        c_unw = stats.irls_logistic(
+            Z, y, lam=1e-3, penalize_intercept=False, tol=1e-9,
+            max_iter=80)[0][0]
+        c_ipw = stats.irls_logistic(
+            Z, y, lam=1e-3, penalize_intercept=False, tol=1e-9, max_iter=80,
+            weights=w)[0][0]
         self.assertGreater(c_unw, 0)
         self.assertLess(c_ipw, 0)
 
