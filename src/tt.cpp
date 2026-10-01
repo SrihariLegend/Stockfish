@@ -125,27 +125,6 @@ void TTWriter::penalize(int penalty) {
 // divide the size of a cache line for best performance, as the cacheline is
 // prefetched when possible.
 
-// Looks up a key inside a cluster or selects the best replacement candidate.
-// Returns a pair of:
-//   1) cluster entry index (0 <= idx < ClusterSize)
-//   2) whether the entry is an exact 16-bit key hit
-std::pair<int, bool> probe_cluster(const Cluster& cluster, u16 key16, u8 generation8) {
-    const TTEntry* const tte = &cluster.entry[0];
-
-    for (int i = 0; i < ClusterSize; ++i)
-        if (tte[i].key16 == key16)
-            return {i, true};
-
-    // Find an entry to be replaced according to the replacement strategy
-    int replace_idx = 0;
-    for (int i = 1; i < ClusterSize; ++i)
-        if (tte[replace_idx].depth8 - 8 * tte[replace_idx].relative_age(generation8)
-            > tte[i].depth8 - 8 * tte[i].relative_age(generation8))
-            replace_idx = i;
-
-    return {replace_idx, false};
-}
-
 
 // Sets the size of the transposition table, measured in megabytes.
 // Transposition table consists of clusters and each cluster consists
