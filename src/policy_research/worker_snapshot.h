@@ -787,6 +787,25 @@ class IsolatedWorker {
                                           int                   windowBefore = 7,
                                           int                   maxDepth     = MAX_PLY);
 
+    // Upstream's search() reads rootMoves[pvIdx] at EVERY node entry for its
+    // seekMate heuristic, so a shadow worker with an empty rootMoves indexes
+    // out of bounds. During a live probe sync_from copies the live worker's
+    // root moves and this is a no-op; a worker built outside a search (the
+    // UCI test commands) has nothing to inherit, so seed one legal move with a
+    // zero score, which keeps seekMate false exactly as a normal mid-game root
+    // score does. Rows whose probes matter are collected during a live search,
+    // where the inherited values are the ones the live node actually used.
+    void ensure_root_moves(const Position& pos) {
+        if (!shadowWorker->rootMoves.empty())
+            return;
+        MoveList<LEGAL> legal(pos);
+        if (legal.size() == 0)
+            return;  // no legal move in this position: nothing to seed
+        shadowWorker->rootMoves.emplace_back(*legal.begin());
+        shadowWorker->rootMoves.back().score = VALUE_ZERO;
+        shadowWorker->pvIdx                  = 0;
+    }
+
     // Executes a shadow search using ResearchTTOverlay without mutating live state.
     //
     // Node-budget semantics: with nodeBudget > 0 the shadow search is limited to
@@ -814,6 +833,7 @@ class IsolatedWorker {
                       ResearchTTOverlay& overlay,
                       u64                nodeBudget = 0) {
         ScopedShadowProbe guard;
+        ensure_root_moves(pos);
         const u64 startNodes = shadowWorker->get_nodes();
         gProbeStartNodes     = startNodes;  // decision-capture epoch
         shadowWorker->limits.nodes = (nodeBudget > 0) ? (startNodes + nodeBudget) : 0;

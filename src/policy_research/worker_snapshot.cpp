@@ -104,7 +104,7 @@ IsolatedWorker::IsolatedWorker(const Search::Worker& liveWorker) {
 
     shadowWorker = make_unique_large_page<Search::Worker>(
       *privateSharedState,
-      std::make_unique<Search::NullSearchManager>(),
+      nullptr,  // non-main worker: upstream gives non-main threads no SearchManager
       1,  // threadId = 1 (non-mainthread: suppresses time checks and UCI PV outputs)
       0,  // numaThreadId
       1,  // numaTotalThreads
