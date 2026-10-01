@@ -12,18 +12,43 @@ tools/policy_research/
   decode_research_log.py        binary log decoder / validator / compare / JSONL
   p3_dataset.py                 Phase 3 dataset collector + baseline reporter
   p4_force_first.py             Phase 4 force-first root-order pilot driver
+  p4_causal_decomp.py           Phase 4 causal decomposition runner
+  p4_depth_ladder.py            Phase 4 multi-depth ladder stability runner
   collect_internal_corpus.py    parallel frozen-root schema-/3 collector
   build_game_corpus.py          seeded paired mid/end-game corpus builder
+  p5b_analysis.py               Phase 6 readiness analysis over icf/3 evidence
+  p6_explanatory.py             Phase 6.2 explanatory policy study
   p6_learnability.py            transformed grouped linear policy evaluation
   p6_interaction.py             schema-/5 scheduled-prefix analyzer
   p7_direct_ranking.py          nested grouped ridge/MLP direct-regret probe
-  export_linear_qe.py           frozen JSON/constexpr live-QE model exporter
   p7_live_benchmark.py          paired live fixed-depth affordability runner
+  export_linear_qe.py           frozen JSON/constexpr live-QE model exporter
+  stats.py                      shared statistical primitives
+  verify.sh                     landing gate: both builds, both suites, bench parity
   corpora/corpus-v1.json        versioned root corpus (schema corpus/v1)
-  tests/test_run_corpus.py      unit tests (stdlib unittest)
-  tests/test_p3_dataset.py      unit tests (stdlib unittest)
+  tests/                        unit tests (stdlib unittest)
   runs/                         per-run artifacts (git-ignored, never committed)
 ```
+
+## Module map
+
+The analyses share one floor, and the import edges do not show up in the
+filenames:
+
+```text
+p6_explanatory      load(), row_costs(), ORACLES          <- the floor
+|- p6_learnability  row_examples(), feature_matrix(), transform_feature_dicts(),
+|                   NUM_FEATURES, LAMBDA_RIDGE
+|  |- export_linear_qe    frozen JSON/constexpr live-QE exporter
+|  \- p7_direct_ranking   nested grouped ridge/MLP probe
+\- p7_direct_ranking  row_costs()
+```
+
+`p6_explanatory` imports nothing from its neighbours and everything imports
+from it, so it is the floor. Two helpers are copied rather than shared:
+`load()` appears in `p5b_analysis`, `p6_explanatory` and `p6_interaction`, and
+`discover()` in `p6_interaction` and `p7_direct_ranking`. Collapsing the run-row
+access path behind one module (tracker issue #9) covers those loaders.
 
 ## Requirements
 
@@ -227,6 +252,25 @@ Artifacts from a run must be regenerated whenever the executable is rebuilt
 (determinism is per executable).
 
 ## Unit tests
+
+The landing gate is the entry point. It runs these tests, builds both
+configurations, runs both C++ suites, and requires the two benches to agree:
+
+```bash
+tools/policy_research/verify.sh          # --with-upstream also compares the
+                                         # plain bench against the base branch
+```
+
+`verify.sh` needs an interpreter with `numpy` and `pandas`; point `PYTHON` at
+one, once:
+
+```bash
+python3 -m venv ~/.cache/policy-research-venv
+~/.cache/policy-research-venv/bin/pip install numpy pandas
+PYTHON=~/.cache/policy-research-venv/bin/python tools/policy_research/verify.sh
+```
+
+The suite on its own, without the build and bench checks:
 
 ```bash
 python3 -m unittest discover -s tools/policy_research/tests -v

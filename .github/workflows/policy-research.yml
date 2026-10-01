@@ -1,0 +1,32 @@
+name: Policy research
+
+# The branch's own gate. Upstream's workflows (tests.yml and the rest) are
+# called from stockfish.yml on master and build neither the research
+# configuration nor tools/policy_research/tests, so without this file nothing
+# checks the branch.
+on:
+  push:
+    branches: [policy-research]
+  pull_request:
+    branches: [policy-research]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  Verify:
+    name: Both builds, both suites, bench parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3-numpy python3-pandas
+
+      - name: Verify
+        run: tools/policy_research/verify.sh --with-upstream
