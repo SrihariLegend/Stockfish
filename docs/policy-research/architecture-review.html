@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — policy-research</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 5 4; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .label { font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; color: #64748b; font-weight: 600; }
+      .box { border: 1px solid #cbd5e1; border-radius: .375rem; }
+      .tls { background: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 6px, #fef2f2 6px, #fef2f2 12px); border-color: #fca5a5; }
+      .hatch { background: repeating-linear-gradient(45deg, #e2e8f0, #e2e8f0 6px, #f8fafc 6px, #f8fafc 12px); }
+      pre.mermaid { display: flex; justify-content: center; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+      <header class="space-y-4">
+        <h1 class="text-3xl font-serif font-semibold tracking-tight">Architecture review — <span class="font-mono text-2xl">policy-research</span></h1>
+        <p class="text-slate-600">Stockfish research branch · <span class="font-mono text-sm">7547ea7a</span> · 66 commits ahead of <span class="font-mono text-sm">origin/master</span> · reviewed 2026-10-01</p>
+        <p class="text-slate-600 text-sm max-w-3xl">Scope: the branch's own work — the C++ instrumentation seam under <span class="font-mono">src/policy_research/</span> (5,646 lines) and the Python research tooling under <span class="font-mono">tools/policy_research/</span> (9,570 lines). Upstream engine files were read only to see how the seam attaches.</p>
+        <div class="flex flex-wrap gap-4 text-xs items-center border-t border-b border-slate-200 py-3">
+          <span class="flex items-center gap-2"><span class="box inline-block w-5 h-3"></span> module</span>
+          <span class="flex items-center gap-2"><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="#475569" stroke-width="1.5" class="seam"/></svg> seam</span>
+          <span class="flex items-center gap-2"><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="#dc2626" stroke-width="1.5"/></svg> leakage</span>
+          <span class="flex items-center gap-2"><span class="deep inline-block w-5 h-3 rounded-sm"></span> deep module</span>
+          <span class="flex items-center gap-2"><span class="tls inline-block w-5 h-3 box"></span> thread-local state</span>
+        </div>
+        <p class="text-xs text-slate-500">11 candidates, each with the deletion test applied. Candidate 10 was taken into the grilling loop and implemented. <a class="underline decoration-dotted" href="#top">Top recommendation ↓</a></p>
+        <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">This file was first written to the OS temp directory and destroyed when the machine rebooted (<span class="font-mono">/tmp</span> is a 2 GB tmpfs here). It has been regenerated to durable storage.</p>
+      </header>
+
+      <section id="candidates" class="space-y-12">
+
+        <!-- 1 -->
+        <article id="c1" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">Lift the test suites out of the production translation units</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">
+            src/policy_research/worker_snapshot.cpp · src/policy_research/tt_overlay.cpp · src/uci.cpp · tools/policy_research/tests/test_sandbox.py · tools/policy_research/tests/test_tt_overlay.py
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box overflow-hidden" style="height:300px">
+                <div class="hatch border-b border-slate-300 h-[155px] flex items-center justify-center text-center px-3">
+                  <span class="text-xs uppercase tracking-wider text-slate-600">run_sandbox_unit_tests()<br/><span class="text-[11px] normal-case tracking-normal">1,505 lines · worker_snapshot.cpp:284–1788</span></span>
+                </div>
+                <div class="h-[145px] flex items-center justify-center text-center px-3 bg-white">
+                  <span class="text-xs uppercase tracking-wider text-slate-700">module implementation<br/><span class="text-[11px] normal-case tracking-normal font-mono">1,377 lines</span></span>
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-500 text-center">one <span class="font-mono">.cpp</span>, 2,882 lines — half of it is the test suite</p>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box overflow-hidden bg-white" style="height:300px">
+                <div class="h-[145px] flex items-center justify-center text-center px-3 border-b border-dashed border-slate-400">
+                  <span class="text-xs uppercase tracking-wider text-slate-700">module implementation<br/><span class="text-[11px] normal-case tracking-normal font-mono">1,377 lines</span></span>
+                </div>
+                <div class="h-[155px] deep flex items-center justify-center text-center px-3">
+                  <span class="text-xs uppercase tracking-wider text-white">test seam<br/><span class="text-[11px] normal-case tracking-normal text-slate-300">outside the engine binary · per-case</span></span>
+                </div>
+              </div>
+              <p class="text-[11px] text-slate-500 text-center">implementation shrinks; the test seam becomes drivable</p>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — The module's interface to its own tests is the whole <span class="font-mono">Engine</span> object plus one <span class="font-mono">bool</span>: the suite is reachable only through the UCI tokens <span class="font-mono">policy_research_test_sandbox</span> / <span class="font-mono">policy_research_test_overlay</span>, aborts on the first failed check, and reports no failing invariant.</p>
+            <p><span class="label">Solution</span> — Move the isolation and overlay assertions behind a small test-facing surface an external runner drives directly, so isolation, copy-on-first-access and budget censoring are exercisable per case instead of as one all-or-nothing engine mode.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">Per-case observability, not one bool</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Production translation unit halves</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Deep behaviour directly drivable</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>worker_snapshot.cpp:284 — <span class="text-slate-700">bool run_sandbox_unit_tests(Engine&amp;)</span>, closes at :1788 (verified)</li>
+            <li>tt_overlay.cpp:68–146 — <span class="text-slate-700">run_overlay_unit_tests()</span>, 5 copy-on-write properties asserted inline</li>
+            <li>uci.cpp:172–181 — the only dispatch into either suite</li>
+            <li>tests/test_sandbox.py:39 — asserts on the magic string <span class="text-slate-700">SANDBOX_TEST_OK</span></li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete the embedded suite and the ~1,500 lines of scaffolding disappear from the production module while the invariants become independently runnable. Complexity concentrates into a proper test seam: deep.</p>
+        </article>
+
+        <!-- 2 -->
+        <article id="c2" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">Give the decision node an object, not a protocol of globals</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">
+            src/policy_research/worker_snapshot.h · src/search.cpp
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box bg-white p-3" style="height:300px">
+                <pre class="mermaid">
+flowchart TD
+  S["search.cpp move loop"] --> F["12 free functions"]
+  F --> G["16 thread_local globals"]
+  F --> F1["force_next_step"]
+  F --> F2["perm_serve_next"]
+  F --> F3["probe_attribution_emission"]
+  F --> F4["decision_capture_step"]
+  classDef tls fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px;
+  classDef fn fill:#fff,stroke:#94a3b8;
+  class G tls
+  class F1,F2,F3,F4 fn
+                </pre>
+              </div>
+              <p class="text-[11px] text-slate-500 text-center">ordering lives in the caller; 4 interleaved TLS channels</p>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box bg-white p-3 flex flex-col items-center justify-center gap-3" style="height:300px">
+                <div class="text-xs uppercase tracking-wider text-slate-500">search.cpp move loop</div>
+                <svg width="20" height="28"><line x1="10" y1="0" x2="10" y2="28" stroke="#0f172a" stroke-width="2"/></svg>
+                <div class="deep rounded-md px-5 py-4 text-center w-full max-w-[220px]">
+                  <div class="text-xs uppercase tracking-wider text-white">node object</div>
+                  <div class="text-[11px] text-slate-300 mt-1">owns arm · attribution · capture</div>
+                </div>
+                <svg width="20" height="28"><line x1="10" y1="0" x2="10" y2="28" stroke="#0f172a" stroke-width="2"/></svg>
+                <div class="text-xs text-slate-600">two questions: <span class="font-mono">armed?</span> / <span class="font-mono">next move?</span></div>
+              </div>
+              <p class="text-[11px] text-slate-500 text-center">ordering constraints enforced behind the interface</p>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — <span class="font-mono">worker_snapshot.h</span> (952 lines) is a wide interface of 25 free functions, 16 exposed <span class="font-mono">thread_local</span> globals and 6 RAII scope guards whose invariants live in prose comments. The move loop must call ~12 functions at ~12 points in a fixed order, and must know the lifecycle of four separate thread-local channels.</p>
+            <p><span class="label">Solution</span> — Give the decision node one object that owns arm, attribution and capture state, exposing only the decisions the loop actually needs, so the ordering constraints sit behind the interface rather than in the caller.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">Locality: invariants in one module</li>
+            <li class="bg-slate-50 rounded px-3 py-2">16 TLS globals leave the interface</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Move loop asks two questions</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>search.cpp:976–979 — frame scope + <span class="text-slate-700">research_frame_enter</span> at every search() entry</li>
+            <li>search.cpp:1495–1510, 1539–1573 — perm/force-next arm and emission protocol</li>
+            <li>search.cpp:1432, 1583, 1903, 2029 — decision capture and attribution calls</li>
+            <li>worker_snapshot.h — 16 thread_local globals; "Nested arming is a programming error" stated only in a comment</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete the free functions and the complexity reappears as ad-hoc bookkeeping spread across the move loop, so the module earns its keep. But the work sits at the wrong seam: it is polled global state rather than an owned object.</p>
+        </article>
+
+        <!-- 3 -->
+        <article id="c3" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">One run-lifecycle module behind two payload adapters</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">src/policy_research/research_log.h · src/policy_research/research_log.cpp</div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box bg-white p-4 flex flex-col justify-center gap-3" style="height:300px">
+                <div class="box hatch p-3 text-center text-xs uppercase tracking-wider">Recorder<span class="block normal-case tracking-normal font-mono text-[11px] mt-1">open_run · finish_run · arm_run · on_go · on_root_search_start · on_root_search_end</span></div>
+                <div class="text-center text-[11px] text-red-600">duplicated lifecycle + duplicated encoders</div>
+                <div class="box hatch p-3 text-center text-xs uppercase tracking-wider">InternalDatasetLog<span class="block normal-case tracking-normal font-mono text-[11px] mt-1">open_run · finish_run · arm_run · on_go · on_root_search_start · on_root_search_end</span></div>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box bg-white p-4 flex flex-col justify-center gap-4" style="height:300px">
+                <div class="deep rounded-md p-4 text-center">
+                  <div class="text-xs uppercase tracking-wider text-white">run lifecycle module</div>
+                  <div class="text-[11px] text-slate-300 mt-1">arm · defer · finalize · caps · locking</div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="box p-3 text-center text-[11px] uppercase tracking-wider">binary payload</div>
+                  <div class="box p-3 text-center text-[11px] uppercase tracking-wider">JSONL payload</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — The two log classes implement the same defer-on-<span class="font-mono">go</span> lifecycle twice: the same <span class="font-mono">open_run</span>/<span class="font-mono">finish_run</span>/<span class="font-mono">arm_run</span>/<span class="font-mono">on_root_search_start</span>/<span class="font-mono">on_root_search_end</span> sequence, the same recursive-mutex + atomic-active concurrency pattern, and two separate encoder helper sets.</p>
+            <p><span class="label">Solution</span> — Extract one per-root file-lifecycle module that both loggers adapt, leaving each to contribute only its payload encoding.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">One finalize state machine</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Concurrency contract stated once</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Each adapter owns only encoding</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>research_log.cpp:114, 173, 209, 239, 263, 284 — Recorder lifecycle (verified)</li>
+            <li>research_log.cpp:524, 535, 555, 585, 602, 645 — InternalDatasetLog lifecycle, same sequence</li>
+            <li>research_log.h:150–160 vs :345–395 — near-identical private state and counters</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete either class and the lifecycle complexity does not vanish; it is already duplicated in the sibling. That is the signature of a missing deep module.</p>
+        </article>
+
+        <!-- 4 -->
+        <article id="c4" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">Own probe suppression where logging is decided</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">src/policy_research/scoped_probe.h · src/policy_research/research_log.h · src/search.cpp</div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box bg-white p-3" style="height:300px">
+                <pre class="mermaid">
+flowchart LR
+  P["is_shadow_probe_active()"] --> L1["Recorder::active()"]
+  P --> L2["InternalDatasetLog::active()"]
+  P --> S1["search.cpp:1044 stop"]
+  P --> S2["search.cpp:1083 arm"]
+  P --> S3["search.cpp:1449 liveQE"]
+  P --> S4["search.cpp:2195 qsearch"]
+  classDef poll fill:#fff,stroke:#94a3b8;
+  classDef flag fill:#fee2e2,stroke:#dc2626,stroke-width:1.5px;
+  class P flag
+  class L1,L2,S1,S2,S3,S4 poll
+                </pre>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box bg-white p-4 flex flex-col items-center justify-center gap-4" style="height:300px">
+                <div class="deep rounded-md p-4 text-center w-full max-w-[240px]">
+                  <div class="text-xs uppercase tracking-wider text-white">logging interface</div>
+                  <div class="text-[11px] text-slate-300 mt-1">decides suppression once</div>
+                </div>
+                <svg width="20" height="26"><line x1="10" y1="0" x2="10" y2="26" stroke="#0f172a" stroke-width="2"/></svg>
+                <div class="box p-3 text-center text-[11px] uppercase tracking-wider w-full max-w-[240px]">callers: log or don't</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — A 52-line thread-local counter carries a load-bearing correctness rule — shadow probes must never contaminate live datasets — but nothing that owns the probe owns the consequence. Six call sites must independently remember to poll the global predicate.</p>
+            <p><span class="label">Solution</span> — Make suppression part of the logging interface, so the decision is made once where logging is decided rather than re-derived by each caller.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">Rule stated once, not six times</li>
+            <li class="bg-slate-50 rounded px-3 py-2">New hooks cannot silently corrupt</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Global predicate leaves call sites</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>scoped_probe.h:44 — <span class="text-slate-700">is_shadow_probe_active()</span> is a one-line alias (verified)</li>
+            <li>research_log.h:93, :243 — the poll inside both <span class="text-slate-700">active()</span> predicates (verified)</li>
+            <li>search.cpp:1044, 1083, 1449, 2195 — the four engine-side polls (verified)</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete it and the guard must be re-created in both loggers plus the shadow node-budget checks, so it earns its keep; the leverage is the problem — for a correctness rule, "a flag others must poll" is a shallow seam.</p>
+        </article>
+
+        <!-- 5 -->
+        <article id="c5" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">One accessor adapter instead of macro-conditional headers</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">ports &amp; adapters</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">
+            src/tt.h · src/search.h · src/position.h · src/movepick.h · src/engine.h · src/Makefile
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box bg-white overflow-hidden" style="height:300px">
+                <div class="p-3 text-center text-[11px] uppercase tracking-wider border-b border-slate-200">core header</div>
+                <div class="grid grid-cols-2 h-[240px]">
+                  <div class="p-3 border-r border-dashed border-slate-400 flex flex-col justify-center gap-2">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-500 text-center">normal build</div>
+                    <div class="box p-2 text-[11px] text-center">public interface</div>
+                  </div>
+                  <div class="p-3 flex flex-col justify-center gap-2">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-500 text-center">POLICY_RESEARCH</div>
+                    <div class="box tls p-2 text-[11px] text-center">+ accessors</div>
+                    <div class="box tls p-2 text-[11px] text-center">+ friend grants</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box bg-white p-4 flex flex-col justify-center gap-3" style="height:300px">
+                <div class="box p-3 text-center text-[11px] uppercase tracking-wider">core header — one shape</div>
+                <div class="flex justify-center"><svg width="20" height="26"><line x1="10" y1="0" x2="10" y2="26" stroke="#475569" stroke-width="1.5" class="seam"/></svg></div>
+                <div class="deep rounded-md p-4 text-center">
+                  <div class="text-xs uppercase tracking-wider text-white">accessor adapter</div>
+                  <div class="text-[11px] text-slate-300 mt-1">the single privileged reach</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — The compile-time gate is not a clean seam: it edits core module interfaces in place. Core headers carry two shapes depending on a build macro, and the research module reaches engine private state through friend grants scattered across five class definitions.</p>
+            <p><span class="label">Solution</span> — Confine research reach behind a dedicated accessor adapter, so core headers expose one interface regardless of build and privileged access has a single home.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">One header shape, always</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Five friend grants become one</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Tooling sees one interface</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>tt.h:93, :143 — <span class="text-slate-700">friend class ResearchTTOverlay</span> inside Cluster and TTEntry (verified)</li>
+            <li>tt.h:170–176 — public cluster accessors under the macro (verified)</li>
+            <li>search.h:354–359 — <span class="text-slate-700">get_nodes/get_tt/get_threads/research_limits</span>; :454–456 — friends (verified)</li>
+            <li>position.h:188–191 <span class="text-slate-700">clone_to</span> · movepick.h:63 <span class="text-slate-700">research_emitted_score</span> · engine.h:120–123 (verified)</li>
+            <li>Makefile:513 <span class="text-slate-700">-DPOLICY_RESEARCH</span>; :1144–1150 research-build targets</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete the research build and every accessor vanishes at zero runtime cost, so the gate itself is cheap. The cost is maintainability and AI-navigability: the engine's visible interface is macro-dependent.</p>
+        </article>
+
+        <!-- 6 -->
+        <article id="c6" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">Split <span class="font-mono text-lg">p3_dataset.py</span> into a collector and a calibration reporter</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">tools/policy_research/p3_dataset.py — 2,073 lines</div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before — one file, two programs</div>
+              <div class="box overflow-hidden bg-white" style="height:300px">
+                <div class="hatch h-[120px] flex items-center px-4 border-b border-slate-300"><span class="text-xs uppercase tracking-wider">collect() — subprocess loop, log decode, rows layout</span></div>
+                <div class="hatch h-[120px] flex items-center px-4 border-b border-slate-300"><span class="text-xs uppercase tracking-wider">report() — ~700 lines in one function</span></div>
+                <div class="h-[60px] flex items-center px-4 text-[11px] text-slate-600 bg-slate-50">FEN lookup · markdown tables · IRLS/PAV/AUC · git provenance</div>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After — two modules, one seam</div>
+              <div class="box bg-white p-4 flex flex-col justify-center gap-3" style="height:300px">
+                <div class="box p-3 text-center text-[11px] uppercase tracking-wider">collector<span class="block normal-case tracking-normal font-mono text-[11px] mt-1">engine + corpus → dataset dir</span></div>
+                <div class="flex items-center gap-3">
+                  <svg width="100%" height="26" class="flex-1"><line x1="0" y1="13" x2="100%" y2="13" stroke="#475569" stroke-width="1.5" class="seam"/></svg>
+                  <span class="text-[10px] uppercase tracking-wider text-slate-500 whitespace-nowrap">rows/ layout</span>
+                </div>
+                <div class="box p-3 text-center text-[11px] uppercase tracking-wider">reporter<span class="block normal-case tracking-normal font-mono text-[11px] mt-1">dataset dir → report.json / .md</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — The file is a namespace, not a module: <span class="font-mono">collect</span> never touches pandas and <span class="font-mono">report</span> never touches subprocess, yet importing either drags in both, plus a FEN helper, a markdown renderer, a hand-rolled calibration library and git plumbing.</p>
+            <p><span class="label">Solution</span> — Make the dataset directory layout an explicit small interface both sides speak, and let each side become a module whose interface is its own CLI and output artifact.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">Calibration read without subprocess</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Collector tested without pandas</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Rows layout becomes a named seam</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>p3_dataset.py:227 <span class="text-slate-700">collect()</span> · :1326 <span class="text-slate-700">report()</span> · :2036 the two-command dispatch</li>
+            <li>p3_dataset.py:643, :717, :812 — IRLS logistic, PAV isotonic, AUC (verified)</li>
+            <li>p3_dataset.py:69, :462, :1293 — FEN lookup, markdown table, git provenance</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — the file earns its keep against external callers, but the delete test splits internally: removing either half leaves the other fully functional and untouched. That asymmetry is the signal.</p>
+        </article>
+
+        <!-- 7 -->
+        <article id="c7" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">House "a run's rows" in one module</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">
+            p6_explanatory.py · p6_interaction.py · p6_learnability.py · p5b_analysis.py · p7_direct_ranking.py · export_linear_qe.py
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box bg-white p-3" style="height:300px">
+                <pre class="mermaid">
+flowchart TD
+  A["p5b_analysis<br/>per_row"] --> R["row shape<br/>(data-schema.md)"]
+  B["p6_explanatory<br/>row_costs"] --> R
+  C["p6_interaction<br/>measured_top4"] --> R
+  D["p6_learnability<br/>row_examples"] --> R
+  E["p7_direct_ranking<br/>imports row_costs"] --> R
+  F["export_linear_qe<br/>imports p6_learnability"] --> R
+  classDef dup fill:#fee2e2,stroke:#dc2626,stroke-width:1px;
+  class A,B,C,D dup
+                </pre>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box bg-white p-3" style="height:300px">
+                <pre class="mermaid">
+flowchart TD
+  M["rows module<br/>paths → rows"] 
+  A2["p5b_analysis"] --> M
+  B2["p6_explanatory"] --> M
+  C2["p6_interaction"] --> M
+  D2["p6_learnability"] --> M
+  E2["p7_direct_ranking"] --> M
+  F2["export_linear_qe"] --> M
+  classDef deep fill:#0f172a,stroke:#0f172a,color:#fff;
+  class M deep
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — The decision row has no owning module, so at least five modules independently derive "baseline + probes → per-ordinal cost / fail-high / value". File loading is likewise re-implemented: three copies of <span class="font-mono">load()</span> that differ only in local variable names, plus duplicated <span class="font-mono">discover()</span>, and two report scripts import a peer report script to borrow a parser.</p>
+            <p><span class="label">Solution</span> — One module whose interface is exactly "paths → rows", with the report scripts as consumers rather than co-owners.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">Row-shape change: one edit site</li>
+            <li class="bg-slate-50 rounded px-3 py-2">No report imports a peer report</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Leverage: one seam, six consumers</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>p6_explanatory.py:71 <span class="text-slate-700">row_costs</span> · p6_interaction.py:40 <span class="text-slate-700">measured_top4</span> · p6_learnability.py:68 <span class="text-slate-700">row_examples</span> · p5b_analysis.py:46 <span class="text-slate-700">per_row</span> (all verified)</li>
+            <li>load() copies: p5b_analysis.py:36 · p6_explanatory.py:65 · p6_interaction.py:26 — identical bar local names (verified)</li>
+            <li>discover(): p6_interaction.py:32 · p7_direct_ranking.py:36 (verified)</li>
+            <li>p7_direct_ranking.py:25 imports <span class="text-slate-700">row_costs</span>; export_linear_qe.py:11 imports from p6_learnability (verified)</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete <span class="font-mono">row_costs</span> and complexity reappears in three callers. The join earns its keep; it is simply housed inside a report script that other reports happen to import.</p>
+        </article>
+
+        <!-- 8 -->
+        <article id="c8" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">One engine-session module for all the UCI drivers</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">local-substitutable</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">
+            run_corpus.py · p4_force_first.py · p7_live_benchmark.py · collect_internal_corpus.py · tests/test_run_corpus.py
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box bg-white p-3" style="height:300px">
+                <pre class="mermaid">
+flowchart LR
+  E1["run_corpus<br/>EngineSession"] --> S["subprocess<br/>stdin / stdout"]
+  E2["p4_force_first<br/>Popen ×3"] --> S
+  E3["p7_live_benchmark<br/>one_run"] --> S
+  E4["collect_internal_corpus<br/>collect_one"] --> S
+  E5["test_run_corpus<br/>_Engine (fake)"] --> S
+  classDef dup fill:#fee2e2,stroke:#dc2626,stroke-width:1px;
+  class E1,E2,E3,E4,E5 dup
+                </pre>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box bg-white p-4 flex flex-col justify-center gap-3" style="height:300px">
+                <div class="deep rounded-md p-4 text-center">
+                  <div class="text-xs uppercase tracking-wider text-white">engine session</div>
+                  <div class="text-[11px] text-slate-300 mt-1">lifetime · options · read-until</div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-[11px] uppercase tracking-wider text-center">
+                  <div class="box p-2">runner commands</div>
+                  <div class="box p-2">fake engine</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — "Start a UCI engine, set options, search, read to bestmove, always clean up" is one interface with one hard-won invariant — never send <span class="font-mono">quit</span> before the terminal <span class="font-mono">bestmove</span> — yet it is re-implemented four times in production and a fifth time in the test suite, each caller re-guessing the buffering and cleanup contract.</p>
+            <p><span class="label">Solution</span> — One engine-session module owning process lifetime, option setting and read-until semantics; each runner describes only its own command sequence.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">Quit-hazard fixed once</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Three Popen sites collapse</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Test drives the real seam</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>run_corpus.py:183 <span class="text-slate-700">EngineSession</span> · :221 <span class="text-slate-700">read_until</span> (verified)</li>
+            <li>p4_force_first.py:182, :229, :324 — three separate <span class="text-slate-700">Popen</span> sites (verified)</li>
+            <li>p7_live_benchmark.py:31 <span class="text-slate-700">one_run</span> (Popen at :32) · collect_internal_corpus.py:17 <span class="text-slate-700">collect_one</span> (verified)</li>
+            <li>tests/test_run_corpus.py:301 <span class="text-slate-700">class _Engine</span> — a fifth driver (verified)</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete <span class="font-mono">EngineSession</span> and four sibling copies remain, so the concept is currently paid for four-plus times. The concept earns its keep; the duplication is the defect.</p>
+        </article>
+
+        <!-- 9 -->
+        <article id="c9" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">One provenance module, not three literals</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">
+            p4_force_first.py · p4_causal_decomp.py · p4_depth_ladder.py · p3_dataset.py
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box bg-white p-3 flex flex-col justify-center gap-2" style="height:300px">
+                <div class="box tls p-2 font-mono text-[11px] text-center">p4_force_first.py:1099</div>
+                <div class="box tls p-2 font-mono text-[11px] text-center">p4_causal_decomp.py:221</div>
+                <div class="box tls p-2 font-mono text-[11px] text-center">p4_depth_ladder.py:131</div>
+                <div class="text-center text-[11px] text-red-600">same keys, written out three times</div>
+                <div class="box p-2 font-mono text-[11px] text-center">p3_dataset.py:1459 — divergent key names</div>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box bg-white p-4 flex flex-col justify-center gap-3" style="height:300px">
+                <div class="deep rounded-md p-4 text-center">
+                  <div class="text-xs uppercase tracking-wider text-white">provenance module</div>
+                  <div class="text-[11px] text-slate-300 mt-1 font-mono">engine, corpus, cwd → record</div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-[10px] uppercase tracking-wider text-center">
+                  <div class="box p-2">runner A</div>
+                  <div class="box p-2">runner B</div>
+                  <div class="box p-2">runner C</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — Every runner must emit the same durable provenance record — engine path, banner, embedded commit, tool commit, dirty flag, corpus hash, timestamp, platform — and that record is spelled out as a literal in three files, with a fourth divergent construction using different key names.</p>
+            <p><span class="label">Solution</span> — One provenance module returning the record from engine, corpus and cwd; each runner adds only its own script name and arguments.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">Schema change: one edit site</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Divergent keys impossible</li>
+            <li class="bg-slate-50 rounded px-3 py-2">New runners correct by default</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>p4_force_first.py:1099, :1102 · p4_causal_decomp.py:221, :224 · p4_depth_ladder.py:131, :134 — same keys (verified)</li>
+            <li>p3_dataset.py:1459–1462 — divergent naming (<span class="text-slate-700">report_tool_commit</span>)</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete one literal and nothing disappears: the identical structure still sits in the other two files. No function vanishes, because there is no function. That is copied behaviour, not a module.</p>
+        </article>
+
+        <!-- 10 -->
+        <article id="c10" class="rounded-xl border-2 border-emerald-500 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">One numeric module for ridge, IRLS logistic, PAV and AUC</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-emerald-100 text-emerald-800">Strong</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">in-process</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">
+            p3_dataset.py · p6_learnability.py · p7_direct_ranking.py
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box bg-white p-3 space-y-2" style="height:300px">
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="box tls p-3 text-center"><div class="text-[10px] uppercase tracking-wider">p3_dataset</div><div class="font-mono text-[11px] mt-1">_logistic_irls_std</div></div>
+                  <div class="box tls p-3 text-center"><div class="text-[10px] uppercase tracking-wider">p6_learnability</div><div class="font-mono text-[11px] mt-1">ridge_logistic</div></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="box tls p-3 text-center"><div class="text-[10px] uppercase tracking-wider">p3_dataset</div><div class="font-mono text-[11px] mt-1">_auc</div></div>
+                  <div class="box tls p-3 text-center"><div class="text-[10px] uppercase tracking-wider">p6_learnability</div><div class="font-mono text-[11px] mt-1">binary_auc</div></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="box tls p-3 text-center"><div class="text-[10px] uppercase tracking-wider">p6_learnability</div><div class="font-mono text-[11px] mt-1">ridge_fit</div></div>
+                  <div class="box tls p-3 text-center"><div class="text-[10px] uppercase tracking-wider">p7_direct_ranking</div><div class="font-mono text-[11px] mt-1">WeightedRidge</div></div>
+                </div>
+                <div class="text-center text-[11px] text-red-600">three pairs, no shared definition</div>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box bg-white p-4 flex flex-col justify-center gap-4" style="height:300px">
+                <div class="deep rounded-md p-4 text-center">
+                  <div class="text-xs uppercase tracking-wider text-white">stats.py</div>
+                  <div class="text-[11px] text-slate-300 mt-1">one definition each</div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-[11px] text-center">
+                  <div class="box p-2">ridge</div>
+                  <div class="box p-2">IRLS</div>
+                  <div class="box p-2">AUC</div>
+                </div>
+                <div class="text-center text-[11px] text-slate-600">report and probes cannot disagree silently</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — The same statistical primitives are implemented at least twice each in modules that cannot see one another: two IRLS logistic routines with different convergence rules, two ridge solvers with different intercept regularisation, and two tie-handling AUC routines. These are load-bearing for the report's numeric claims, so a silent disagreement between report and probe is a correctness hazard on a branch whose entire purpose is comparing runs.</p>
+            <p><span class="label">Solution</span> — One numeric module that both the report and the phase-6/7 probes call, so "is the tie handling the same in both?" stops requiring a two-file diff.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">One tie-aware AUC definition</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Convergence contract stated once</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Divergence becomes one bug</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>p3_dataset.py:643 <span class="text-slate-700">_logistic_irls_std</span> · :717 <span class="text-slate-700">_pav_monotone</span> · :812 <span class="text-slate-700">_auc</span> (verified)</li>
+            <li>p6_learnability.py:141 <span class="text-slate-700">ridge_fit</span> · :150 <span class="text-slate-700">ridge_logistic</span> · :190 <span class="text-slate-700">binary_auc</span> (verified)</li>
+            <li>p7_direct_ranking.py:112 <span class="text-slate-700">class WeightedRidge</span> (verified)</li>
+            <li>export_linear_qe.py:11–12 consumes p6_learnability's versions — so the split is p3 vs p6, not three-way</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete <span class="font-mono">p6_learnability.binary_auc</span> and <span class="font-mono">p3_dataset.py:812</span> keeps computing AUC, unverified against it. The concept earns its keep; the copies do not.</p>
+          <div class="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm space-y-2">
+            <div class="label">Outcome — implemented</div>
+            <p>The finding was narrower than stated: the two AUCs are <em>algebraically identical</em> for 0/1 labels (the ±1 rank-base cancels exactly), so the real divergence was the intercept convention. Grilling settled: whole numeric family into <span class="font-mono">stats.py</span>; explicit <span class="font-mono">penalize_intercept</span> preserving both formulations; no defaults; strict 0/1 labels; uniform return tuples. Landed as commits <span class="font-mono">ef69b645</span> and <span class="font-mono">45495481</span>, with the phase-3 report proven byte-identical on real rows and <span class="font-mono">qe_model.h</span> regeneration proven byte-identical.</p>
+          </div>
+        </article>
+
+        <!-- 11 -->
+        <article id="c11" class="rounded-xl border border-slate-200 bg-white p-6 space-y-5">
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-xl font-serif font-semibold">Drive the risky orchestration with a fake engine</h2>
+            <div class="flex gap-2 shrink-0">
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-amber-100 text-amber-800">Worth exploring</span>
+              <span class="text-xs font-semibold px-2 py-1 rounded bg-slate-100 text-slate-700">local-substitutable</span>
+            </div>
+          </div>
+          <div class="font-mono text-xs text-slate-600 leading-relaxed">
+            tests/test_run_corpus.py · tests/test_p3_dataset.py · p3_dataset.py · run_corpus.py
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <div class="label">Before</div>
+              <div class="box bg-white overflow-hidden" style="height:300px">
+                <div class="h-[150px] p-4 border-b border-dashed border-slate-400">
+                  <div class="text-[10px] uppercase tracking-wider text-slate-500">tested</div>
+                  <div class="font-mono text-[11px] mt-1 text-slate-700">load_corpus · normalize_info_row · compare_results · _pav_monotone · _piece_at</div>
+                </div>
+                <div class="h-[150px] p-4">
+                  <div class="text-[10px] uppercase tracking-wider text-slate-500">reachable only with a real binary</div>
+                  <div class="font-mono text-[11px] mt-1 text-red-700">EngineSession · run_root · execute_run · collect() · report()</div>
+                  <div class="text-[11px] text-slate-500 mt-2">gated behind <span class="font-mono">STOCKFISH_ENGINE</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="space-y-2">
+              <div class="label">After</div>
+              <div class="box bg-white overflow-hidden" style="height:300px">
+                <div class="h-[110px] p-4 border-b border-dashed border-slate-400">
+                  <div class="text-[10px] uppercase tracking-wider text-slate-500">tested</div>
+                  <div class="font-mono text-[11px] mt-1 text-slate-700">pure helpers</div>
+                </div>
+                <div class="h-[190px] p-4 flex flex-col justify-center gap-3">
+                  <div class="text-[10px] uppercase tracking-wider text-slate-500">also tested</div>
+                  <div class="deep rounded-md p-3 text-center text-[11px] text-white">orchestration over a fake engine</div>
+                  <div class="text-[11px] text-slate-600">timeout · cap overflow · decode mismatch · row-count mismatch</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p><span class="label">Problem</span> — The suite covers what is cheap to call. The extracted pure helpers are tested; the parts that spawn processes and touch the filesystem — where a timeout or a decode mismatch actually loses data — are reachable only through an env-gated integration class. The test file then defines its own engine driver rather than using the module's, a signal the module's interface is not usable from a test.</p>
+            <p><span class="label">Solution</span> — Put the engine session and collector loop behind an injectable seam so the failure modes are exercised with a fake engine in every run.</p>
+          </div>
+          <ul class="grid sm:grid-cols-3 gap-2 text-sm">
+            <li class="bg-slate-50 rounded px-3 py-2">Data-loss paths covered</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Test stops owning a driver</li>
+            <li class="bg-slate-50 rounded px-3 py-2">Interface is the test surface</li>
+          </ul>
+          <ul class="font-mono text-[11px] text-slate-500 space-y-1">
+            <li>tests/test_run_corpus.py:246–249 — integration class gated on <span class="text-slate-700">STOCKFISH_ENGINE</span></li>
+            <li>tests/test_run_corpus.py:301 — the suite's own <span class="text-slate-700">_Engine</span> (verified)</li>
+            <li>p3_dataset.py:227 <span class="text-slate-700">collect()</span> / :1326 <span class="text-slate-700">report()</span> — untested end to end; :401 row-count cross-check is the data-loss path</li>
+          </ul>
+          <p class="text-xs text-slate-500"><span class="label">Deletion test</span> — delete the tests and the risky logic is exposed: nothing else exercises the timeout path, partial-failure accumulation, or the row-count cross-check. The tests defend helpers, not the module.</p>
+        </article>
+
+      </section>
+
+      <section id="also-noted" class="rounded-xl border border-slate-200 bg-slate-50 p-6 space-y-4">
+        <h2 class="text-lg font-serif font-semibold">Also noted — verified, but not deepening candidates</h2>
+        <ul class="space-y-3 text-sm">
+          <li>
+            <span class="font-semibold">Three modes are parseable but unreachable.</span>
+            <span class="font-mono text-xs">SharedPermutation</span>, <span class="font-mono text-xs">JacobianDump</span> and <span class="font-mono text-xs">ReductionShadow</span> each have exactly one reference — the parser at <span class="font-mono text-xs">research_options.h:130/132/134</span>. Nothing acts on them, yet <span class="font-mono text-xs">enabled()</span> is <span class="font-mono text-xs">switchOn &amp;&amp; mode != Off</span>, so it returns <em>true</em> for a mode no code implements. A user setting one gets research-predicates firing with no collector behind them.
+          </li>
+          <li>
+            <span class="font-semibold">Floating point in the live-QE ranking.</span>
+            <span class="font-mono text-xs">live_qe_prefix</span> scores candidates with <span class="font-mono text-xs">std::exp</span> / <span class="font-mono text-xs">std::log</span> (<span class="font-mono text-xs">worker_snapshot.cpp:2063–2064</span>), unlike the integer hash sampler. Cross-platform bit-identity of the intervention therefore depends on libm — worth a decision on a branch that treats determinism as load-bearing.
+          </li>
+          <li>
+            <span class="font-semibold">Test-only back doors in both loggers.</span>
+            <span class="font-mono text-xs">test_arm_for_unit_tests</span> / <span class="font-mono text-xs">test_disarm_for_unit_tests</span> sit in the public interface of both <span class="font-mono text-xs">Recorder</span> and <span class="font-mono text-xs">InternalDatasetLog</span>.
+          </li>
+          <li>
+            <span class="font-semibold">A doc/code mismatch in the inherited quantile.</span> <span class="font-mono text-xs">weighted_quantile</span>'s docstring claimed normalisation "by the total weight"; the code divides by the last midpoint. Behaviour preserved (correcting it would move the isotonic bin edges and change published numbers); the documentation was corrected in place.
+          </li>
+          <li>
+            <span class="font-semibold">One genuinely deep seam already exists.</span> The <span class="font-mono text-xs">TTAccess</span> template on <span class="font-mono text-xs">Worker::search</span> with <span class="font-mono text-xs">ResearchTTOverlay</span> as its adapter is the model to copy: a 92-line interface hiding copy-on-first-access clusters, with the search generic over it and zero research branches in the TT access path.
+          </li>
+        </ul>
+      </section>
+
+      <section id="top" class="rounded-xl border-2 border-slate-900 bg-white p-8 space-y-4">
+        <div class="label">Top recommendation</div>
+        <h2 class="text-2xl font-serif font-semibold"><a href="#c10" class="underline decoration-dotted">One numeric module for ridge, IRLS logistic, PAV and AUC</a></h2>
+        <p class="text-slate-700">Tackle this first. It is the only candidate that is a <em>correctness hazard</em> rather than a navigation cost: the report and the learnability/ranking probes compute AUC, ridge and IRLS logistic from independent implementations with different tie handling and convergence rules, and the branch's entire output is numeric claims. A silent disagreement between them invalidates evidence without failing anything. It is also the cheapest to fix and the easiest to verify — a shared module with the two call sites diffed against each other — and unlike the structural candidates it needs no change to the search path, so it cannot trip the unchanged-behaviour invariant.</p>
+        <p class="text-slate-700">For the larger structural payoffs, take <a href="#c7" class="underline decoration-dotted">the rows module</a> (it unlocks all six analysis scripts) and <a href="#c2" class="underline decoration-dotted">the decision-node object</a> (it is the biggest interface in the branch and the one the engine's hot loop has to reason about).</p>
+      </section>
+
+      <footer class="text-xs text-slate-500 border-t border-slate-200 pt-6">
+        Reviewed <span class="font-mono">policy-research</span> at <span class="font-mono">7547ea7a</span>. Every citation above was re-read against the source; where a scanned claim did not hold, the corrected line is the one shown. No file in the repository was modified by this review.
+      </footer>
+
+    </main>
+  </body>
+</html>
